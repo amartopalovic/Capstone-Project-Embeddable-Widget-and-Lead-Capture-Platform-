@@ -3,7 +3,7 @@
 The project is implemented in 16 bounded stages (blueprint §19). Exactly one stage is requested per
 implementation prompt, and work stops when that stage's exit gate is green.
 
-**Progress: 1 of 16 stages complete.**
+**Progress: 2 of 16 stages complete.**
 
 ## Stage execution rules (blueprint §19)
 
@@ -21,12 +21,15 @@ test results, remaining limitations, and confirmation of the exit gate.
     feature code.
   - **Exit gate:** A stranger can understand the problem, planned request paths, data ownership,
     run/test commands that will exist, and deliberate limitations.
-  - *Completed 2026-08-27. Documentation and repository scaffolding only; no application code.*
+  - _Completed 2026-08-27. Documentation and repository scaffolding only; no application code._
 
-- [ ] **Stage 1 — Workspace tooling, local infrastructure, and CI baseline**
+- [x] **Stage 1 — Workspace tooling, local infrastructure, and CI baseline**
   - **Goal:** Make the multi-workspace TypeScript project install, build, test, and run predictably.
   - **Exit gate:** One documented local command starts dependencies and empty apps; CI installs,
     type-checks, tests a smoke case, and builds all workspaces.
+  - _Completed 2026-08-28. `docker compose up --build` starts all six services; `npm run lint`,
+    `typecheck`, `test`, and `build` all pass across nine workspaces. CI workflow is committed but
+    has not yet run on GitHub, because no remote is configured._
 
 - [ ] **Stage 2 — Shared contracts, persistence, migrations, and tenancy foundation**
   - **Goal:** Establish the data and application boundaries that every feature will reuse.
@@ -103,11 +106,11 @@ test results, remaining limitations, and confirmation of the exit gate.
 
 ## Crosswalk to the capstone brief's phases (blueprint §20)
 
-| Brief phase | Implementation stages |
-| --- | --- |
-| Phase 1 — Design | Stages 0–2 |
-| Phase 2 — Hardened submission path | Stages 3–7, with side-effect proof completed in Stage 9 |
-| Phase 3 — Delivery, dashboard, and proof | Stages 6 and 8–15 |
+| Brief phase                              | Implementation stages                                   |
+| ---------------------------------------- | ------------------------------------------------------- |
+| Phase 1 — Design                         | Stages 0–2                                              |
+| Phase 2 — Hardened submission path       | Stages 3–7, with side-effect proof completed in Stage 9 |
+| Phase 3 — Delivery, dashboard, and proof | Stages 6 and 8–15                                       |
 
 The expanded sequence is longer because this project includes a complete React product,
 collaborative workspaces, consent and privacy workflows, real-time analytics, and public

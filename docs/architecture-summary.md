@@ -4,8 +4,8 @@
 [`../Embeddable_Widget_Lead_Capture_Blueprint.md`](../Embeddable_Widget_Lead_Capture_Blueprint.md),
 not a replacement for it.** Where the two ever appear to disagree, the blueprint is authoritative.
 
-**Status: Stage 0 of 16. This document describes the approved design. No application code exists
-yet.**
+**Status: Stage 1 of 16. This document describes the approved design. The repository now builds and
+runs, but no product feature exists yet.**
 
 ---
 
@@ -156,7 +156,19 @@ the capstone's core backend requirements.
 
 ## 7. What exists today
 
-Documentation only: this summary, the README, the repository layout map, the stage checklist,
-`EVIDENCE.md` (every entry unproven), `BUILDLOG.md`, `capstone.yaml` (all `TBD`), `.env.example`
-(placeholders only), `.gitignore`, and the MIT license. Stage 1 adds workspace tooling, local Docker
-infrastructure, and a CI baseline. The six mandatory acceptance probes are proven by Stage 7.
+**Stage 1 of 16 complete.** The project installs, lints, type-checks, tests, builds, and runs
+locally. It has **no features**.
+
+- Nine npm workspaces, of which `packages/config` is populated and the rest are boundary shells.
+- `apps/server`: an Express skeleton serving `/health/live`, `/health/ready`, and `/api/v1`,
+  structured along the layering rule in section 4 above.
+- `apps/web` and `apps/demo`: placeholder shells on ports 5173 and 5174, so the second origin that
+  the cross-origin requirements depend on exists and is testable from now on.
+- `docker compose up --build` starts server, web, demo, MongoDB (single-member replica set, so
+  transactions work), Redis, and Mailpit.
+- A CI baseline running install, format, lint, type-check, test, build, and dependency audit.
+  Checks that cannot run yet are named as TODOs rather than stubbed as passing steps.
+
+Nothing in Parts A-D of [`../EVIDENCE.md`](../EVIDENCE.md) is proven except four infrastructure
+entries. The six mandatory acceptance probes are proven in **Stage 7**. Authentication is
+**Stage 3**, widgets **Stage 5**, the widget runtime **Stage 6**, and deployment **Stage 14**.

@@ -2,12 +2,12 @@
 # capstone.yaml - machine-readable evaluation manifest
 # =============================================================================
 #
-# STATUS: Stage 0 skeleton. Every command and URL below is `TBD`.
+# STATUS: Stage 1. The install, run, seed, lint, typecheck, build, and unit/smoke
+# test commands below are REAL and verified. Integration, E2E, acceptance, and
+# every production URL remain `TBD`.
 #
-# NOTHING in this file is runnable yet. There is no package.json, no Docker
-# Compose file, no test suite, and no deployment. A `TBD` value means the value
-# does not exist - it is NOT a command that will silently fail, and it must not
-# be executed or reported as passing.
+# A `TBD` value means the value does not exist - it is NOT a command that will
+# silently fail, and it must not be executed or reported as passing.
 #
 # Each field carries a `filled_in_by` note naming the stage that will replace
 # the placeholder with a real, verified value. The final pass happens in
@@ -25,8 +25,8 @@ project:
     submission path, collaborative lead inbox, and funnel analytics.
   authoritative_reference: Embeddable_Widget_Lead_Capture_Blueprint.md
   license: MIT
-  repository: TBD                     # filled_in_by: Stage 14
-  stage_completed: 0
+  repository: TBD # filled_in_by: Stage 14
+  stage_completed: 1
   stages_total: 16
 
 # -----------------------------------------------------------------------------
@@ -34,31 +34,40 @@ project:
 # -----------------------------------------------------------------------------
 commands:
   install:
-    command: TBD                      # filled_in_by: Stage 1
+    command: npm ci
     description: Install all npm workspace dependencies from the repository root.
   run:
-    command: TBD                      # filled_in_by: Stage 1
+    command: docker compose up --build
     description: >-
-      One documented command bringing up server, web, separate-origin demo,
-      MongoDB (transaction-capable), Redis, and Mailpit.
+      One command bringing up server (3000), web (5173), separate-origin demo
+      (5174), MongoDB as a single-member replica set (27017), Redis (6379), and
+      Mailpit (SMTP 1025, web UI 8025). Requires only Docker; no external
+      provider credentials.
   seed:
-    command: TBD                      # filled_in_by: Stage 1, extended per feature stage
-    description: Load reproducible synthetic seed data for evaluation.
+    command: npm run seed
+    description: >-
+      Verifies the MongoDB connection and reports whether transactions are
+      available. There is no domain data to seed until Stage 2; the command
+      exists now so later stages extend it rather than invent it.
   test:
-    command: TBD                      # filled_in_by: Stage 1, extended per feature stage
-    description: Full unit, integration, and end-to-end suite.
+    command: npm run test
+    description: >-
+      Unit and smoke tests. Currently the apps/server HTTP smoke suite (5 tests).
+      Integration and E2E suites are added in Stages 2 and 6.
   test_unit:
-    command: TBD                      # filled_in_by: Stage 1
+    command: npm run test
   test_integration:
-    command: TBD                      # filled_in_by: Stage 2
+    command: TBD # filled_in_by: Stage 2
   test_e2e:
-    command: TBD                      # filled_in_by: Stage 6
+    command: TBD # filled_in_by: Stage 6
   lint:
-    command: TBD                      # filled_in_by: Stage 1
+    command: npm run lint
   typecheck:
-    command: TBD                      # filled_in_by: Stage 1
+    command: npm run typecheck
   build:
-    command: TBD                      # filled_in_by: Stage 1
+    command: npm run build
+  format_check:
+    command: npm run format:check
 
 # -----------------------------------------------------------------------------
 # Base URLs. Local values are the planned Stage 1 topology; production values
@@ -66,34 +75,39 @@ commands:
 # -----------------------------------------------------------------------------
 base_urls:
   local:
-    app: TBD                          # filled_in_by: Stage 1 (planned: http://localhost:3000)
-    demo_origin: TBD                  # filled_in_by: Stage 1 (planned: http://localhost:3001)
-    mailpit: TBD                      # filled_in_by: Stage 1
+    app: http://localhost:3000
+    web: http://localhost:5173
+    demo_origin: http://localhost:5174
+    mailpit: http://localhost:8025
   production:
-    app: TBD                          # filled_in_by: Stage 14
-    demo_origin: TBD                  # filled_in_by: Stage 14
-    api_docs: TBD                     # filled_in_by: Stage 12 built, Stage 14 deployed
+    app: TBD # filled_in_by: Stage 14
+    demo_origin: TBD # filled_in_by: Stage 14
+    api_docs: TBD # filled_in_by: Stage 12 built, Stage 14 deployed
 
 # -----------------------------------------------------------------------------
-# Probe endpoints. Paths are the planned contract; none are implemented.
+# Probe endpoints. Health probes are implemented and verified; the public
+# widget, submission, and event endpoints are still planned.
 # -----------------------------------------------------------------------------
 probe_endpoints:
   liveness:
-    path: TBD                         # filled_in_by: Stage 1 skeleton, completed Stage 13
-    description: Process event loop and basic application state.
-  readiness:
-    path: TBD                         # filled_in_by: Stage 1 skeleton, completed Stage 13
+    path: /health/live
     description: >-
-      Mongo and Redis connectivity plus migration compatibility. Optional
-      providers (Brevo, geo, webhooks, Sentry) never make the API unready.
+      Process state only; never consults a dependency. Verified to stay 200
+      while Redis is stopped.
+  readiness:
+    path: /health/ready
+    description: >-
+      Mongo and Redis connectivity. Returns 200 when ready and 503 otherwise,
+      with per-dependency detail. Migration compatibility is added in Stage 2;
+      optional-provider degraded-state reporting is Stage 13.
   widget_config:
-    path: TBD                         # filled_in_by: Stage 6
+    path: TBD # filled_in_by: Stage 6
     description: Published widget config with Origin check, ETag, 60s cache.
   submission:
-    path: TBD                         # filled_in_by: Stage 7
+    path: TBD # filled_in_by: Stage 7
     description: Hardened public cross-origin submission endpoint.
   interaction_events:
-    path: TBD                         # filled_in_by: Stage 10
+    path: TBD # filled_in_by: Stage 10
     description: Anonymous funnel event ingestion.
 
 # -----------------------------------------------------------------------------

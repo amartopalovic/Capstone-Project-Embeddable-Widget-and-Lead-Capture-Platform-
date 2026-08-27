@@ -1,0 +1,19 @@
+{
+  "name": "@lcp/demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Separate-origin anonymous sandbox.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5174",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 5174",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@lcp/config": "*",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2"
+  }
+}

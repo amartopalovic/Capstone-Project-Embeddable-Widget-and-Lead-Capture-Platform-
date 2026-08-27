@@ -1,0 +1,114 @@
+# CI baseline (blueprint section 15.3).
+#
+# HONESTY RULE FOR THIS FILE: every step below runs a real check against real
+# code that exists today. Checks the blueprint requires but that cannot run yet
+# are listed in the "not-yet-wired" comment block at the bottom as TODOs with
+# their owning stage. They are deliberately NOT present as no-op steps, because
+# a step that always passes without doing anything is false evidence.
+#
+# This workflow does not deploy anything. Deployment is Stage 14.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint, type-check, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      - name: Verify formatting
+        run: npm run format:check
+
+      - name: Lint every workspace
+        run: npm run lint
+
+      - name: Type-check every workspace
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Build every workspace
+        run: npm run build
+
+      - name: Fail if the build produced no artifacts
+        # Guards against a build script silently succeeding without emitting
+        # anything, which would make the build step meaningless.
+        run: |
+          set -euo pipefail
+          for artifact in \
+            packages/contracts/dist/index.js \
+            packages/widget-runtime/dist/widget-runtime.js \
+            apps/server/dist/index.js \
+            apps/web/dist/index.html \
+            apps/demo/dist/index.html
+          do
+            if [ ! -f "$artifact" ]; then
+              echo "Expected build artifact is missing: $artifact"
+              exit 1
+            fi
+            echo "Found $artifact"
+          done
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      - name: Audit production dependencies
+        # Lockfile integrity is enforced by `npm ci` itself, which fails when
+        # package.json and package-lock.json disagree.
+        run: npm audit --audit-level=high
+
+# -----------------------------------------------------------------------------
+# NOT YET WIRED - required by blueprint section 15.3 but not achievable today.
+# Each is added by the stage that first makes it real. None of these is stubbed
+# as a passing step.
+#
+#   - Integration tests (Mongo, Redis, BullMQ service containers)  -> Stage 2
+#   - Browser end-to-end tests (critical journeys)                 -> Stage 6
+#   - PDF acceptance probes                                        -> Stage 7
+#   - Widget bundle-size budgets and artifact checks               -> Stage 6
+#   - Automated accessibility checks                               -> Stage 13
+#   - Secret scanning and vulnerability gating                     -> Stage 13
+#   - Deployment gate to the protected main branch                 -> Stage 14
+# -----------------------------------------------------------------------------

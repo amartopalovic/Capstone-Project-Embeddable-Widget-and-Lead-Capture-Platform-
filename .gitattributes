@@ -1,0 +1,13 @@
+# Normalise line endings so a checkout on Windows does not fail `format:check`,
+# which Prettier runs with `endOfLine: lf`.
+* text=auto eol=lf
+
+# Binary types that must never be line-ending converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary

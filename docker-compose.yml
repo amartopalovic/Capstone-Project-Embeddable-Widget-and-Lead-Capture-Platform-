@@ -1,0 +1,134 @@
+# Local development topology (blueprint section 15.1).
+#
+# One command brings up every dependency and every application origin:
+#   docker compose up --build
+#
+# No Brevo, Atlas, Upstash, Render, or geo-provider credentials are required.
+# There are no secrets in this file; every value is a local development default.
+#
+# An explicit project name is set because the containing directory name may
+# include characters that Compose would otherwise normalise unpredictably.
+name: lead-capture-platform
+
+services:
+  # ---------------------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------------------
+
+  mongo:
+    # MongoDB multi-document transactions require a replica set, which the
+    # blueprint depends on for the submission-path commit (section 7.3) and the
+    # data-change policy (section 9.3). A bare single-node mongod does NOT
+    # support them, so this service runs as a single-member replica set and the
+    # healthcheck initiates it on first boot.
+    image: mongo:8
+    command: ['--replSet', 'rs0', '--bind_ip_all']
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: >
+        mongosh --quiet --eval "
+          try {
+            rs.status().ok
+          } catch (error) {
+            rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }).ok
+          }
+        "
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+
+  redis:
+    image: redis:8-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    # Local email inspection. SMTP on 1025, web UI on 8025.
+    image: axllent/mailpit:latest
+    ports:
+      - '1025:1025'
+      - '8025:8025'
+    environment:
+      MP_MAX_MESSAGES: '500'
+      MP_SMTP_AUTH_ACCEPT_ANY: '1'
+      MP_SMTP_AUTH_ALLOW_INSECURE: '1'
+
+  # ---------------------------------------------------------------------------
+  # Applications
+  # ---------------------------------------------------------------------------
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: ['npm', 'run', 'dev', '-w', '@lcp/server']
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: development
+      PORT: '3000'
+      RELEASE: local-dev
+      # Inside the compose network the replica set member is reachable by its
+      # advertised host name, so replicaSet discovery works directly.
+      MONGODB_URI: mongodb://mongo:27017/leadcapture?replicaSet=rs0
+      REDIS_URL: redis://redis:6379
+      APP_BASE_URL: http://localhost:3000
+      DEMO_BASE_URL: http://localhost:5174
+      MAILPIT_SMTP_HOST: mailpit
+      MAILPIT_SMTP_PORT: '1025'
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: ['npm', 'run', 'dev', '-w', '@lcp/web']
+    ports:
+      - '5173:5173'
+    environment:
+      NODE_ENV: development
+
+  demo:
+    # Deliberately a different port, and therefore a genuinely different origin
+    # from `web`. That separation is what makes the cross-origin widget and
+    # submission behaviour testable locally from Stage 6 onward.
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: ['npm', 'run', 'dev', '-w', '@lcp/demo']
+    ports:
+      - '5174:5174'
+    environment:
+      NODE_ENV: development
+
+volumes:
+  mongo-data:
+  redis-data:

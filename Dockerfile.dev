@@ -1,0 +1,32 @@
+# Shared development image for apps/server, apps/web, and apps/demo.
+#
+# One image serves all three because they share a single npm workspace install.
+# Each compose service overrides the command to run its own workspace.
+#
+# This image is for LOCAL DEVELOPMENT ONLY. Production build and deployment
+# images are Stage 14.
+
+FROM node:24-alpine
+
+WORKDIR /app
+
+# Install dependencies for every workspace from the lockfile.
+COPY package.json package-lock.json ./
+COPY packages/config/package.json ./packages/config/
+COPY packages/contracts/package.json ./packages/contracts/
+COPY packages/database/package.json ./packages/database/
+COPY packages/test-utils/package.json ./packages/test-utils/
+COPY packages/ui/package.json ./packages/ui/
+COPY packages/widget-runtime/package.json ./packages/widget-runtime/
+COPY apps/server/package.json ./apps/server/
+COPY apps/web/package.json ./apps/web/
+COPY apps/demo/package.json ./apps/demo/
+
+RUN npm ci
+
+COPY . .
+
+# apps/server imports @lcp/contracts from its built output.
+RUN npm run build:packages
+
+EXPOSE 3000 5173 5174

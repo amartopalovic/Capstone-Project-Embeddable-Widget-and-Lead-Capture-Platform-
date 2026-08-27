@@ -1,0 +1,44 @@
+{
+  "name": "embeddable-widget-lead-capture-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Embeddable lead-capture widgets with a hardened cross-origin submission path, collaborative lead inbox, and funnel analytics.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build:packages && npm run build:apps",
+    "build:packages": "npm run build -w @lcp/contracts -w @lcp/database -w @lcp/test-utils -w @lcp/ui -w @lcp/widget-runtime",
+    "build:apps": "npm run build -w @lcp/server -w @lcp/web -w @lcp/demo",
+    "typecheck": "npm run build:packages && npm run typecheck:workspaces",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run build:packages && vitest run",
+    "test:watch": "vitest",
+    "seed": "npm run seed -w @lcp/server",
+    "dev": "docker compose up --build",
+    "dev:down": "docker compose down",
+    "dev:clean": "docker compose down -v",
+    "typecheck:workspaces": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@lcp/config": "*",
+    "@types/node": "^24.10.1",
+    "eslint": "^10.9.1",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.0.7"
+  }
+}

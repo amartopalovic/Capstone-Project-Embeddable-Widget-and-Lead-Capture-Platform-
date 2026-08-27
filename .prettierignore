@@ -1,0 +1,6 @@
+dist/
+build/
+coverage/
+node_modules/
+package-lock.json
+Embeddable_Widget_Lead_Capture_Blueprint.md

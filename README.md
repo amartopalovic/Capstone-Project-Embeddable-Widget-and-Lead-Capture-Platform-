@@ -1,8 +1,9 @@
 # Embeddable Widget & Lead-Capture Platform
 
-> **Project status: Stage 0 of 16 complete — repository contract and design pack only.**
-> No application code exists yet. Every command, link, and proof in this README that is marked
-> *planned* or *TBD* does not work today. Nothing here should be read as a working feature.
+> **Project status: Stage 1 of 16 complete — workspace tooling, local infrastructure, and CI
+> baseline.** The project now installs, lints, type-checks, tests, builds, and runs locally, but it
+> has **no features**: the apps are skeletons that boot and serve health endpoints only. Every
+> command, link, and proof marked _planned_ or _TBD_ below does not work today.
 
 ---
 
@@ -49,16 +50,16 @@ flowchart TB
     P --> X["Brevo, geo providers, webhooks, Sentry"]
 ```
 
-| Component | Planned production choice | Responsibility |
-| --- | --- | --- |
-| Main hosting | One Render Web Service | Express, built React app, widget assets/config, APIs, SSE, and BullMQ workers in the same process |
-| Demo hosting | Separate static site/subdomain | A real second origin hosting the anonymous live sandbox |
-| Database | MongoDB Atlas free cluster | Durable application data |
-| Redis | Persistent Upstash Redis | Sessions, rate limits, BullMQ, idempotency keys, short caches, SSE fan-out, quota counters |
-| Email | Brevo | Verification, reset, invitation, privacy, opt-in, confirmation, notification |
-| Geo enrichment | ip-api.com, then ipapi.co | Primary and fallback IP-to-geo; both may fail without losing a submission |
-| Error monitoring | Sentry Developer plan | Errors and release visibility with PII scrubbing |
-| Source and CI | One public GitHub repository + GitHub Actions | History, checks, evidence, deployment gate |
+| Component        | Planned production choice                     | Responsibility                                                                                    |
+| ---------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Main hosting     | One Render Web Service                        | Express, built React app, widget assets/config, APIs, SSE, and BullMQ workers in the same process |
+| Demo hosting     | Separate static site/subdomain                | A real second origin hosting the anonymous live sandbox                                           |
+| Database         | MongoDB Atlas free cluster                    | Durable application data                                                                          |
+| Redis            | Persistent Upstash Redis                      | Sessions, rate limits, BullMQ, idempotency keys, short caches, SSE fan-out, quota counters        |
+| Email            | Brevo                                         | Verification, reset, invitation, privacy, opt-in, confirmation, notification                      |
+| Geo enrichment   | ip-api.com, then ipapi.co                     | Primary and fallback IP-to-geo; both may fail without losing a submission                         |
+| Error monitoring | Sentry Developer plan                         | Errors and release visibility with PII scrubbing                                                  |
+| Source and CI    | One public GitHub repository + GitHub Actions | History, checks, evidence, deployment gate                                                        |
 
 Production is EU-first: Frankfurt for Render and Upstash where available, and the closest available
 free EU region for Atlas.
@@ -121,23 +122,22 @@ submissions update the Contact but never rewrite history.
 
 ### 2.5 Planned repository layout
 
-This is a conceptual ownership map. **These directories do not exist yet** — Stage 1 creates the
-workspaces and their tooling. See [`docs/repository-layout.md`](./docs/repository-layout.md) for
-the full table and for why Stage 0 documents the layout instead of manufacturing empty folders.
+All nine workspaces now exist as npm workspaces. Most are deliberately **empty shells** carrying
+only their boundary and build wiring — see [`docs/repository-layout.md`](./docs/repository-layout.md).
 
-| Workspace/path | Responsibility | Created in |
-| --- | --- | --- |
-| `apps/server` | Express API, static serving, SSE, worker bootstrap | Stage 1 |
-| `apps/web` | React platform, public pages, dashboard | Stage 1 |
-| `apps/demo` | Separate-origin anonymous sandbox | Stage 1 |
-| `packages/contracts` | Shared TypeScript contracts and validation schemas | Stage 2 |
-| `packages/database` | Mongo models, repositories, indexes, migrations | Stage 2 |
-| `packages/widget-runtime` | Framework-free TypeScript loader/runtime build | Stage 6 |
-| `packages/ui` | Shared accessible React components and design tokens | Stage 1 |
-| `packages/config` | Shared lint, TypeScript, test, and build configuration | Stage 1 |
-| `packages/test-utils` | Fixtures, provider fakes, tenant helpers | Stage 1 |
-| `docs` | Architecture decisions and operational runbooks | **Stage 0 — exists now** |
-| Repository root | README, capstone manifest, evidence/build logs, env example, license, Docker Compose | **Stage 0 — partially exists now** |
+| Workspace/path            | Responsibility                                                                       | State                                        |
+| ------------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------- |
+| `apps/server`             | Express API, static serving, SSE, worker bootstrap                                   | Skeleton: boots, health endpoints only       |
+| `apps/web`                | React platform, public pages, dashboard                                              | Skeleton: one placeholder view               |
+| `apps/demo`               | Separate-origin anonymous sandbox                                                    | Skeleton: placeholder page on its own origin |
+| `packages/contracts`      | Shared TypeScript contracts and validation schemas                                   | Shell — real contracts in Stage 2            |
+| `packages/database`       | Mongo models, repositories, indexes, migrations                                      | Shell — real models in Stage 2               |
+| `packages/widget-runtime` | Framework-free TypeScript loader/runtime build                                       | Shell with browser library build — Stage 6   |
+| `packages/ui`             | Shared accessible React components and design tokens                                 | Shell — components with the first real UI    |
+| `packages/config`         | Shared lint, TypeScript, test, and build configuration                               | **Populated** — consumed by every workspace  |
+| `packages/test-utils`     | Fixtures, provider fakes, tenant helpers                                             | Shell — fakes arrive with their providers    |
+| `docs`                    | Architecture decisions and operational runbooks                                      | Populated                                    |
+| Repository root           | README, capstone manifest, evidence/build logs, env example, license, Docker Compose | Populated                                    |
 
 ---
 
@@ -189,41 +189,81 @@ bury the capstone's core backend requirements.
 
 ## 5. Running the project locally
 
-> **Not available yet.** *To be completed in Stage 1 (workspace tooling, local infrastructure, and
-> CI baseline), then finalized in Stage 15.* No `package.json`, no Docker Compose file, and no
-> scripts exist in this repository today. Do not attempt the commands below — the table describes
-> the planned shape of the interface, not working commands.
+Everything below is **verified working**. You need only [Docker](https://docs.docker.com/get-docker/)
+and [Node.js 22+](https://nodejs.org/). You do **not** need Brevo, MongoDB Atlas, Upstash, Render, or
+geo-provider credentials — there is nothing to sign up for.
 
-Planned contract, per blueprint §15.1: one documented Docker Compose command plus one seed step must
-bring up the application/server services, the React development and build path, the separate-origin
-demo site, MongoDB configured to support the transaction behavior the app uses, Redis, and Mailpit
-for local email inspection. No developer will need Brevo, Atlas, Upstash, or Render credentials for
-normal local development; provider adapters support deterministic fakes.
+### 5.1 Start everything with one command
 
-| Step | Planned command | Filled in by |
-| --- | --- | --- |
-| Install | *TBD* | Stage 1 |
-| Start dependencies and apps | *TBD* | Stage 1 |
-| Seed reproducible demo data | *TBD* | Stage 1, extended per feature stage |
-| Run tests | *TBD* | Stage 1, extended per feature stage |
-| Run acceptance probes | *TBD* | Stage 7 |
+```bash
+docker compose up --build
+```
 
-The machine-readable version of this table is [`capstone.yaml`](./capstone.yaml), which currently
-holds `TBD` values for exactly the same reason.
+That brings up all six services:
 
----
+| Service              | URL                   | Purpose                                             |
+| -------------------- | --------------------- | --------------------------------------------------- |
+| Server (Express API) | http://localhost:3000 | API and health endpoints                            |
+| Web (React platform) | http://localhost:5173 | Platform application shell                          |
+| Demo sandbox         | http://localhost:5174 | **A genuinely separate origin** from the web app    |
+| MongoDB              | `localhost:27017`     | Single-member replica set, so transactions work     |
+| Redis                | `localhost:6379`      | Sessions, rate limits, and queues from later stages |
+| Mailpit              | http://localhost:8025 | Local email inbox (SMTP on 1025)                    |
+
+Check that the stack is healthy:
+
+```bash
+curl http://localhost:3000/health/live     # {"status":"ok",...}
+curl http://localhost:3000/health/ready    # {"status":"ready","dependencies":[mongodb, redis]}
+```
+
+Stop with `docker compose down`, or `docker compose down -v` to also discard the database volumes.
+
+### 5.2 Seed
+
+```bash
+npm ci        # once, on the host
+npm run seed
+```
+
+The seed command confirms the MongoDB connection and reports whether transactions are available.
+**There is no domain data to seed yet** — collections arrive in Stage 2. The command exists now so
+later stages extend it rather than invent it.
+
+### 5.3 Quality commands
+
+Run these on the host after `npm ci`:
+
+| Command                | What it does                                     | Status    |
+| ---------------------- | ------------------------------------------------ | --------- |
+| `npm run lint`         | ESLint across every workspace (25 files today)   | Real      |
+| `npm run format:check` | Prettier formatting check                        | Real      |
+| `npm run typecheck`    | Strict TypeScript across all nine workspaces     | Real      |
+| `npm run test`         | Unit and smoke tests (5 server HTTP tests today) | Real      |
+| `npm run build`        | Production build of every workspace              | Real      |
+| Integration tests      | Mongo, Redis, and BullMQ suites                  | _Stage 2_ |
+| End-to-end tests       | Critical browser journeys                        | _Stage 6_ |
+| Acceptance probes      | The six mandatory probes                         | _Stage 7_ |
+
+### 5.4 Known issue: repository path must not contain `&`
+
+On Windows, npm runs lifecycle scripts through `cmd.exe`, which treats `&` in a directory path as a
+command separator. If the repository is checked out to a path containing an ampersand, `npm run`
+fails with `'...' is not recognized as an internal or external command`. A normal `git clone` gives a
+path with no ampersand, so this affects only manually named local folders. Clone or rename to a path
+without `&`.
 
 ## 6. Deployment links
 
-> **Not available yet.** *To be completed in Stage 14 (production-demo deployment and recovery
-> rehearsal).* Nothing is deployed. No URLs exist.
+> **Not available yet.** _To be completed in Stage 14 (production-demo deployment and recovery
+> rehearsal)._ Nothing is deployed. No URLs exist.
 
-| Surface | URL | Filled in by |
-| --- | --- | --- |
-| Platform (React app + API) | *Not deployed* | Stage 14 |
-| Separate-origin live demo | *Not deployed* | Stage 14 |
-| API documentation (Swagger UI) | *Not deployed* | Built in Stage 12, deployed in Stage 14 |
-| Health and readiness probes | *Not deployed* | Stage 14 |
+| Surface                        | URL            | Filled in by                            |
+| ------------------------------ | -------------- | --------------------------------------- |
+| Platform (React app + API)     | _Not deployed_ | Stage 14                                |
+| Separate-origin live demo      | _Not deployed_ | Stage 14                                |
+| API documentation (Swagger UI) | _Not deployed_ | Built in Stage 12, deployed in Stage 14 |
+| Health and readiness probes    | _Not deployed_ | Stage 14                                |
 
 ---
 
@@ -254,52 +294,65 @@ reflects that this repository is only at Stage 0.
 - Everything listed in §4 above is out of scope.
 - The repository is organized as an npm-workspaces monorepo — see §3.
 
-### 7.2 Stage 0 limitations (temporary)
+### 7.2 Stage 1 limitations (temporary)
 
-- There is no application code, no tooling, no dependencies, no tests, no CI, and no deployment.
-- Every acceptance probe in [`EVIDENCE.md`](./EVIDENCE.md) is unproven and explicitly marked so.
-- `capstone.yaml` contains `TBD` placeholders rather than commands.
-- *This section is expanded honestly as stages complete, and finalized in Stage 15.*
+- **There are no features.** No authentication, workspaces, widgets, submissions, contacts, or
+  analytics exist. `apps/server` serves health endpoints and nothing else; `apps/web` and
+  `apps/demo` render placeholder pages.
+- Every acceptance probe in [`EVIDENCE.md`](./EVIDENCE.md) is still unproven and marked so.
+- Test coverage is 5 HTTP smoke tests. Integration tests arrive in Stage 2, E2E in Stage 6, and the
+  acceptance probes in Stage 7.
+- CI runs install, format, lint, type-check, test, build, and dependency audit. Integration, E2E,
+  accessibility, bundle-size, and secret-scanning checks are listed as explicit TODOs in the
+  workflow rather than stubbed as passing steps.
+- Nothing is deployed, and `capstone.yaml` still has `TBD` for every production URL.
+- The repository path must not contain `&` on Windows — see §5.4.
+- _This section is expanded honestly as stages complete, and finalized in Stage 15._
 
 ---
 
 ## 8. Evidence
 
-> **No proofs exist yet.** *To be completed progressively; the submission-path probes land in
-> Stage 7 and the evidence pack is finalized in Stage 15.*
+> **No proofs exist yet.** _To be completed progressively; the submission-path probes land in
+> Stage 7 and the evidence pack is finalized in Stage 15._
 
 [`EVIDENCE.md`](./EVIDENCE.md) maps every capstone requirement and acceptance probe to a repeatable
-proof. Today every entry is marked *Not yet implemented*, with the stage that will deliver it. No
+proof. Today every entry is marked _Not yet implemented_, with the stage that will deliver it. No
 entry is marked complete and no test output is quoted, because no test has been written or run.
 
 The six acceptance probes that must eventually pass are:
 
-| Probe | Required proof | Planned stage |
-| --- | --- | --- |
-| Valid second-origin submission | 2xx, durable Submission Event, visible Contact/dashboard result | Stage 7 |
-| Malformed and oversized input | Clean 4xx JSON errors, never 500 | Stage 7 |
-| Burst traffic | 429 responses appear while a later legitimate request still succeeds | Stage 7 |
-| Geo fallback | A down → B enriches; A and B down → submission still stored without geo | Stage 7 |
-| Side-effect failure | Email/webhook throws, primary submission remains successful and stored | Stage 7, completed in Stage 9 |
-| Honeypot | Bot-like submission receives a generic outcome but creates no Contact | Stage 7 |
+| Probe                          | Required proof                                                          | Planned stage                 |
+| ------------------------------ | ----------------------------------------------------------------------- | ----------------------------- |
+| Valid second-origin submission | 2xx, durable Submission Event, visible Contact/dashboard result         | Stage 7                       |
+| Malformed and oversized input  | Clean 4xx JSON errors, never 500                                        | Stage 7                       |
+| Burst traffic                  | 429 responses appear while a later legitimate request still succeeds    | Stage 7                       |
+| Geo fallback                   | A down → B enriches; A and B down → submission still stored without geo | Stage 7                       |
+| Side-effect failure            | Email/webhook throws, primary submission remains successful and stored  | Stage 7, completed in Stage 9 |
+| Honeypot                       | Bot-like submission receives a generic outcome but creates no Contact   | Stage 7                       |
 
 ---
 
 ## 9. Repository map
 
-| File | Purpose | Status |
-| --- | --- | --- |
-| [`Embeddable_Widget_Lead_Capture_Blueprint.md`](./Embeddable_Widget_Lead_Capture_Blueprint.md) | Authoritative architecture and 16-stage plan | Complete |
-| [`README.md`](./README.md) | This file — orientation for a stranger | Stage 0 skeleton |
-| [`docs/architecture-summary.md`](./docs/architecture-summary.md) | One-page evaluator summary | Complete for Stage 0 |
-| [`docs/repository-layout.md`](./docs/repository-layout.md) | Conceptual workspace ownership map | Complete for Stage 0 |
-| [`docs/stage-checklist.md`](./docs/stage-checklist.md) | All 16 stages, goals, and exit gates | Stage 0 checked, 1–15 open |
-| [`EVIDENCE.md`](./EVIDENCE.md) | One proof per requirement | Skeleton, all entries unproven |
-| [`BUILDLOG.md`](./BUILDLOG.md) | Where AI helped, failed, and was corrected | Stage 0 entry recorded |
-| [`capstone.yaml`](./capstone.yaml) | Machine-readable run/seed/test/probe manifest | Skeleton, `TBD` values |
-| [`.env.example`](./.env.example) | Safe placeholder configuration | Placeholders only, no secrets |
-| [`.gitignore`](./.gitignore) | Established before dependencies or secrets could be committed | Complete |
-| [`LICENSE`](./LICENSE) | MIT | Complete |
+| Path                                                                                           | Purpose                                                       | Status                                       |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------- |
+| [`Embeddable_Widget_Lead_Capture_Blueprint.md`](./Embeddable_Widget_Lead_Capture_Blueprint.md) | Authoritative architecture and 16-stage plan                  | Complete                                     |
+| [`README.md`](./README.md)                                                                     | This file — orientation for a stranger                        | Stage 1                                      |
+| [`docs/architecture-summary.md`](./docs/architecture-summary.md)                               | One-page evaluator summary                                    | Current                                      |
+| [`docs/repository-layout.md`](./docs/repository-layout.md)                                     | Workspace ownership map                                       | Current                                      |
+| [`docs/stage-checklist.md`](./docs/stage-checklist.md)                                         | All 16 stages, goals, and exit gates                          | Stages 0–1 checked                           |
+| [`EVIDENCE.md`](./EVIDENCE.md)                                                                 | One proof per requirement                                     | Stage 1 items updated; probes still unproven |
+| [`BUILDLOG.md`](./BUILDLOG.md)                                                                 | Where AI helped, failed, and was corrected                    | Stages 0–1 recorded                          |
+| [`capstone.yaml`](./capstone.yaml)                                                             | Machine-readable run/seed/test/probe manifest                 | Real commands; production URLs `TBD`         |
+| [`.env.example`](./.env.example)                                                               | Safe placeholder configuration                                | Placeholders only, no secrets                |
+| [`.gitignore`](./.gitignore)                                                                   | Established before dependencies or secrets could be committed | Current                                      |
+| [`LICENSE`](./LICENSE)                                                                         | MIT                                                           | Complete                                     |
+| [`package.json`](./package.json)                                                               | npm workspaces root and quality scripts                       | Stage 1                                      |
+| [`docker-compose.yml`](./docker-compose.yml)                                                   | Local six-service topology                                    | Stage 1                                      |
+| [`Dockerfile.dev`](./Dockerfile.dev)                                                           | Shared development image for the three apps                   | Stage 1                                      |
+| [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)                                       | CI baseline                                                   | Stage 1                                      |
+| `apps/`, `packages/`                                                                           | The nine npm workspaces                                       | See §2.5                                     |
 
 ---
 
@@ -312,11 +365,11 @@ each stage's deliverables in detail.
 
 The capstone brief's own phases map onto those stages as follows:
 
-| Brief phase | Implementation stages |
-| --- | --- |
-| Phase 1 — Design | Stages 0–2 |
-| Phase 2 — Hardened submission path | Stages 3–7, with side-effect proof completed in Stage 9 |
-| Phase 3 — Delivery, dashboard, and proof | Stages 6 and 8–15 |
+| Brief phase                              | Implementation stages                                   |
+| ---------------------------------------- | ------------------------------------------------------- |
+| Phase 1 — Design                         | Stages 0–2                                              |
+| Phase 2 — Hardened submission path       | Stages 3–7, with side-effect proof completed in Stage 9 |
+| Phase 3 — Delivery, dashboard, and proof | Stages 6 and 8–15                                       |
 
 The expanded sequence is longer than the original brief because this project includes a complete
 React product, collaborative workspaces, consent and privacy workflows, real-time analytics, and

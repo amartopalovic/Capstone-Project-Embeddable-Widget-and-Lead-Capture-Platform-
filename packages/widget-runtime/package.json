@@ -1,0 +1,28 @@
+{
+  "name": "@lcp/widget-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Framework-free TypeScript widget loader and runtime build.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/widget-runtime.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/widget-runtime.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@lcp/config": "*",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2"
+  }
+}
