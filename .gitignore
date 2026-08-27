@@ -1,0 +1,99 @@
+# Embeddable Widget & Lead-Capture Platform
+# Established in Stage 0, before any dependency or secret could ever be committed.
+# Extended in later stages as real tooling arrives.
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+node_modules/
+.npm/
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+
+# ---------------------------------------------------------------------------
+# Environment and secrets
+# .env.example is deliberately NOT ignored - it is a committed, safe template.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+.secrets/
+
+# ---------------------------------------------------------------------------
+# Build output and generated artifacts
+# ---------------------------------------------------------------------------
+dist/
+build/
+out/
+.output/
+.vite/
+.next/
+.turbo/
+storybook-static/
+*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# Test, coverage, and tooling caches
+# ---------------------------------------------------------------------------
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+.cache/
+.eslintcache
+.stylelintcache
+
+# ---------------------------------------------------------------------------
+# Local infrastructure state (Docker volumes, database dumps, mail captures)
+# ---------------------------------------------------------------------------
+.docker-data/
+docker-data/
+mongo-data/
+redis-data/
+dump.rdb
+*.dump
+*.bson
+
+# ---------------------------------------------------------------------------
+# Logs and runtime debris
+# ---------------------------------------------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pids/
+*.pid
+*.seed
+
+# ---------------------------------------------------------------------------
+# Editor and OS cruft
+# ---------------------------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.sample.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/

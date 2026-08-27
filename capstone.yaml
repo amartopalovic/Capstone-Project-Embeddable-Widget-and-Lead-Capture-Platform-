@@ -1,0 +1,157 @@
+# =============================================================================
+# capstone.yaml - machine-readable evaluation manifest
+# =============================================================================
+#
+# STATUS: Stage 0 skeleton. Every command and URL below is `TBD`.
+#
+# NOTHING in this file is runnable yet. There is no package.json, no Docker
+# Compose file, no test suite, and no deployment. A `TBD` value means the value
+# does not exist - it is NOT a command that will silently fail, and it must not
+# be executed or reported as passing.
+#
+# Each field carries a `filled_in_by` note naming the stage that will replace
+# the placeholder with a real, verified value. The final pass happens in
+# Stage 15 (evaluation evidence and portfolio release), when a clean-machine
+# evaluator must be able to run every command here successfully.
+# =============================================================================
+
+schema_version: 1
+
+project:
+  name: Embeddable Widget & Lead-Capture Platform
+  description: >-
+    Configurable lead-capture widgets that customers publish and install on
+    permitted websites with one script tag, with a hardened cross-origin
+    submission path, collaborative lead inbox, and funnel analytics.
+  authoritative_reference: Embeddable_Widget_Lead_Capture_Blueprint.md
+  license: MIT
+  repository: TBD                     # filled_in_by: Stage 14
+  stage_completed: 0
+  stages_total: 16
+
+# -----------------------------------------------------------------------------
+# Commands a clean-machine evaluator will run, in order.
+# -----------------------------------------------------------------------------
+commands:
+  install:
+    command: TBD                      # filled_in_by: Stage 1
+    description: Install all npm workspace dependencies from the repository root.
+  run:
+    command: TBD                      # filled_in_by: Stage 1
+    description: >-
+      One documented command bringing up server, web, separate-origin demo,
+      MongoDB (transaction-capable), Redis, and Mailpit.
+  seed:
+    command: TBD                      # filled_in_by: Stage 1, extended per feature stage
+    description: Load reproducible synthetic seed data for evaluation.
+  test:
+    command: TBD                      # filled_in_by: Stage 1, extended per feature stage
+    description: Full unit, integration, and end-to-end suite.
+  test_unit:
+    command: TBD                      # filled_in_by: Stage 1
+  test_integration:
+    command: TBD                      # filled_in_by: Stage 2
+  test_e2e:
+    command: TBD                      # filled_in_by: Stage 6
+  lint:
+    command: TBD                      # filled_in_by: Stage 1
+  typecheck:
+    command: TBD                      # filled_in_by: Stage 1
+  build:
+    command: TBD                      # filled_in_by: Stage 1
+
+# -----------------------------------------------------------------------------
+# Base URLs. Local values are the planned Stage 1 topology; production values
+# do not exist until deployment in Stage 14.
+# -----------------------------------------------------------------------------
+base_urls:
+  local:
+    app: TBD                          # filled_in_by: Stage 1 (planned: http://localhost:3000)
+    demo_origin: TBD                  # filled_in_by: Stage 1 (planned: http://localhost:3001)
+    mailpit: TBD                      # filled_in_by: Stage 1
+  production:
+    app: TBD                          # filled_in_by: Stage 14
+    demo_origin: TBD                  # filled_in_by: Stage 14
+    api_docs: TBD                     # filled_in_by: Stage 12 built, Stage 14 deployed
+
+# -----------------------------------------------------------------------------
+# Probe endpoints. Paths are the planned contract; none are implemented.
+# -----------------------------------------------------------------------------
+probe_endpoints:
+  liveness:
+    path: TBD                         # filled_in_by: Stage 1 skeleton, completed Stage 13
+    description: Process event loop and basic application state.
+  readiness:
+    path: TBD                         # filled_in_by: Stage 1 skeleton, completed Stage 13
+    description: >-
+      Mongo and Redis connectivity plus migration compatibility. Optional
+      providers (Brevo, geo, webhooks, Sentry) never make the API unready.
+  widget_config:
+    path: TBD                         # filled_in_by: Stage 6
+    description: Published widget config with Origin check, ETag, 60s cache.
+  submission:
+    path: TBD                         # filled_in_by: Stage 7
+    description: Hardened public cross-origin submission endpoint.
+  interaction_events:
+    path: TBD                         # filled_in_by: Stage 10
+    description: Anonymous funnel event ingestion.
+
+# -----------------------------------------------------------------------------
+# The six mandatory acceptance probes. All are currently unproven.
+# Detailed status and future transcripts live in EVIDENCE.md.
+# -----------------------------------------------------------------------------
+acceptance_probes:
+  - id: valid-second-origin-submission
+    required_proof: >-
+      2xx response, durable Submission Event, visible Contact and dashboard result.
+    status: not_implemented
+    planned_stage: 7
+    command: TBD
+  - id: malformed-and-oversized-input
+    required_proof: Clean 4xx JSON errors, never a 500.
+    status: not_implemented
+    planned_stage: 7
+    command: TBD
+  - id: burst-traffic
+    required_proof: >-
+      429 responses appear while a later legitimate request still succeeds.
+    status: not_implemented
+    planned_stage: 7
+    command: TBD
+  - id: geo-fallback
+    required_proof: >-
+      Provider A down and B enriches; both down and the submission is still
+      stored without geo.
+    status: not_implemented
+    planned_stage: 7
+    command: TBD
+  - id: side-effect-failure
+    required_proof: >-
+      Email or webhook throws and the primary submission remains successful
+      and stored.
+    status: not_implemented
+    planned_stage: 7
+    completed_stage: 9
+    command: TBD
+  - id: honeypot
+    required_proof: >-
+      Bot-like submission receives a generic outcome but creates no Contact.
+    status: not_implemented
+    planned_stage: 7
+    command: TBD
+
+# -----------------------------------------------------------------------------
+# Honest posture of the hosted deployment.
+# -----------------------------------------------------------------------------
+disclosures:
+  synthetic_data_only: true
+  service_level_agreement: none
+  hosting_may_sleep: true
+  automated_cloud_backup: false
+  repository_is_npm_workspaces_monorepo: true
+  monorepo_caveat: >-
+    The capstone brief requires one dedicated repository and warns against a
+    monorepo. This project uses npm workspaces inside one dedicated repository
+    because every workspace belongs to this single application. If an evaluator
+    interprets "no monorepo" literally, this is a known submission risk. See
+    README section 3.
