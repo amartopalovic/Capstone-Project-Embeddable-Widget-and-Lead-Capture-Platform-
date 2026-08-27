@@ -51,7 +51,7 @@ jobs:
       - name: Type-check every workspace
         run: npm run typecheck
 
-      - name: Run tests
+      - name: Run unit tests
         run: npm run test
 
       - name: Build every workspace
@@ -75,6 +75,57 @@ jobs:
             fi
             echo "Found $artifact"
           done
+
+  integration:
+    name: Integration tests (real MongoDB and Redis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      # The same docker-compose.yml developers use locally is reused here rather
+      # than declaring separate `services:` containers. MongoDB must run as a
+      # replica set for the multi-document transactions the blueprint depends on,
+      # and the compose healthcheck already performs rs.initiate(). Duplicating
+      # that init as a bespoke CI-only service would let the two topologies drift.
+      - name: Start MongoDB and Redis
+        run: docker compose up -d --wait mongo redis
+
+      - name: Show service state
+        run: docker compose ps
+
+      - name: Confirm MongoDB is a replica set and supports transactions
+        run: |
+          set -euo pipefail
+          docker compose exec -T mongo mongosh --quiet --eval '
+            const status = rs.status();
+            if (status.ok !== 1) { throw new Error("replica set not ready"); }
+            print("replica set " + status.set + " member " + status.members[0].stateStr);
+          '
+
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          # From the CI host, the advertised replica set member name is not
+          # resolvable, so a direct connection is used. Transactions still work
+          # because the target is the primary.
+          TEST_MONGODB_URI: mongodb://localhost:27017/?directConnection=true
+          REDIS_URL: redis://localhost:6379
+
+      - name: Tear down services
+        if: always()
+        run: docker compose down -v
 
   audit:
     name: Dependency audit
@@ -104,11 +155,13 @@ jobs:
 # Each is added by the stage that first makes it real. None of these is stubbed
 # as a passing step.
 #
-#   - Integration tests (Mongo, Redis, BullMQ service containers)  -> Stage 2
+#   - BullMQ queue integration tests                               -> Stage 9
 #   - Browser end-to-end tests (critical journeys)                 -> Stage 6
 #   - PDF acceptance probes                                        -> Stage 7
 #   - Widget bundle-size budgets and artifact checks               -> Stage 6
 #   - Automated accessibility checks                               -> Stage 13
 #   - Secret scanning and vulnerability gating                     -> Stage 13
 #   - Deployment gate to the protected main branch                 -> Stage 14
+#
+# Wired in Stage 2: the `integration` job above runs real Mongo/Redis tests.
 # -----------------------------------------------------------------------------

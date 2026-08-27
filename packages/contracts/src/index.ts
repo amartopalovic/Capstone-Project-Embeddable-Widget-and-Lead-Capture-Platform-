@@ -1,13 +1,14 @@
 /**
  * Shared contracts and validation schemas.
  *
- * Stage 1 establishes only the workspace boundary. The single export below is
- * the versioned API prefix from blueprint section 10.1, which apps/server
- * consumes so the cross-workspace build graph is genuinely exercised rather
- * than merely configured. Real request/response contracts, error shapes, and
- * pagination types arrive in Stage 2.
+ * Every workspace consumes API shapes from here so that error envelopes,
+ * pagination, concurrency preconditions, and log records stay identical across
+ * the server, the web application, and the widget runtime.
  */
 
-export const API_VERSION = 'v1' as const;
-
-export const API_PREFIX = `/api/${API_VERSION}` as const;
+export * from './api.js';
+export * from './errors.js';
+export * from './validation.js';
+export * from './pagination.js';
+export * from './concurrency.js';
+export * from './logging.js';

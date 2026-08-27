@@ -3,7 +3,7 @@
 The project is implemented in 16 bounded stages (blueprint §19). Exactly one stage is requested per
 implementation prompt, and work stops when that stage's exit gate is green.
 
-**Progress: 2 of 16 stages complete.**
+**Progress: 3 of 16 stages complete.**
 
 ## Stage execution rules (blueprint §19)
 
@@ -31,10 +31,15 @@ test results, remaining limitations, and confirmation of the exit gate.
     `typecheck`, `test`, and `build` all pass across nine workspaces. CI workflow is committed but
     has not yet run on GitHub, because no remote is configured._
 
-- [ ] **Stage 2 — Shared contracts, persistence, migrations, and tenancy foundation**
+- [x] **Stage 2 — Shared contracts, persistence, migrations, and tenancy foundation**
   - **Goal:** Establish the data and application boundaries that every feature will reuse.
   - **Exit gate:** Two seeded tenants cannot access each other's records through any foundation
     repository; indexes and migrations are repeatable on a clean database.
+  - _Completed 2026-08-28. 25 integration tests against a real MongoDB replica set prove
+    cross-tenant isolation in both directions for every foundation repository, and prove migrations
+    are repeatable (a second run applies nothing and leaves the index state identical) and
+    idempotent even with the ledger wiped. 36 unit tests cover the shared contracts, log redaction,
+    and the Redis key policy._
 
 - [ ] **Stage 3 — Authentication and account security**
   - **Goal:** Deliver secure public account creation and session management.

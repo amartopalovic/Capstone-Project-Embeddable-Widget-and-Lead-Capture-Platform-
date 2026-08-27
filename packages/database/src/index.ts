@@ -1,12 +1,13 @@
 /**
  * Mongo models, repositories, indexes, and migrations.
  *
- * Stage 1 establishes only the workspace boundary. Connection management,
- * workspace-scoped repository interfaces, the migration and index mechanism,
- * and the tenancy invariant from blueprint section 9.1 all arrive in Stage 2.
- *
- * The health probe in apps/server deliberately does NOT import from here: it
- * checks raw infrastructure connectivity, which is not a data-layer concern.
+ * The tenancy invariant from blueprint section 9.1 is enforced here: every
+ * workspace-owned repository method requires an explicit WorkspaceScope, and
+ * filters merge the workspace clause last so it cannot be overridden.
  */
 
-export const DATABASE_PACKAGE_STATUS = 'stage-1-shell' as const;
+export * from './collections.js';
+export * from './connection.js';
+export * from './records/index.js';
+export * from './repositories/index.js';
+export * from './migrations/index.js';

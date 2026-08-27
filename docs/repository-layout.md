@@ -1,8 +1,8 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 1. All nine workspaces now exist.** Most are deliberately empty shells that carry
-only their boundary, build, and type-check wiring; `packages/config` is the one that is genuinely
-populated.
+**Status: Stage 2.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+`packages/database`, and `packages/test-utils` now carry real content; the rest remain deliberate
+shells until the stage that fills them.
 
 This document records the workspace boundaries from blueprint §6 and what each currently contains.
 
@@ -25,19 +25,19 @@ pipeline that later stages depend on is proven before there is any code to break
 
 ## 2. Workspace ownership map
 
-| Workspace/path            | Responsibility                                                                                                     | Current state                                                         |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
-| `apps/server`             | Express API, static serving, SSE, and worker bootstrap                                                             | Skeleton: boots, serves `/health/live`, `/health/ready`, `/api/v1`    |
-| `apps/web`                | React platform, public pages, and dashboard                                                                        | Skeleton: one placeholder view; React 19 + Vite + Tailwind v4         |
-| `apps/demo`               | Separate-origin anonymous sandbox                                                                                  | Skeleton: placeholder page, no React, own port                        |
-| `packages/contracts`      | Shared TypeScript contracts and validation schemas                                                                 | Shell exporting `API_VERSION`/`API_PREFIX`; real contracts in Stage 2 |
-| `packages/database`       | Mongo models, repositories, indexes, and migrations                                                                | Shell; real models, migrations, and tenancy in Stage 2                |
-| `packages/widget-runtime` | Framework-free TypeScript loader/runtime build                                                                     | Shell with a Vite library build (ES + IIFE); real runtime in Stage 6  |
-| `packages/ui`             | Shared accessible React components and design tokens                                                               | Shell; components and tokens with the first real UI                   |
-| `packages/config`         | Shared lint, TypeScript, test, and build configuration                                                             | **Populated** and consumed by every workspace                         |
-| `packages/test-utils`     | Fixtures, provider fakes, and tenant helpers                                                                       | Shell; provider fakes arrive with their providers                     |
-| `docs/`                   | Architecture decisions and operational runbooks                                                                    | Populated                                                             |
-| Repository root           | README, capstone manifest, evidence and build logs, environment example, license, and Docker Compose configuration | Populated                                                             |
+| Workspace/path            | Responsibility                                                                                                     | Current state                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `apps/server`             | Express API, static serving, SSE, and worker bootstrap                                                             | Skeleton: boots, serves `/health/live`, `/health/ready`, `/api/v1`                                         |
+| `apps/web`                | React platform, public pages, and dashboard                                                                        | Skeleton: one placeholder view; React 19 + Vite + Tailwind v4                                              |
+| `apps/demo`               | Separate-origin anonymous sandbox                                                                                  | Skeleton: placeholder page, no React, own port                                                             |
+| `packages/contracts`      | Shared TypeScript contracts and validation schemas                                                                 | **Populated**: error envelope, cursor pagination, Zod validation, revision preconditions, log record shape |
+| `packages/database`       | Mongo models, repositories, indexes, and migrations                                                                | **Populated**: connection, migration runner, tenancy-scoped repositories, six foundation records           |
+| `packages/widget-runtime` | Framework-free TypeScript loader/runtime build                                                                     | Shell with a Vite library build (ES + IIFE); real runtime in Stage 6                                       |
+| `packages/ui`             | Shared accessible React components and design tokens                                                               | Shell; components and tokens with the first real UI                                                        |
+| `packages/config`         | Shared lint, TypeScript, test, and build configuration                                                             | **Populated** and consumed by every workspace                                                              |
+| `packages/test-utils`     | Fixtures, provider fakes, and tenant helpers                                                                       | **Populated**: isolated-database and two-tenant fixtures, capturing logger                                 |
+| `docs/`                   | Architecture decisions and operational runbooks                                                                    | Populated                                                                                                  |
+| Repository root           | README, capstone manifest, evidence and build logs, environment example, license, and Docker Compose configuration | Populated                                                                                                  |
 
 ### What `packages/config` provides
 
@@ -53,6 +53,38 @@ pipeline that later stages depend on is proven before there is any code to break
 **Gotcha worth knowing:** relative `outDir` and `rootDir` in an _extended_ tsconfig resolve against
 the directory of the **base** file, not the consuming workspace. They are therefore set per
 workspace, never in the shared configs.
+
+### What `packages/contracts` provides
+
+| Module           | Purpose                                                                 |
+| ---------------- | ----------------------------------------------------------------------- |
+| `api.ts`         | `API_VERSION` and the `/api/v1` prefix                                  |
+| `errors.ts`      | Error envelope, error codes, and the code-to-HTTP-status table          |
+| `validation.ts`  | Zod re-export plus `validate`, mapping a schema failure to field errors |
+| `pagination.ts`  | Cursor pagination request/page shapes and opaque cursor encoding        |
+| `concurrency.ts` | Revision precondition shape for optimistic concurrency                  |
+| `logging.ts`     | Structured log record shape and central redaction of forbidden fields   |
+
+### What `packages/database` provides
+
+| Module                            | Purpose                                                                            |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
+| `connection.ts`                   | Data-layer Mongo connection, `withTransaction`, replica-set check                  |
+| `collections.ts`                  | Canonical collection names                                                         |
+| `records/`                        | Record shapes for User, Workspace, Membership, Invitation, AuditEvent, OutboxEvent |
+| `repositories/workspace-scope.ts` | `WorkspaceScope` type and its runtime guard                                        |
+| `repositories/base-repository.ts` | Tenancy-enforcing base class every workspace-owned repository extends              |
+| `repositories/*-repository.ts`    | Concrete repositories                                                              |
+| `migrations/`                     | Ordered migration list, runner, and the foundation migration                       |
+
+**Why the logger lives in `packages/contracts`.** Blueprint section 6 has no observability
+workspace, and the log record shape in section 16.1 is a shared contract that the server, workers,
+and migrations must all produce identically. Putting it in `contracts` avoids inventing a workspace
+the blueprint does not name.
+
+**Why Redis lives in `apps/server`.** Blueprint section 6 scopes `packages/database` to "Mongo
+models, repositories, indexes, and migrations". Redis is not Mongo, and only the server process
+uses it, so the connection and key policy live in `apps/server/src/infrastructure/redis/`.
 
 ## 3. What exists at the root today
 

@@ -329,3 +329,185 @@ Beyond the happy path:
 4. **A global npm package was installed on this machine** (`typescript-language-server`,
    `typescript`) to satisfy the plugin prerequisite. Remove with
    `npm uninstall -g typescript-language-server typescript` if unwanted.
+
+---
+
+## Stage 2 - Shared contracts, persistence, migrations, and tenancy foundation (2026-08-28)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Stage 2 only - shared contracts, Mongo connection and migrations, base
+repositories, the six foundation records, the Redis key policy, structured logging, and
+tenant-isolation tests. No authentication, RBAC enforcement, or any feature.
+
+### What was done
+
+Confirmed the Stage 1 commit was intact, verified `typescript-lsp` now works, then built the data
+and contract foundation:
+
+- `packages/contracts`: error envelope with a code-to-HTTP-status table, cursor pagination with
+  opaque cursors, a Zod-based validation helper, revision preconditions, and the structured log
+  record shape with central redaction.
+- `packages/database`: Mongo connection with `withTransaction`, an ordered migration runner with a
+  ledger, the foundation migration and all its indexes, the tenancy-enforcing base repository, and
+  repositories for User, Workspace, Membership, Invitation, AuditEvent, and OutboxEvent.
+- `apps/server`: Redis connection and explicit key policy, a `migrate` CLI, and an extended seed.
+- `packages/test-utils`: isolated-database fixture and the two-tenant fixture.
+- CI: a real integration job running the tests against a live MongoDB replica set and Redis.
+
+Tooling choices the blueprint leaves open:
+
+| Choice                                                  | Reason                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Zod 4 for validation                                    | TypeScript-first with static inference, so a schema and its type cannot drift. Re-exported from `contracts` so no other workspace pins its own copy.                                                                                                                                                                                  |
+| Hand-written migration runner                           | The requirement is committed, ordered, repeatable migrations plus explicit index management. That is roughly fifty lines against the driver. A framework such as migrate-mongo would add a dependency, a second CLI, and its own file-discovery conventions to own the same behaviour, and would not make the result more repeatable. |
+| Official `mongodb` driver, no ODM                       | Repository interfaces are already the abstraction the blueprint asks for. An ODM would add a second, competing one and make the tenancy invariant harder to enforce at the query level.                                                                                                                                               |
+| Compose reused in CI rather than `services:` containers | GitHub Actions service containers do support a `command` key, so a replica set is possible there. But the replica set still needs `rs.initiate()` after boot, which the compose healthcheck already performs. Reusing compose keeps one topology definition instead of two that can drift.                                            |
+
+### Where AI helped
+
+- Turning the blueprint section 9.2 constraint table into concrete indexes, and spotting that
+  several constraints are conditional rather than absolute. "Unique owner user for active
+  ownership" and "unique normalized email" must not block a soft-deleted row from being replaced,
+  which means a partial unique index rather than a plain one. Context7 confirmed partial unique
+  indexes apply uniqueness only to the filtered subset.
+- Designing the tenancy invariant so it is structural rather than a convention: a mandatory first
+  parameter, a filter merge order that makes the scope win, and an insert that overwrites a spoofed
+  workspaceId. Each of those is a separate failure the tests then probe individually.
+- Writing cross-tenant tests in both directions. A one-way isolation test passes even when the leak
+  runs the other way, which is an easy and dangerous thing to miss.
+
+### Where AI failed or was corrected
+
+- **A test asserted the wrong thing, and the failure was mine, not the code's.** The case for "a
+  caller-supplied workspaceId in a filter cannot override the scope" asserted the query would
+  return zero rows. It returned one. On inspection the behaviour was correct and secure: the scope
+  is merged last, so the spoofed tenant B id is discarded and the query stays inside tenant A,
+  returning tenant A data. The original assertion encoded a misunderstanding of the design. The
+  test now asserts what actually matters - every returned record belongs to the caller, and the
+  tenant B record is absent. Worth recording because a passing test with the wrong assertion is
+  worse than a failing one.
+- **Cross-module class identity broke two `toBeInstanceOf` assertions.** The tests import
+  `InvalidWorkspaceScopeError` from this package source while the shared fixture resolves
+  `@lcp/database` through its built output, so the two classes were different objects. Fixed by
+  constructing the repository from source in those specific cases. This is a real hazard for later
+  stages: fixtures and tests must agree on which module instance they use.
+- **A shared tsconfig lesson from Stage 1 nearly repeated.** `outDir`/`rootDir` still belong per
+  workspace, and the new packages follow that; no regression, but it needed conscious attention.
+- **Shell heredocs failed twice again** on prose containing an unbalanced quote character. The
+  Stage 0 lesson holds: content-heavy files go through the editor tool, not the shell.
+- **A Prettier reformat invalidated several documentation patches.** Table alignment and
+  `*none*` becoming `_none_` broke exact-string replacements written against the pre-format text.
+  Corrected by matching on row identifiers rather than full formatted lines.
+
+### Judgment calls
+
+1. **The logger lives in `packages/contracts`.** Blueprint section 6 defines no observability
+   workspace, and the section 16.1 log shape is genuinely a shared contract that the server,
+   migrations, and later the workers must all emit identically. Inventing a tenth workspace would
+   deviate from the blueprint's own package map for no gain.
+
+2. **Redis lives in `apps/server`, not `packages/database`.** The blueprint scopes
+   `packages/database` to "Mongo models, repositories, indexes, and migrations". Redis is not
+   Mongo, and only the server process touches it.
+
+3. **Keys are built explicitly instead of using the ioredis `keyPrefix` option.** Context7
+   documentation is explicit that `keyPrefix` is not applied to pattern commands such as KEYS and
+   SCAN, nor to pub/sub channel names. Relying on it would mean the Stage 8 SSE fan-out channels
+   and any cleanup scan silently escaped the namespace. `RedisKeyBuilder` also rejects `:` and
+   wildcards in segments, so an untrusted value cannot forge a namespace or turn a lookup into a
+   pattern.
+
+4. **`User` carries no credential material at all.** The stage prohibits implementing password
+   logic. Including an unused `passwordHash` field would have been a shape decision made without
+   the Argon2id parameters and rotation questions that belong to Stage 3, so Stage 3 adds those
+   fields through its own migration instead.
+
+5. **`UserRepository` deliberately does not extend the workspace-scoped base.** A user belongs to
+   many workspaces, so scoping the identity record to one tenant would be wrong. Tenancy for a user
+   is expressed through `Membership`. `WorkspaceRepository` is likewise scoped by its own `_id`
+   rather than a `workspaceId` field. Both asymmetries are documented in the source, because an
+   unexplained exception to a security invariant is how the invariant later gets eroded.
+
+6. **Unit and integration tests are separate Vitest projects.** `npm run test` needs no
+   infrastructure and runs anywhere including a bare CI job; `npm run test:integration` requires
+   real Mongo and Redis. Merging them would make the fast suite unrunnable without Docker.
+
+7. **Each integration test file gets its own randomly named database.** That is what lets the
+   migration-repeatability test assert against a genuinely clean database, and keeps the files
+   order-independent.
+
+8. **Migration idempotency is proven twice over.** The ledger prevents re-application, and each
+   migration is independently idempotent. The test that wipes the ledger and replays exists to
+   prove the second mechanism actually holds rather than being an untested claim.
+
+### Verification performed
+
+Every command was executed; results are in the Stage 2 report and in `EVIDENCE.md`.
+
+Beyond the happy path:
+
+- Cross-tenant reads, updates, deletes, and inserts were each probed in both directions, and the
+  victim record was re-checked afterwards to confirm nothing was silently modified.
+- Spoofing was tested at both entry points a caller controls: a `workspaceId` in the document body
+  and a `workspaceId` in the filter.
+- The runtime scope guard was tested with three distinct bad inputs, including a hex string that
+  looks correct but is not an `ObjectId`.
+- Migration repeatability was proven by comparing full index descriptors, not just by re-running
+  without error, and again with the ledger deliberately wiped.
+- The storage constraints were proven to reject bad data rather than merely to exist.
+- The CI compose commands were executed locally exactly as the workflow runs them, including the
+  replica-set assertion step.
+
+### Plugin usage this stage
+
+- **`typescript-lsp`** - installed, available, and **it worked this time**, unlike Stage 1. The
+  Stage 1 diagnosis was correct: the Claude Code process had cached its PATH before
+  `typescript-language-server` was installed, and a restarted process picks it up. Used
+  substantively for cross-package checking:
+  - `findReferences` on `WorkspaceScope` returned 27 references across 7 files, confirming every
+    repository consumes the scope type and none bypasses it;
+  - `hover` on `WorkspaceScopedRepository.findById` confirmed the signature is
+    `(scope: WorkspaceScope, id: ObjectId)`, so the tenancy invariant holds at the type level;
+  - `hover` on the `Logger` parameter in the migration runner confirmed the
+    `@lcp/contracts` to `@lcp/database` package boundary resolves correctly;
+  - `documentSymbol` was used to confirm the language server was live before any work began.
+
+  It also surfaced live diagnostics while editing, including stale cross-package imports before a
+  rebuild. Zero unexpected diagnostics remain.
+
+- **`context7`** - installed, available, **invoked substantively**, and it corrected several things
+  memory would have gotten wrong:
+  - **Zod** (`/websites/zod_dev`): Zod 4 API, and that `treeifyError`/`flattenError` replace the v3
+    `format()`/`flatten()` helpers.
+  - **MongoDB manual** (`/websites/mongodb_manual`): `createIndexes` is idempotent and reports
+    "all indexes already exist", which is what makes the migration safely repeatable; and unique
+    partial indexes apply uniqueness only to the filtered subset, which is what the active-owner
+    and active-email constraints require.
+  - **MongoDB Node driver** (`/mongodb/node-mongodb-native`): in driver 6+, `withSession` and
+    `withTransaction` return the callback value, and errors must propagate rather than be swallowed
+    or the driver cannot manage transaction state.
+  - **ioredis** (`/redis/ioredis`): `keyPrefix` is not applied to pattern commands or pub/sub
+    channels. This directly changed the design - see judgment call 3.
+  - **GitHub Actions** (`/websites/github_en_actions`): service containers DO support `command` and
+    `entrypoint` overrides. This corrected an assumption that a replica set was impossible as a
+    service container, and let the compose-reuse decision be made on its merits rather than on a
+    false constraint.
+
+  No conflict with a locked blueprint decision was found.
+
+- **`frontend-design`** - installed and available; **not invoked**. Stage 2 built no UI at all.
+
+### Open questions for a human
+
+1. **CI still has never run.** The integration job is committed and its commands were executed
+   locally exactly as written, including `docker compose up -d --wait mongo redis` and the
+   replica-set assertion. But no remote is configured, so the workflow itself has never executed on
+   GitHub. "CI passes" remains a local-equivalence claim until the repository is pushed.
+2. **The tenancy invariant is proven only for the six foundation repositories.** Every later stage
+   that adds a workspace-owned surface - export, analytics, SSE, trash, recovery - must extend the
+   cross-tenant tests. The blueprint requires it for every surface, and `EVIDENCE.md` D2 records
+   that gap explicitly rather than implying wider coverage.
+3. **The local folder name still contains `&`.** Unchanged from Stage 1: `npm run` fails through
+   `cmd.exe` in this directory, so quality commands were run with an explicit bash script shell
+   locally. This is a local folder-naming issue, not a repository defect, and no workaround was
+   committed. Renaming the folder remains the recommendation.

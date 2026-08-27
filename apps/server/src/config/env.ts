@@ -26,7 +26,9 @@ export interface ServerEnv {
   readonly port: number;
   readonly release: string;
   readonly mongoUri: string;
+  readonly mongoDbName: string | undefined;
   readonly redisUrl: string;
+  readonly redisKeyPrefix: string;
 }
 
 export function loadEnv(): ServerEnv {
@@ -38,6 +40,8 @@ export function loadEnv(): ServerEnv {
       'MONGODB_URI',
       'mongodb://localhost:27017/leadcapture?directConnection=true',
     ),
+    mongoDbName: process.env['MONGODB_DB_NAME'],
     redisUrl: readString('REDIS_URL', 'redis://localhost:6379'),
+    redisKeyPrefix: readString('REDIS_KEY_PREFIX', 'lcp:dev'),
   };
 }

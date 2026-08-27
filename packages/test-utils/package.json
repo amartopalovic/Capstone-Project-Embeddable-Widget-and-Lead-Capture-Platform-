@@ -23,5 +23,10 @@
   "devDependencies": {
     "@lcp/config": "*",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@lcp/contracts": "*",
+    "@lcp/database": "*",
+    "mongodb": "^6.21.0"
   }
 }

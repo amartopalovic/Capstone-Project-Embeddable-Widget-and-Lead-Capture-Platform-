@@ -2,8 +2,8 @@
 # capstone.yaml - machine-readable evaluation manifest
 # =============================================================================
 #
-# STATUS: Stage 1. The install, run, seed, lint, typecheck, build, and unit/smoke
-# test commands below are REAL and verified. Integration, E2E, acceptance, and
+# STATUS: Stage 2. The install, run, seed, migrate, lint, typecheck, build, unit,
+# and INTEGRATION test commands below are REAL and verified. E2E, acceptance, and
 # every production URL remain `TBD`.
 #
 # A `TBD` value means the value does not exist - it is NOT a command that will
@@ -26,7 +26,7 @@ project:
   authoritative_reference: Embeddable_Widget_Lead_Capture_Blueprint.md
   license: MIT
   repository: TBD # filled_in_by: Stage 14
-  stage_completed: 1
+  stage_completed: 2
   stages_total: 16
 
 # -----------------------------------------------------------------------------
@@ -52,8 +52,8 @@ commands:
   test:
     command: npm run test
     description: >-
-      Unit and smoke tests. Currently the apps/server HTTP smoke suite (5 tests).
-      Integration and E2E suites are added in Stages 2 and 6.
+      Unit and smoke tests, no infrastructure required (36 tests as of Stage 2).
+      Integration tests are a separate command; the E2E suite arrives in Stage 6.
   test_unit:
     command: npm run test
   test_integration:
@@ -68,6 +68,11 @@ commands:
     command: npm run build
   format_check:
     command: npm run format:check
+  migrate:
+    command: npm run migrate
+    description: >-
+      Apply committed migrations and explicit indexes. Repeatable: a second run
+      applies nothing. Never runs implicitly on server boot.
 
 # -----------------------------------------------------------------------------
 # Base URLs. Local values are the planned Stage 1 topology; production values
