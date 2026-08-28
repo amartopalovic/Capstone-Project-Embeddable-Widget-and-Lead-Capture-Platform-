@@ -65,7 +65,7 @@ jobs:
           for artifact in \
             packages/contracts/dist/index.js \
             packages/widget-runtime/dist/widget-runtime.js \
-            apps/server/dist/index.js \
+            apps/server/dist/index.js             apps/server/dist/composition.js \
             apps/web/dist/index.html \
             apps/demo/dist/index.html
           do
@@ -99,8 +99,8 @@ jobs:
       # replica set for the multi-document transactions the blueprint depends on,
       # and the compose healthcheck already performs rs.initiate(). Duplicating
       # that init as a bespoke CI-only service would let the two topologies drift.
-      - name: Start MongoDB and Redis
-        run: docker compose up -d --wait mongo redis
+      - name: Start MongoDB, Redis, and Mailpit
+        run: docker compose up -d --wait mongo redis mailpit
 
       - name: Show service state
         run: docker compose ps
@@ -121,7 +121,11 @@ jobs:
           # resolvable, so a direct connection is used. Transactions still work
           # because the target is the primary.
           TEST_MONGODB_URI: mongodb://localhost:27017/?directConnection=true
+          TEST_REDIS_URL: redis://localhost:6379
           REDIS_URL: redis://localhost:6379
+          MAILPIT_SMTP_HOST: localhost
+          MAILPIT_SMTP_PORT: '1025'
+          MAILPIT_API: http://localhost:8025
 
       - name: Tear down services
         if: always()

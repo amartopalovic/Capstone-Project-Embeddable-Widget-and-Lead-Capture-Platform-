@@ -1,10 +1,10 @@
 # Embeddable Widget & Lead-Capture Platform
 
-> **Project status: Stage 2 of 16 complete — shared contracts, persistence, migrations, and the
-> tenancy foundation.** The data layer now exists and enforces workspace isolation, proven by
-> integration tests against a real MongoDB replica set. There are still **no user-facing
-> features**: no authentication, widgets, or submissions. Every command, link, and proof marked
-> _planned_ or _TBD_ below does not work today.
+> **Project status: Stage 2 of 16 complete, plus Stage 3a — the authentication backend.**
+> Registration, email verification, login, password reset, Redis sessions, and transactional
+> email all work and are proven against real infrastructure. There is still **no user
+> interface and no MFA** — those are Stage 3b — and no widgets or submissions. Every command,
+> link, and proof marked _planned_ or _TBD_ below does not work today.
 
 ---
 
@@ -235,21 +235,22 @@ later stages extend it rather than invent it.
 
 Run these on the host after `npm ci`:
 
-| Command                    | What it does                                                         | Status    |
-| -------------------------- | -------------------------------------------------------------------- | --------- |
-| `npm run lint`             | ESLint across every workspace (25 files today)                       | Real      |
-| `npm run format:check`     | Prettier formatting check                                            | Real      |
-| `npm run typecheck`        | Strict TypeScript across all nine workspaces                         | Real      |
-| `npm run test`             | Unit and smoke tests, no infrastructure needed (36 tests)            | Real      |
-| `npm run test:integration` | Tenant-isolation and migration tests against real MongoDB (25 tests) | Real      |
-| `npm run migrate`          | Apply committed migrations and indexes; repeatable                   | Real      |
-| `npm run build`            | Production build of every workspace                                  | Real      |
-| BullMQ queue tests         | Background job integration                                           | _Stage 9_ |
-| End-to-end tests           | Critical browser journeys                                            | _Stage 6_ |
-| Acceptance probes          | The six mandatory probes                                             | _Stage 7_ |
+| Command                    | What it does                                                                                       | Status    |
+| -------------------------- | -------------------------------------------------------------------------------------------------- | --------- |
+| `npm run lint`             | ESLint across every workspace (25 files today)                                                     | Real      |
+| `npm run format:check`     | Prettier formatting check                                                                          | Real      |
+| `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                       | Real      |
+| `npm run test`             | Unit and smoke tests, no infrastructure needed (59 tests)                                          | Real      |
+| `npm run test:integration` | Tenancy, migrations, and the full auth backend against real MongoDB, Redis, and Mailpit (59 tests) | Real      |
+| `npm run migrate`          | Apply committed migrations and indexes; repeatable                                                 | Real      |
+| `npm run build`            | Production build of every workspace                                                                | Real      |
+| BullMQ queue tests         | Background job integration                                                                         | _Stage 9_ |
+| End-to-end tests           | Critical browser journeys                                                                          | _Stage 6_ |
+| Acceptance probes          | The six mandatory probes                                                                           | _Stage 7_ |
 
-`npm run test:integration` needs MongoDB and Redis running. Start them with
-`docker compose up -d --wait mongo redis`, or the full stack with `docker compose up --build`.
+`npm run test:integration` needs MongoDB, Redis, and Mailpit running. Start them with
+`docker compose up -d --wait mongo redis mailpit`, or the full stack with
+`docker compose up --build`.
 
 ### 5.4 Known issue: repository path must not contain `&`
 
@@ -300,24 +301,24 @@ reflects that this repository is only at Stage 0.
 - Everything listed in §4 above is out of scope.
 - The repository is organized as an npm-workspaces monorepo — see §3.
 
-### 7.2 Stage 2 limitations (temporary)
+### 7.2 Stage 3a limitations (temporary)
 
-- **There are still no user-facing features.** No authentication, onboarding, RBAC
-  enforcement, widgets, submissions, contacts, or analytics. `apps/server` serves health
-  endpoints only; `apps/web` and `apps/demo` render placeholder pages.
-- The data layer covers only the six foundation records (User, Workspace, Membership,
-  Invitation, AuditEvent, OutboxEvent). The other collections in blueprint §9.2 arrive with
-  the features that need them.
-- `User` deliberately carries **no credential material** — password hashing, TOTP seeds, and
-  recovery codes arrive in Stage 3 through their own migration.
-- Invitation token _storage_ is hashed and ready, but nothing issues, sends, or accepts an
-  invitation yet (Stages 3 and 4).
-- Every acceptance probe in [`EVIDENCE.md`](./EVIDENCE.md) is still unproven and marked so.
-- CI now runs unit and integration jobs. E2E, acceptance, accessibility, bundle-size, and
-  secret-scanning checks remain explicit TODOs in the workflow rather than stubbed passing
-  steps, and CI has still never executed because no remote is configured.
+- **There is no user interface.** Authentication works over the API only; the
+  register, login, verify, reset, and session-management pages are Stage 3b.
+- **There is no MFA.** Blueprint section 4.2 specifies optional TOTP with recovery
+  codes; the `User` record carries no MFA fields yet. Stage 3b adds them.
+- **No browser end-to-end tests.** Stage 3a proves itself with integration tests
+  against real infrastructure; E2E arrives with the UI in Stage 3b.
+- Blueprint Stage 3 therefore remains **unchecked** in the stage checklist: its gate
+  names MFA and E2E explicitly, and only 3a is done.
+- No workspaces, RBAC, invitations, widgets, submissions, contacts, or analytics.
+  `requireVerifiedEmail` exists and is tested but gates nothing yet, because the
+  actions it will guard (publishing, inviting) arrive in Stages 4 and 5.
+- Every acceptance probe in [`EVIDENCE.md`](./EVIDENCE.md) is still unproven.
+- CI has still never executed, because no remote is configured.
 - Nothing is deployed, and `capstone.yaml` still has `TBD` for every production URL.
-- The repository path must not contain `&` on Windows — see §5.4.
+- The repository path must not contain `&` on Windows — see §5.4. This now also
+  affects `npm install` for any dependency with an install script.
 - _This section is expanded honestly as stages complete, and finalized in Stage 15._
 
 ---
@@ -346,24 +347,24 @@ The six acceptance probes that must eventually pass are:
 
 ## 9. Repository map
 
-| Path                                                                                           | Purpose                                                       | Status                                       |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------- |
-| [`Embeddable_Widget_Lead_Capture_Blueprint.md`](./Embeddable_Widget_Lead_Capture_Blueprint.md) | Authoritative architecture and 16-stage plan                  | Complete                                     |
-| [`README.md`](./README.md)                                                                     | This file — orientation for a stranger                        | Stage 1                                      |
-| [`docs/architecture-summary.md`](./docs/architecture-summary.md)                               | One-page evaluator summary                                    | Current                                      |
-| [`docs/repository-layout.md`](./docs/repository-layout.md)                                     | Workspace ownership map                                       | Current                                      |
-| [`docs/stage-checklist.md`](./docs/stage-checklist.md)                                         | All 16 stages, goals, and exit gates                          | Stages 0–2 checked                           |
-| [`EVIDENCE.md`](./EVIDENCE.md)                                                                 | One proof per requirement                                     | Stage 2 items updated; probes still unproven |
-| [`BUILDLOG.md`](./BUILDLOG.md)                                                                 | Where AI helped, failed, and was corrected                    | Stages 0–2 recorded                          |
-| [`capstone.yaml`](./capstone.yaml)                                                             | Machine-readable run/seed/test/probe manifest                 | Real commands; production URLs `TBD`         |
-| [`.env.example`](./.env.example)                                                               | Safe placeholder configuration                                | Placeholders only, no secrets                |
-| [`.gitignore`](./.gitignore)                                                                   | Established before dependencies or secrets could be committed | Current                                      |
-| [`LICENSE`](./LICENSE)                                                                         | MIT                                                           | Complete                                     |
-| [`package.json`](./package.json)                                                               | npm workspaces root and quality scripts                       | Stage 1                                      |
-| [`docker-compose.yml`](./docker-compose.yml)                                                   | Local six-service topology                                    | Stage 1                                      |
-| [`Dockerfile.dev`](./Dockerfile.dev)                                                           | Shared development image for the three apps                   | Stage 1                                      |
-| [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)                                       | CI baseline                                                   | Stage 1                                      |
-| `apps/`, `packages/`                                                                           | The nine npm workspaces                                       | See §2.5                                     |
+| Path                                                                                           | Purpose                                                       | Status                                        |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------- |
+| [`Embeddable_Widget_Lead_Capture_Blueprint.md`](./Embeddable_Widget_Lead_Capture_Blueprint.md) | Authoritative architecture and 16-stage plan                  | Complete                                      |
+| [`README.md`](./README.md)                                                                     | This file — orientation for a stranger                        | Stage 1                                       |
+| [`docs/architecture-summary.md`](./docs/architecture-summary.md)                               | One-page evaluator summary                                    | Current                                       |
+| [`docs/repository-layout.md`](./docs/repository-layout.md)                                     | Workspace ownership map                                       | Current                                       |
+| [`docs/stage-checklist.md`](./docs/stage-checklist.md)                                         | All 16 stages, goals, and exit gates                          | Stages 0–2 checked, 3a done                   |
+| [`EVIDENCE.md`](./EVIDENCE.md)                                                                 | One proof per requirement                                     | Stage 3a items updated; probes still unproven |
+| [`BUILDLOG.md`](./BUILDLOG.md)                                                                 | Where AI helped, failed, and was corrected                    | Stages 0–2 and 3a recorded                    |
+| [`capstone.yaml`](./capstone.yaml)                                                             | Machine-readable run/seed/test/probe manifest                 | Real commands; production URLs `TBD`          |
+| [`.env.example`](./.env.example)                                                               | Safe placeholder configuration                                | Placeholders only, no secrets                 |
+| [`.gitignore`](./.gitignore)                                                                   | Established before dependencies or secrets could be committed | Current                                       |
+| [`LICENSE`](./LICENSE)                                                                         | MIT                                                           | Complete                                      |
+| [`package.json`](./package.json)                                                               | npm workspaces root and quality scripts                       | Stage 1                                       |
+| [`docker-compose.yml`](./docker-compose.yml)                                                   | Local six-service topology                                    | Stage 1                                       |
+| [`Dockerfile.dev`](./Dockerfile.dev)                                                           | Shared development image for the three apps                   | Stage 1                                       |
+| [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)                                       | CI baseline                                                   | Stage 1                                       |
+| `apps/`, `packages/`                                                                           | The nine npm workspaces                                       | See §2.5                                      |
 
 ---
 

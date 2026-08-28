@@ -2,13 +2,13 @@
 
 One repeatable proof per requirement.
 
-> ## Status at Stage 2: **no acceptance probe is proven.**
+> ## Status at Stage 3a: **no acceptance probe is proven.**
 >
-> Stage 2 delivered the data and contract foundation. The tenancy invariant (D1, C6) and
-> repeatable migrations (D13) now carry real executed evidence, alongside the Stage 1
-> infrastructure entries (D14, D16, D17, C18). **All six acceptance probes and every
-> user-facing product requirement remain `NOT YET IMPLEMENTED`**, because no feature code
-> exists yet.
+> Stage 3a delivered the authentication backend. The credential, session, throttle, and
+> generic-response requirements (C1, C4, C5, and parts of B2 and C2) now carry real executed
+> evidence, alongside the Stage 2 tenancy and migration entries. **All six acceptance probes
+> remain `NOT YET IMPLEMENTED`**, because no widget or submission code exists. MFA and the
+> auth UI are Stage 3b and are marked accordingly rather than claimed.
 >
 > As each stage completes, its entries gain: the exact command an evaluator can re-run, the
 > observed output or transcript, and a link to the test that enforces the behavior. An entry is
@@ -108,12 +108,16 @@ real queue behavior in Stage 9.
 - **Requirement:** Email/password with Argon2id; 12-character minimum with breached-password
   blocking; verification and reset flows; optional TOTP MFA; Redis server sessions with 7-day idle
   and 30-day absolute lifetime; device list and revocation; security audit events.
-- **Status:** `NOT YET IMPLEMENTED` — planned for **Stage 3**.
-- **Note:** the Stage 2 `User` record deliberately carries **no credential material at all** — no
-  password hash, TOTP seed, or recovery codes. It models identity and verification state only
-  (`normalizedEmail` with a unique partial index, `emailVerifiedAt`, and the deletion lifecycle).
-  Stage 3 adds credential fields through its own migration.
-- **Evidence:** _none for the requirement itself._
+- **Status:** `IN PROGRESS` — the credential half is **done and proven in Stage 3a**; MFA is
+  **Stage 3b**.
+- **Done and proven:** Argon2id hashing at 64 MiB / t=3 / p=4; the 12-character minimum with
+  strength feedback and common/breached-password blocking; email verification and password reset
+  over hashed single-use expiring tokens; Redis server sessions with a 7-day idle and 30-day
+  absolute lifetime; the device/session list with individual and global revocation; and security
+  audit events for every authentication action.
+- **Not done:** optional TOTP MFA and hashed recovery codes. The `User` record still carries no MFA
+  fields; Stage 3b adds them through its own migration.
+- **Evidence:** see Part D-detail, Stage 3a.
 
 ### B3. Widget catalog and builder (§4.3)
 
@@ -189,27 +193,27 @@ The implementation is not complete until every item below is enforced and eviden
 currently unproven. Consolidated verification happens in **Stage 13**, but each item is delivered
 by the stage noted.
 
-| #   | Requirement                                                                                 | Status                                                   | Delivered by                         |
-| --- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------ |
-| C1  | Argon2id hashing and strong password rules                                                  | `NOT YET IMPLEMENTED`                                    | Stage 3                              |
-| C2  | Hashed single-use verification, reset, invitation, recovery, and privacy tokens with expiry | `IN PROGRESS` - hashed storage shape only                | Stages 3, 4, 11                      |
-| C3  | Optional TOTP MFA and hashed recovery codes                                                 | `NOT YET IMPLEMENTED`                                    | Stage 3                              |
-| C4  | Redis sessions, rotation, expiry, device revocation, secure cookies, CSRF                   | `NOT YET IMPLEMENTED`                                    | Stage 3                              |
-| C5  | Generic auth responses and dedicated brute-force limits                                     | `NOT YET IMPLEMENTED`                                    | Stage 3                              |
-| C6  | Mandatory workspace scope in every tenant query                                             | `PROVEN` for foundation repositories - see Part D-detail | Stage 2, enforced onward             |
-| C7  | Role and verified-email gates on the server, never only in React                            | `NOT YET IMPLEMENTED`                                    | Stage 4                              |
-| C8  | Strict Origin allowlist and correct CORS/preflight behavior                                 | `NOT YET IMPLEMENTED`                                    | Stages 6, 7                          |
-| C9  | Platform-owned payload schemas and 32 KB body limit                                         | `NOT YET IMPLEMENTED`                                    | Stage 7                              |
-| C10 | Honeypot, timing heuristic, rate limits, quotas, 24-hour idempotency                        | `NOT YET IMPLEMENTED`                                    | Stage 7                              |
-| C11 | No raw IP persistence and monthly HMAC rotation                                             | `NOT YET IMPLEMENTED`                                    | Stage 7                              |
-| C12 | Encryption of readable secrets with key-version support                                     | `NOT YET IMPLEMENTED`                                    | Stages 3, 9                          |
-| C13 | Output escaping, safe template variables, no arbitrary HTML/CSS/JS                          | `NOT YET IMPLEMENTED`                                    | Stages 5, 6, 9                       |
-| C14 | Validated redirects and CTA destinations                                                    | `NOT YET IMPLEMENTED`                                    | Stages 5, 6                          |
-| C15 | Webhook SSRF defenses and HMAC signing                                                      | `NOT YET IMPLEMENTED`                                    | Stage 9                              |
-| C16 | Security headers and an appropriate Content Security Policy                                 | `NOT YET IMPLEMENTED`                                    | Stage 13                             |
-| C17 | PII and secret redaction in logs, errors, analytics, and monitoring                         | `NOT YET IMPLEMENTED`                                    | Stage 13                             |
-| C18 | Dependency review, lockfile integrity, vulnerability and secret scanning in CI              | `IN PROGRESS` - detail below                             | Stage 1 baseline, completed Stage 13 |
-| C19 | Immutable audit and submission evidence within retention windows                            | `IN PROGRESS` - AuditEvent 12-month TTL verified         | Stages 2, 7, 11                      |
+| #   | Requirement                                                                                 | Status                                                                                                 | Delivered by                         |
+| --- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------ |
+| C1  | Argon2id hashing and strong password rules                                                  | `PROVEN` - Argon2id 64MiB/t=3/p=4 with policy and breach blocking                                      | Stage 3                              |
+| C2  | Hashed single-use verification, reset, invitation, recovery, and privacy tokens with expiry | `IN PROGRESS` - verification, reset, and invitation tokens hashed; recovery and privacy tokens pending | Stages 3, 4, 11                      |
+| C3  | Optional TOTP MFA and hashed recovery codes                                                 | `NOT YET IMPLEMENTED` - Stage 3b                                                                       | Stage 3                              |
+| C4  | Redis sessions, rotation, expiry, device revocation, secure cookies, CSRF                   | `PROVEN` for sessions, rotation, expiry, revocation, cookies, and CSRF                                 | Stage 3                              |
+| C5  | Generic auth responses and dedicated brute-force limits                                     | `PROVEN` - generic responses and per-flow throttles                                                    | Stage 3                              |
+| C6  | Mandatory workspace scope in every tenant query                                             | `PROVEN` for foundation repositories - see Part D-detail                                               | Stage 2, enforced onward             |
+| C7  | Role and verified-email gates on the server, never only in React                            | `NOT YET IMPLEMENTED`                                                                                  | Stage 4                              |
+| C8  | Strict Origin allowlist and correct CORS/preflight behavior                                 | `NOT YET IMPLEMENTED`                                                                                  | Stages 6, 7                          |
+| C9  | Platform-owned payload schemas and 32 KB body limit                                         | `NOT YET IMPLEMENTED`                                                                                  | Stage 7                              |
+| C10 | Honeypot, timing heuristic, rate limits, quotas, 24-hour idempotency                        | `NOT YET IMPLEMENTED`                                                                                  | Stage 7                              |
+| C11 | No raw IP persistence and monthly HMAC rotation                                             | `NOT YET IMPLEMENTED`                                                                                  | Stage 7                              |
+| C12 | Encryption of readable secrets with key-version support                                     | `NOT YET IMPLEMENTED`                                                                                  | Stages 3, 9                          |
+| C13 | Output escaping, safe template variables, no arbitrary HTML/CSS/JS                          | `NOT YET IMPLEMENTED`                                                                                  | Stages 5, 6, 9                       |
+| C14 | Validated redirects and CTA destinations                                                    | `NOT YET IMPLEMENTED`                                                                                  | Stages 5, 6                          |
+| C15 | Webhook SSRF defenses and HMAC signing                                                      | `NOT YET IMPLEMENTED`                                                                                  | Stage 9                              |
+| C16 | Security headers and an appropriate Content Security Policy                                 | `NOT YET IMPLEMENTED`                                                                                  | Stage 13                             |
+| C17 | PII and secret redaction in logs, errors, analytics, and monitoring                         | `NOT YET IMPLEMENTED`                                                                                  | Stage 13                             |
+| C18 | Dependency review, lockfile integrity, vulnerability and secret scanning in CI              | `IN PROGRESS` - detail below                                                                           | Stage 1 baseline, completed Stage 13 |
+| C19 | Immutable audit and submission evidence within retention windows                            | `IN PROGRESS` - AuditEvent 12-month TTL verified                                                       | Stages 2, 7, 11                      |
 
 ---
 
@@ -440,6 +444,107 @@ still unproven.
 
 ---
 
+## Part D-detail - Stage 3a authentication evidence
+
+All figures below come from an executed run on 2026-08-28 against real MongoDB, real Redis, and
+real Mailpit. Command:
+
+```
+docker compose up -d --wait mongo redis mailpit
+npm run test:integration
+```
+
+Result: **Test Files 4 passed (4), Tests 59 passed (59)** across the Stage 2 and Stage 3a suites.
+Unit suites: **Test Files 5 passed (5), Tests 59 passed (59)**.
+
+### C1. Argon2id password hashing and strong password rules
+
+- **Status:** `PROVEN`.
+- Hashing uses Argon2id with 64 MiB memory, 3 iterations, 4 lanes, and a 32-byte output, stated
+  explicitly rather than inherited from library defaults. A stored digest is asserted to match
+  `$argon2id$v=19$m=65536,t=3,p=4$`, and the plaintext is asserted to be absent from the stored
+  document.
+- The policy rejects passwords under 12 characters, common long passwords, single repeated
+  characters, sequential runs, passwords containing the account email, and passwords on the
+  offline breach list. Rejection messages are asserted never to echo the password.
+- `needsRehash` correctly flags weaker stored parameters and leaves current ones alone, so a future
+  parameter increase upgrades hashes on next login rather than silently doing nothing.
+- **Note on the library:** the implementation is `@node-rs/argon2` rather than the `argon2` npm
+  package. Both emit standard PHC `$argon2id$` strings and the blueprint locks the ALGORITHM, not a
+  package. `argon2` could not be installed at all from this working directory, because its install
+  script runs through cmd.exe and the folder name contains `&`.
+
+### C4. Redis sessions, rotation, expiry, revocation, secure cookies, CSRF
+
+- **Status:** `PROVEN`.
+- **Cookie flags** are asserted on the raw `Set-Cookie`: `HttpOnly`, `Path=/`, `SameSite=Lax`.
+  `Secure` is driven by `NODE_ENV` and is off only because the test server is plain HTTP.
+- **Both lifetimes are enforced and tested.** A session survives repeated activity across 12 days
+  but dies after 8 idle days, and dies at the 30-day absolute cap even under continuous activity.
+  Both deadlines are stored in the record and re-checked against the application clock, not left to
+  the Redis TTL alone.
+- **Revocation is immediate.** Logout is asserted to DELETE the Redis key, not flag it. Revoking one
+  session signs out that device only; revoke-all signs out every other device while keeping the
+  caller in; `?includeCurrent=true` signs out everywhere.
+- **A user cannot revoke another user's session**, and the refusal is the same 404 a nonexistent
+  session returns, so it cannot be used to probe for valid identifiers.
+- **CSRF** is enforced on the authenticated surface: the same request is a 403 without a token and a
+  200 with one. Tokens are bound to the session identifier via `getSessionIdentifier`.
+
+### C5. Generic responses and dedicated brute-force limits
+
+- **Status:** `PROVEN`.
+- **Account enumeration is blocked in three places**, each asserted by comparing full responses:
+  registering an already-used address returns byte-identical status and body to a fresh
+  registration (and creates no second account); a wrong password and an unknown account return the
+  identical code and message; a reset request for a known and an unknown address are identical.
+- A dummy Argon2id verification runs on the unknown-account path so response time does not leak
+  existence either.
+- **Per-flow throttles** exist for login (by IP and by account), registration, verification resend,
+  reset request, and reset confirm, each with its own Redis key space so exhausting one cannot lock
+  a user out of another. Bursts are asserted to produce 429s with a `Retry-After` header.
+
+### C2. Hashed single-use tokens
+
+- **Status:** `IN PROGRESS`. Verification and reset tokens are done; recovery codes are Stage 3b and
+  privacy tokens are Stage 11.
+- Tokens are 256 bits of randomness; only a SHA-256 hash is stored, and the emailed link carries the
+  only copy of the plaintext. Redemption is a single atomic update filtered on the hash, so a
+  concurrent second redemption matches nothing. Replay is asserted to fail for both flows.
+
+### Email: Mailpit and Brevo adapters with the section 5.3 budget
+
+- **Status:** `IN PROGRESS` — auth-class mail is done; side-effect mail is Stage 9.
+- Verification and reset emails are really sent over SMTP and read back out of Mailpit through its
+  API, including extracting the token from the link. The email body is asserted to contain neither
+  the password nor any hash.
+- The daily budget reserves 100 of 300 for critical mail. Tests burn the 200-message side-effect
+  allowance, confirm the 201st side effect is refused while critical mail still sends, confirm
+  everything is refused once all 300 are gone, and confirm a new UTC day restores the allowance.
+- Brevo is implemented against `POST /v3/smtp/email` and classifies 4xx (except 429) as PERMANENT so
+  Stage 9 never retries a permanent failure as though it were transient. No Brevo key is needed for
+  local development or CI.
+
+### No credential material in logs or audit records (blueprint 16.1)
+
+- **Status:** `PROVEN` for everything that exists today.
+- Audit events are written for registration, login, logout, verification, password reset, account
+  lock, and session revocation, each carrying the actor and a request correlation ID.
+- Tests serialise every audit record AND every captured log record for a session and assert that
+  the password, the session identifier, and any `$argon2id$` string are all absent.
+- The shared logger additionally redacts forbidden field names centrally, so a future call site
+  cannot leak by forgetting.
+
+### Verified-email gate (blueprint 4.1)
+
+- **Status:** `IN PROGRESS` by design. `requireVerifiedEmail` exists, is typed, and returns
+  `email_not_verified` with a 403 — but **it currently gates nothing**, because publishing and
+  invitations do not exist until Stages 5 and 4. It is a deliberate interface stub so those stages
+  attach a guard that already works. An unverified user can sign in and use the dashboard, which is
+  what section 4.1 specifies.
+
+---
+
 ## Part E — Definition of done (blueprint §22)
 
 Version 1 is complete only when all twelve conditions hold. This table is the final checklist an
@@ -470,3 +575,5 @@ evaluator can use; it is fully re-verified in **Stage 15**.
 | 2026-08-28 | 1     | D14, D16, D17, and C18 moved to `IN PROGRESS` with real executed evidence in Part D-detail. All six acceptance probes and every product requirement remain unproven. |
 
 | 2026-08-28 | 2 | D1, D13, and C6 moved to `PROVEN` for the foundation repositories, evidenced by 25 integration tests against a real MongoDB replica set. D2, C2, C19, B1, and the logging baseline moved to `IN PROGRESS` with their gaps stated. All six acceptance probes remain unproven. |
+
+| 2026-08-28 | 3a | C1, C4, and C5 moved to `PROVEN`; B2 and C2 to `IN PROGRESS` with the MFA gap stated explicitly. Evidenced by 34 auth integration tests against real MongoDB, Redis, and Mailpit plus 23 auth unit tests. MFA, auth UI, and browser E2E are Stage 3b and are NOT claimed. All six acceptance probes remain unproven. |

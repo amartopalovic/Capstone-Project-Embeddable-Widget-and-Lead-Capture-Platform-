@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { HealthService } from '../src/application/health-service.js';
 import type { DependencyProbe, DependencyProbeResult } from '../src/ports/dependency-probe.js';
-import { createApp } from '../src/http/app.js';
+import { buildTestApp } from './helpers/test-app.js';
 
 /**
  * Stage 1 smoke test.
@@ -23,7 +23,7 @@ function stubProbe(name: string, status: 'up' | 'down'): DependencyProbe {
 }
 
 function startServer(healthService: HealthService): Promise<{ server: Server; baseUrl: string }> {
-  const server = createServer(createApp(healthService));
+  const server = createServer(buildTestApp(healthService));
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address() as AddressInfo;
@@ -80,8 +80,11 @@ describe('health endpoints with every dependency up', () => {
     expect(response.status).toBe(404);
     expect(response.headers.get('content-type')).toContain('application/json');
 
-    const body = (await response.json()) as Record<string, unknown>;
-    expect(body['code']).toBe('not_found');
+    // Stage 3a moved every error onto the shared envelope from blueprint
+    // section 10.1: a code, a safe message, and the request correlation ID.
+    const body = (await response.json()) as { error?: Record<string, unknown> };
+    expect(body.error?.['code']).toBe('not_found');
+    expect(typeof body.error?.['requestId']).toBe('string');
   });
 });
 

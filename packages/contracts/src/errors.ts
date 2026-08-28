@@ -18,6 +18,21 @@ export const ERROR_CODES = {
   CONFLICT: 'conflict',
   STALE_REVISION: 'stale_revision',
   RATE_LIMITED: 'rate_limited',
+  // --- Authentication (Stage 3a) -------------------------------------------
+  /**
+   * Deliberately generic. Returned for a wrong password, an unknown account,
+   * and a locked account alike, so a caller cannot distinguish them
+   * (blueprint section 10.3, generic responses prevent account enumeration).
+   */
+  INVALID_CREDENTIALS: 'invalid_credentials',
+  /** The password failed the policy in blueprint section 4.2. */
+  WEAK_PASSWORD: 'weak_password',
+  /** A verification or reset token is unknown, expired, or already used. */
+  INVALID_TOKEN: 'invalid_token',
+  /** The action requires a verified email address (blueprint section 4.1). */
+  EMAIL_NOT_VERIFIED: 'email_not_verified',
+  /** The CSRF token was missing or did not validate. */
+  CSRF_INVALID: 'csrf_invalid',
   QUOTA_EXCEEDED: 'quota_exceeded',
   INTERNAL_ERROR: 'internal_error',
   SERVICE_UNAVAILABLE: 'service_unavailable',
@@ -42,6 +57,11 @@ const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   [ERROR_CODES.CONFLICT]: 409,
   [ERROR_CODES.STALE_REVISION]: 409,
   [ERROR_CODES.RATE_LIMITED]: 429,
+  [ERROR_CODES.INVALID_CREDENTIALS]: 401,
+  [ERROR_CODES.WEAK_PASSWORD]: 400,
+  [ERROR_CODES.INVALID_TOKEN]: 400,
+  [ERROR_CODES.EMAIL_NOT_VERIFIED]: 403,
+  [ERROR_CODES.CSRF_INVALID]: 403,
   [ERROR_CODES.QUOTA_EXCEEDED]: 429,
   [ERROR_CODES.INTERNAL_ERROR]: 500,
   [ERROR_CODES.SERVICE_UNAVAILABLE]: 503,

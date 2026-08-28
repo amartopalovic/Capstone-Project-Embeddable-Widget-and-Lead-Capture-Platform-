@@ -1,8 +1,8 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 2.** All nine workspaces exist. `packages/config`, `packages/contracts`,
-`packages/database`, and `packages/test-utils` now carry real content; the rest remain deliberate
-shells until the stage that fills them.
+**Status: Stage 3a.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+`packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
+rest remain deliberate shells until the stage that fills them.
 
 This document records the workspace boundaries from blueprint §6 and what each currently contains.
 
@@ -85,6 +85,29 @@ the blueprint does not name.
 **Why Redis lives in `apps/server`.** Blueprint section 6 scopes `packages/database` to "Mongo
 models, repositories, indexes, and migrations". Redis is not Mongo, and only the server process
 uses it, so the connection and key policy live in `apps/server/src/infrastructure/redis/`.
+
+### What `apps/server` provides after Stage 3a
+
+The layering rule from blueprint section 6.2 is visible in the directory names:
+HTTP adapters depend on application services, which depend on ports, which
+infrastructure adapters implement.
+
+| Directory                   | Layer                | Contents                                                                                                                                                      |
+| --------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/auth/`          | Domain rules         | Password policy and single-use token generation and hashing. Pure, no I/O.                                                                                    |
+| `src/application/auth/`     | Application services | `AuthService` (register, verify, login, reset), `SessionService` (start, rotate, list, revoke), narrow repository ports, and the account-level audit adapter. |
+| `src/ports/`                | Ports                | `PasswordHasher`, `BreachChecker`, `EmailSender`, `SessionStore`, `RateLimiter`, `Clock`, plus the Stage 1 dependency probes.                                 |
+| `src/infrastructure/auth/`  | Adapters             | Argon2id hasher, offline and HIBP breach checkers.                                                                                                            |
+| `src/infrastructure/redis/` | Adapters             | Session store, rate limiter, email-budget counter, key policy, connection.                                                                                    |
+| `src/infrastructure/email/` | Adapters             | Mailpit SMTP, Brevo HTTP, capturing fake, and the budget-enforcing wrapper.                                                                                   |
+| `src/http/routes/`          | HTTP adapters        | `auth.ts`, `sessions.ts`, `health.ts`.                                                                                                                        |
+| `src/http/middleware/`      | HTTP adapters        | Correlation ID, session resolution, `requireAuth`, `requireVerifiedEmail`, CSRF, throttling, error handling.                                                  |
+| `src/composition.ts`        | Composition root     | Chooses concrete adapters and injects them downward.                                                                                                          |
+
+**Why the `Clock` port exists.** Session idle and absolute lifetimes, token
+expiry, throttle windows, and the daily email budget are all time-dependent.
+Injecting time lets the integration tests cross a 30-day boundary in
+milliseconds instead of sleeping, and keeps those tests deterministic.
 
 ## 3. What exists at the root today
 

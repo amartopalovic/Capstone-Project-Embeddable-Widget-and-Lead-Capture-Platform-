@@ -1,31 +1,115 @@
 import express, { type Express } from 'express';
-import { API_PREFIX } from '@lcp/contracts';
+import cookieParser from 'cookie-parser';
+import { API_PREFIX, ERROR_CODES, createErrorPayload } from '@lcp/contracts';
 import type { HealthService } from '../application/health-service.js';
+import type { AppDependencies } from '../composition.js';
+import type { ServerEnv } from '../config/env.js';
 import { createHealthRouter } from './routes/health.js';
+import { createAuthRouter } from './routes/auth.js';
+import { createSessionsRouter } from './routes/sessions.js';
+import { correlationMiddleware } from './middleware/correlation.js';
+import { errorHandler } from './middleware/error-handler.js';
+import { sessionMiddleware, type SessionCookieOptions } from './middleware/session.js';
+import { createCsrf } from './middleware/csrf.js';
 
 /**
  * Express application factory.
  *
- * Kept separate from the process bootstrap so tests can exercise the app
- * without binding a fixed port or starting background work.
+ * Middleware order is load-bearing and deliberate:
+ *   correlation -> cookies -> body -> session resolution -> CSRF -> routes
+ *
+ * CSRF must run AFTER session resolution because the token is bound to the
+ * session identifier, and after the body parser so a form-encoded token could
+ * be read if a later stage needs one.
  */
-export function createApp(healthService: HealthService): Express {
+
+export interface CreateAppOptions {
+  readonly env: ServerEnv;
+  readonly healthService: HealthService;
+  readonly deps: AppDependencies;
+}
+
+export function createApp(options: CreateAppOptions): Express {
+  const { env, healthService, deps } = options;
   const app = express();
 
   app.disable('x-powered-by');
+  // Behind Render's proxy, so the client IP used for throttling comes from the
+  // forwarded header rather than the proxy's own address.
+  app.set('trust proxy', 1);
+
+  const secureCookies = env.nodeEnv === 'production';
+  const cookie: SessionCookieOptions = {
+    name: env.sessionCookieName,
+    secure: secureCookies,
+    // Lax rather than Strict: the dashboard is same-origin, and Strict would
+    // break the top-level navigation arriving from a verification email link.
+    sameSite: 'lax',
+  };
+
+  app.use(correlationMiddleware());
+  app.use(cookieParser());
+  // Blueprint section 7.3 caps request bodies at 32 KB. An oversized body is
+  // translated into a clean 413 by the error handler, never a 500.
   app.use(express.json({ limit: '32kb' }));
 
-  // Health endpoints sit outside the versioned API surface so probes stay
-  // stable across API versions (blueprint section 16.2).
+  // Health endpoints sit outside the versioned API and before session handling,
+  // so a probe never depends on Redis being reachable.
   app.use('/health', createHealthRouter(healthService));
 
-  app.get(API_PREFIX, (_request, response) => {
-    response.status(200).json({ api: API_PREFIX, status: 'skeleton' });
+  app.use(sessionMiddleware(deps.sessionService, deps.userRepository, cookie.name));
+
+  const { generateCsrfToken, doubleCsrfProtection } = createCsrf({
+    secret: env.sessionSecret,
+    cookieName: secureCookies ? '__Host-lcp.csrf' : 'lcp.csrf',
+    secure: secureCookies,
+    sameSite: 'lax',
   });
 
-  app.use((_request, response) => {
-    response.status(404).json({ code: 'not_found', message: 'Resource not found' });
+  const authRouter = createAuthRouter({
+    auth: deps.authService,
+    sessions: deps.sessionService,
+    limiter: deps.rateLimiter,
+    logger: deps.logger,
+    cookie,
+    generateCsrfToken,
   });
+
+  const sessionsRouter = createSessionsRouter({
+    sessions: deps.sessionService,
+    logger: deps.logger,
+    cookie,
+  });
+
+  /**
+   * CSRF applies to the authenticated surface only.
+   *
+   * The unauthenticated auth endpoints (register, login, verify, reset) cannot
+   * be meaningfully CSRF-protected: there is no session yet to bind a token to,
+   * and a forged request to them accomplishes nothing an attacker could not do
+   * directly. They are protected by throttling and generic responses instead.
+   * Everything reached with an existing session does require a token.
+   */
+  app.use(`${API_PREFIX}/auth`, authRouter);
+  app.use(`${API_PREFIX}/sessions`, doubleCsrfProtection, sessionsRouter);
+
+  app.get(API_PREFIX, (_request, response) => {
+    response.status(200).json({ api: API_PREFIX, status: 'ok' });
+  });
+
+  app.use((request, response) => {
+    response
+      .status(404)
+      .json(
+        createErrorPayload(
+          ERROR_CODES.NOT_FOUND,
+          'Resource not found',
+          request.correlationId ?? 'unknown',
+        ),
+      );
+  });
+
+  app.use(errorHandler(deps.logger));
 
   return app;
 }

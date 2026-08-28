@@ -30,6 +30,22 @@ export default defineConfig({
           root: './apps/server',
           environment: 'node',
           include: ['tests/**/*.test.ts'],
+          // Integration specs live alongside the unit ones but need real
+          // Mongo, Redis, and Mailpit, so they are a separate project.
+          exclude: ['tests/**/*.integration.test.ts', 'node_modules/**'],
+        },
+      },
+      {
+        test: {
+          name: 'integration-server',
+          root: './apps/server',
+          environment: 'node',
+          include: ['tests/**/*.integration.test.ts'],
+          testTimeout: 180_000,
+          hookTimeout: 180_000,
+          // Auth integration specs share one Mailpit instance and drive a
+          // shared clock, so they run one file at a time.
+          fileParallelism: false,
         },
       },
       {

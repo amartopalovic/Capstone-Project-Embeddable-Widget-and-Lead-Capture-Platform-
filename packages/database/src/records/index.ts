@@ -46,8 +46,47 @@ export interface UserRecord extends Timestamped {
   readonly deletedAt: Date | null;
   /** When a soft-deleted account becomes eligible for purge (30 days, 9.5). */
   readonly purgeAfter: Date | null;
-  // NOTE: credential material (password hash, TOTP seed, recovery codes) is
-  // deliberately absent. Stage 3 adds it through its own migration.
+
+  // --- Credentials, added in Stage 3a by migration 002_auth ----------------
+
+  /**
+   * Argon2id PHC string, for example
+   * `$argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>`.
+   * Null only for a record created before credentials existed.
+   */
+  readonly passwordHash: string | null;
+  readonly passwordUpdatedAt: Date | null;
+
+  /** Pending single-use email-verification token, or null. */
+  readonly emailVerification: PendingToken | null;
+  /** Pending single-use password-reset token, or null. */
+  readonly passwordReset: PendingToken | null;
+
+  /** Consecutive failed logins; reset on success (blueprint 10.3 throttles). */
+  readonly failedLoginAttempts: number;
+  /** Set when repeated failures lock the account. Null when not locked. */
+  readonly lockedUntil: Date | null;
+  readonly lastLoginAt: Date | null;
+
+  // NOTE: MFA material (TOTP seed, recovery codes) is still deliberately
+  // absent. Stage 3b adds it through its own migration.
+}
+
+/**
+ * A single-use, expiring, HASHED token.
+ *
+ * Only the hash is ever persisted; the plaintext exists solely in the emailed
+ * link (blueprint section 17). This mirrors the `Invitation.tokenHash` pattern
+ * established in Stage 2 rather than inventing a second convention.
+ *
+ * These live on the User record instead of in their own collection because
+ * blueprint section 9.2 defines no auth-token collection, and a user can hold
+ * at most one pending verification and one pending reset at a time.
+ */
+export interface PendingToken {
+  readonly tokenHash: string;
+  readonly expiresAt: Date;
+  readonly issuedAt: Date;
 }
 
 // ---------------------------------------------------------------------------

@@ -47,4 +47,93 @@ export class UserRepository {
     const result = await this.#collection.updateOne({ _id: id }, { $set: set });
     return result.matchedCount > 0;
   }
+
+  // --- Stage 3a: credential and token lookups ------------------------------
+
+  /**
+   * Find an active user by the HASH of a pending verification token.
+   *
+   * Callers hash the plaintext from the emailed link first; the plaintext is
+   * never stored and never queried (blueprint section 17).
+   */
+  async findByEmailVerificationTokenHash(tokenHash: string): Promise<WithId<UserRecord> | null> {
+    return this.#collection.findOne({
+      'emailVerification.tokenHash': tokenHash,
+      status: 'active',
+    });
+  }
+
+  async findByPasswordResetTokenHash(tokenHash: string): Promise<WithId<UserRecord> | null> {
+    return this.#collection.findOne({
+      'passwordReset.tokenHash': tokenHash,
+      status: 'active',
+    });
+  }
+
+  /**
+   * Consume a pending token atomically.
+   *
+   * The filter includes the token hash, so two concurrent redemptions cannot
+   * both succeed: the second matches nothing because the first already cleared
+   * it. That is what makes the token genuinely single-use, rather than relying
+   * on a read-then-write that could interleave.
+   */
+  async consumeEmailVerification(
+    id: ObjectId,
+    tokenHash: string,
+    verifiedAt: Date,
+  ): Promise<boolean> {
+    const result = await this.#collection.updateOne(
+      { _id: id, 'emailVerification.tokenHash': tokenHash },
+      {
+        $set: {
+          emailVerifiedAt: verifiedAt,
+          emailVerification: null,
+          updatedAt: verifiedAt,
+        },
+      },
+    );
+    return result.modifiedCount > 0;
+  }
+
+  async consumePasswordReset(
+    id: ObjectId,
+    tokenHash: string,
+    passwordHash: string,
+    changedAt: Date,
+  ): Promise<boolean> {
+    const result = await this.#collection.updateOne(
+      { _id: id, 'passwordReset.tokenHash': tokenHash },
+      {
+        $set: {
+          passwordHash,
+          passwordUpdatedAt: changedAt,
+          passwordReset: null,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          updatedAt: changedAt,
+        },
+      },
+    );
+    return result.modifiedCount > 0;
+  }
+
+  async recordFailedLogin(id: ObjectId, lockedUntil: Date | null): Promise<number> {
+    const result = await this.#collection.findOneAndUpdate(
+      { _id: id },
+      {
+        $inc: { failedLoginAttempts: 1 },
+        $set: { lockedUntil, updatedAt: new Date() },
+      },
+      { returnDocument: 'after' },
+    );
+    return result?.failedLoginAttempts ?? 0;
+  }
+
+  async recordSuccessfulLogin(id: ObjectId, at: Date): Promise<void> {
+    await this.#collection.updateOne(
+      { _id: id },
+      { $set: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: at, updatedAt: at } },
+    );
+  }
 }

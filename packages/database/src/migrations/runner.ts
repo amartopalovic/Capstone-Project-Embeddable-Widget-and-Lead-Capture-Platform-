@@ -3,11 +3,12 @@ import type { Logger } from '@lcp/contracts';
 import { COLLECTIONS } from '../collections.js';
 import type { Migration } from './types.js';
 import { migration001Foundation } from './001-foundation.js';
+import { migration002Auth } from './002-auth.js';
 
 /**
  * Ordered migration list. Append only; never reorder or reuse an id.
  */
-export const MIGRATIONS: readonly Migration[] = [migration001Foundation];
+export const MIGRATIONS: readonly Migration[] = [migration001Foundation, migration002Auth];
 
 interface MigrationLedgerEntry {
   readonly _id: string;

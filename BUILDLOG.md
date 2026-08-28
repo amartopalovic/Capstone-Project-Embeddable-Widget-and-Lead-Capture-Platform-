@@ -511,3 +511,182 @@ Beyond the happy path:
    `cmd.exe` in this directory, so quality commands were run with an explicit bash script shell
    locally. This is a local folder-naming issue, not a repository defect, and no workaround was
    committed. Renaming the folder remains the recommendation.
+
+---
+
+## Stage 3a - Credential authentication backend, Redis sessions, and transactional email (2026-08-28)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Stage 3a only, a sub-stage of blueprint Stage 3. Backend authentication,
+sessions, throttles, audit, and email. **No MFA, no UI, no browser E2E** - those are Stage 3b, and
+blueprint Stage 3 stays unchecked until they land.
+
+### What was done
+
+Verified `typescript-lsp` worked before touching anything, then built the authentication backend:
+
+- `packages/contracts`: five auth error codes with their HTTP status mappings, and `auth.ts` with
+  the request schemas, password-policy constants, session summary, and the single generic
+  acknowledgement used by every enumeration-sensitive endpoint.
+- `packages/database`: migration `002_auth` extending `User` with credential, verification, reset,
+  and lockout fields plus their partial unique indexes; repository methods for token lookup and
+  atomic single-use consumption.
+- `apps/server`: the full vertical slice - domain password policy and token handling, application
+  `AuthService` and `SessionService`, ports for hashing, breach checking, email, sessions, rate
+  limiting, and time, and adapters for each, plus the HTTP routes and middleware.
+
+Choices the blueprint leaves open:
+
+| Choice                                             | Reason                                                                                                                                                                                                                                                         |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@node-rs/argon2`                                  | The blueprint locks Argon2id, not a package. The mainstream `argon2` package CANNOT INSTALL here - see below. This one emits identical PHC strings and ships prebuilt binaries with no install script.                                                         |
+| Argon2id 64 MiB / t=3 / p=4                        | The current reference recommendation, confirmed via Context7 against the node-argon2 security notes. Stated explicitly so a library default change cannot silently weaken stored hashes.                                                                       |
+| Purpose-built session store over `express-session` | Section 10.3 needs per-user indexing, immediate deletion, identifier rotation, and simultaneous idle and absolute lifetimes. Bending `express-session` plus `connect-redis` to all four would have been more code than writing the store, and harder to prove. |
+| `csrf-csrf` double-submit                          | `csurf` is deprecated and unmaintained. Context7 confirmed `csrf-csrf` is current and supports binding the token to the session identifier.                                                                                                                    |
+| Offline breach list, with HIBP opt-in              | Section 15.1 requires local development to need no external service, and CI must not depend on a third-party API. The offline list always runs; the k-anonymity remote checker only ever adds coverage and fails open.                                         |
+| Tokens on the `User` record                        | Section 9.2 defines no auth-token collection, and a user can hold at most one pending verification and one pending reset. Inventing a collection outside the blueprint map was the worse option.                                                               |
+
+### Where AI helped
+
+- Turning section 10.3 into concrete, separately testable properties. "Generic responses prevent
+  account enumeration" became three assertions comparing whole responses byte for byte, plus a
+  dummy hash verification on the unknown-account path so timing does not leak what the body hides.
+- Spotting that the per-flow throttle requirement is not decoration: separate key spaces per flow
+  are what stop an attacker exhausting the login limit to deny a victim their password reset.
+- Writing the single-use token consumption as one atomic filtered update rather than
+  read-then-write, so two concurrent redemptions cannot both succeed.
+
+### Where AI failed or was corrected
+
+- **A dependency could not be installed at all, and the first two fixes did not work.** `argon2`
+  runs `cross-env ... node-gyp-build` as an install script, npm runs install scripts through
+  cmd.exe, and cmd.exe splits the path on the `&` in the folder name. Passing
+  `--script-shell bash` did not help either, because the shim resolution itself breaks. This is
+  worse than the Stage 1 and 2 symptom, which only affected `npm run`. Resolved by switching to
+  `@node-rs/argon2`, which has no install script - a better dependency here regardless.
+- **Two real bugs were caught by the integration tests, not by review.**
+  1. CSRF rejections surfaced as **500 instead of 403**. The `csrf-csrf` error carries its own
+     status but the error handler had no branch for it, so it fell through to the generic
+     server-error path. A security control returning the wrong status is a real defect: it would
+     have looked like a broken server rather than a refused request. Fixed by giving the middleware
+     an explicit error code and matching it in the handler.
+  2. Idle session expiry was enforced **only by the Redis TTL**. The record stored an absolute
+     deadline and re-checked it, but nothing equivalent for the idle window, so `touch` trusted the
+     TTL alone. That is weaker than the absolute cap for no reason, and it made the requirement
+     untestable with a virtual clock. Fixed by storing `idleExpiresAt` and re-checking it the same
+     way. The test that exposed this is exactly the one the blueprint asks for.
+- **The whole integration suite failed on the first run for a self-inflicted reason.** Every test
+  request originates from 127.0.0.1, so the real 5-per-hour registration limit correctly refused
+  everything after the fifth test, cascading into 17 failures. Fixed by clearing this harness's
+  throttle counters between tests rather than by weakening the production limits, with the
+  throttle tests deliberately exhausting them after clearing.
+- **A Stage 1 test had to be updated, and that is worth stating plainly.** The 404 handler now
+  returns the shared error envelope from section 10.1 rather than a flat `{code, message}`. The
+  Stage 1 assertion was asserting the old shape. The test was changed because the BEHAVIOUR
+  deliberately improved and is now consistent with every other error, not to make a failure go away.
+- **`verbatimModuleSyntax` rejected the library enums.** `@node-rs/argon2` declares `Algorithm` and
+  `Version` as ambient const enums, which cannot be imported under that flag. Replaced with pinned
+  numeric constants, with the values asserted in tests so a library renumbering fails loudly.
+- **The LSP served stale buffers for files edited through shell scripts.** Several times it reported
+  errors against line numbers that no longer existed while `tsc` reported zero. `tsc` was treated as
+  authoritative and the LSP re-queried afterwards; it re-indexed correctly and the final check is
+  clean. Worth knowing: the LSP tracks editor-tool edits reliably and shell edits lazily.
+- **Shell heredocs failed again** on an unbalanced quote inside a test name. Same lesson as Stages 0
+  and 2; content-heavy files go through the editor tool.
+
+### Judgment calls
+
+1. **Account-level audit events use a sentinel workspace id.** `AuditEvent` is workspace-owned and
+   the Stage 2 repository correctly refuses to write without a scope, but authentication happens
+   before any workspace is selected. Rather than add an unscoped write path and weaken the invariant
+   proven in Stage 2, account events are written against an all-zero workspace id that no real
+   tenant can have. Stage 4 writes genuinely workspace-scoped audit through the normal repository.
+
+2. **CSRF protects the authenticated surface only.** The unauthenticated endpoints have no session
+   to bind a token to, and a forged request to them achieves nothing an attacker could not do
+   directly. They are defended by throttling and generic responses instead.
+
+3. **`SameSite=Lax`, not `Strict`.** The dashboard is same-origin so Lax suffices, and Strict would
+   break the top-level navigation arriving from a verification or reset link in an email - the exact
+   flow this stage builds.
+
+4. **Login succeeds for an unverified user.** Section 4.1 says unverified users may use the
+   dashboard and are blocked only from publishing and inviting. Blocking login would have been a
+   stricter reading than the blueprint states, and stricter is still a deviation.
+
+5. **The password policy gates on length and breach status, not composition.** Section 4.2 asks for
+   strength FEEDBACK alongside those two rules, and character-class mandates are known to push users
+   toward predictable substitutions. Strength is reported and never used to reject.
+
+6. **A `Clock` port was introduced.** Session lifetimes, token expiry, throttle windows, and the
+   daily email budget are all time-dependent. Injecting time is what lets the tests cross a 30-day
+   boundary in milliseconds and stay deterministic.
+
+7. **The email budget was built now, though nothing competes for it yet.** Section 5.3 splits the
+   allowance between critical and side-effect mail; only critical mail exists until Stage 9. The
+   guard and its counters are real and tested now, so Stage 9 inherits an enforced budget rather
+   than adding one after the traffic exists.
+
+### Verification performed
+
+Every command was executed. Beyond the happy paths:
+
+- Enumeration was probed from three angles - duplicate registration, wrong password versus unknown
+  account, and reset request for a known versus unknown address - each comparing full responses.
+- Replay was tested for both verification and reset tokens.
+- Session isolation was tested by having one user attempt to revoke another user's session.
+- Both session lifetimes were crossed deliberately, including proving that activity refreshes the
+  idle window but does NOT extend the absolute cap.
+- Logout was verified to remove the key from Redis, not merely to return 204.
+- Audit records and captured log records were serialised in full and asserted to contain no
+  password, session identifier, or hash.
+- The email body itself was asserted to leak neither the password nor a hash.
+- The budget was driven past both its side-effect cap and its total, and across a day boundary.
+
+### Plugin usage this stage
+
+- **`typescript-lsp`** - installed, available, and **it worked**, checked before any other work as
+  the stage required. Used for cross-package verification: `findReferences` on the `PasswordHasher`
+  port confirmed it is consumed only through the port by the service and the adapter; `hover`
+  confirmed `AuthService.login` resolves to
+  `(email: string, password: string, correlationId: string) => Promise<LoginOutcome>` across the
+  package boundary; `documentSymbol` confirmed the final indexed structure. It also caught a real
+  deprecation live while editing: Zod 4 moved format validators to the top level, so
+  `z.string().email()` is deprecated in favour of `z.email()`. Final state: zero unexpected
+  diagnostics, cross-checked against `tsc` reporting zero errors.
+
+- **`context7`** - installed, available, **invoked substantively**, and it changed several
+  decisions:
+  - **node-argon2** (`/ranisalt/node-argon2`): the recommended parameter set, and the existence of
+    `needsRehash` semantics worth reimplementing.
+  - **Pwned Passwords** (`/lionheart/pwnedpasswords`): the k-anonymity contract, five-character
+    SHA-1 prefix and `SUFFIX:COUNT` response lines.
+  - **csrf-csrf** (`/psifi-solutions/csrf-csrf`): current `doubleCsrf` options including
+    `getSessionIdentifier` and `errorConfig`, confirming this is the live replacement for the
+    deprecated `csurf`.
+  - **Brevo** (`/websites/developers_brevo`): `POST /v3/smtp/email` with the `api-key` header and
+    the exact payload shape.
+  - **Zod** (`/websites/zod_dev`, in Stage 2 and revisited here): the v4 API.
+    No conflict with a locked blueprint decision was found.
+
+- **`frontend-design`** - installed and available; **not invoked**. Stage 3a built no UI at all. It
+  becomes relevant in Stage 3b.
+
+### Open questions for a human
+
+1. **Blueprint Stage 3 is NOT complete.** Its gate names MFA and E2E explicitly. `docs/stage-checklist.md`
+   therefore leaves Stage 3 unchecked and records 3a as a completed sub-item. Do not read "Stage 3a
+   passed" as "Stage 3 passed".
+2. **The `&` in the folder name now blocks dependency installation**, not just script execution. Any
+   future dependency with an install script will fail the same way. Renaming the local folder is now
+   a stronger recommendation than it was in Stages 1 and 2.
+3. **CI still has never run.** The integration job now needs Mailpit as well as Mongo and Redis; the
+   compose command in the workflow was updated accordingly and verified locally, but no remote
+   exists so the workflow itself remains unexecuted.
+4. **The HIBP breach checker is off by default and untested against the live API.** It is opt-in via
+   `BREACH_CHECK_REMOTE=true`, fails open by design, and CI never calls it. Only the offline list is
+   exercised by tests.
+5. **Session rotation on password CHANGE is covered by revoke-all, not by rotation.** A completed
+   reset destroys every session including the current one, which is stronger. True in-place rotation
+   is used at login; the `rotate` method exists and is typed for the Stage 3b MFA flow, which is the
+   next event section 10.3 names.

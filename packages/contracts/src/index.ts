@@ -12,3 +12,4 @@ export * from './validation.js';
 export * from './pagination.js';
 export * from './concurrency.js';
 export * from './logging.js';
+export * from './auth.js';
