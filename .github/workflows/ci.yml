@@ -131,6 +131,53 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  e2e:
+    name: Browser end-to-end and accessibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      - name: Install the Chromium browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Build the workspace packages
+        run: npm run build:packages
+
+      - name: Start MongoDB, Redis, and Mailpit
+        run: docker compose up -d --wait mongo redis mailpit
+
+      # Playwright starts the API and web servers itself, per its webServer
+      # config, so only the infrastructure is started here.
+      - name: Run browser end-to-end and accessibility tests
+        run: npm run test:e2e
+        env:
+          CI: 'true'
+          MAILPIT_API: http://localhost:8025
+
+      - name: Upload the report when something fails
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Tear down services
+        if: always()
+        run: docker compose down -v
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest
@@ -160,12 +207,14 @@ jobs:
 # as a passing step.
 #
 #   - BullMQ queue integration tests                               -> Stage 9
-#   - Browser end-to-end tests (critical journeys)                 -> Stage 6
+#   - Browser E2E for the widget runtime and submission journeys   -> Stage 6
 #   - PDF acceptance probes                                        -> Stage 7
 #   - Widget bundle-size budgets and artifact checks               -> Stage 6
-#   - Automated accessibility checks                               -> Stage 13
+#   - Full browser matrix and the manual WCAG 2.2 AA audit         -> Stage 13
 #   - Secret scanning and vulnerability gating                     -> Stage 13
 #   - Deployment gate to the protected main branch                 -> Stage 14
 #
-# Wired in Stage 2: the `integration` job above runs real Mongo/Redis tests.
+# Wired in Stage 2: the `integration` job runs real Mongo/Redis tests.
+# Wired in Stage 3b: the `e2e` job runs browser journeys plus axe accessibility
+# checks on every auth page.
 # -----------------------------------------------------------------------------

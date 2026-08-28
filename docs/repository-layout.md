@@ -1,6 +1,6 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 3a.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+**Status: Stage 3 (3a + 3b).** All nine workspaces exist. `packages/config`, `packages/contracts`,
 `packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
 rest remain deliberate shells until the stage that fills them.
 
@@ -108,6 +108,30 @@ infrastructure adapters implement.
 expiry, throttle windows, and the daily email budget are all time-dependent.
 Injecting time lets the integration tests cross a 30-day boundary in
 milliseconds instead of sleeping, and keeps those tests deterministic.
+
+### What `apps/web` provides after Stage 3b
+
+| Path                    | Contents                                                                                                  |
+| ----------------------- | --------------------------------------------------------------------------------------------------------- |
+| `src/App.tsx`           | Routes for the auth surface. `/` redirects to sign in; there is no dashboard yet.                         |
+| `src/pages/`            | Register, login, MFA challenge, MFA setup, verify email, forgot password, reset password, account.        |
+| `src/components/ui.tsx` | `AuthPanel` with the mount-bracket signature, `Field`, `Button`, `Alert`, `PasswordStrength`, `CodeList`. |
+| `src/lib/api.ts`        | Typed API client that carries cookies and echoes the CSRF token automatically.                            |
+| `src/index.css`         | Tailwind v4 `@theme` design tokens, focus-visible ring, reduced-motion handling.                          |
+
+**Components are native semantic elements, not a headless component library.**
+For forms the native elements already ARE the accessible primitives: a real
+`<label for>`, a real `<button>`, and `aria-describedby` need no JavaScript to
+work. A headless library earns its place for composite widgets such as dialogs
+and comboboxes, which this surface has none of; Stage 12 can add one when the
+dashboard introduces those patterns.
+
+### End-to-end tests
+
+`e2e/` holds the Playwright suite: `fixtures.ts` (shared axe scanner, Mailpit
+helpers, throttle isolation) and `tests/` (`auth-journey.spec.ts`,
+`accessibility.spec.ts`). `playwright.config.ts` at the root starts the API and
+web servers itself and expects Mongo, Redis, and Mailpit to be up.
 
 ## 3. What exists at the root today
 

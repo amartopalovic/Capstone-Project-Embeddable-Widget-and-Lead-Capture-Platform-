@@ -7,6 +7,7 @@ import type { ServerEnv } from '../config/env.js';
 import { createHealthRouter } from './routes/health.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createSessionsRouter } from './routes/sessions.js';
+import { createMfaRouter } from './routes/mfa.js';
 import { correlationMiddleware } from './middleware/correlation.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { sessionMiddleware, type SessionCookieOptions } from './middleware/session.js';
@@ -69,10 +70,22 @@ export function createApp(options: CreateAppOptions): Express {
   const authRouter = createAuthRouter({
     auth: deps.authService,
     sessions: deps.sessionService,
+    mfa: deps.mfaService,
+    mfaChallenges: deps.mfaChallengeStore,
+    users: deps.userRepository,
     limiter: deps.rateLimiter,
     logger: deps.logger,
     cookie,
+    mfaChallengeCookieName: cookie.name.replace('.sid', '.mfa'),
     generateCsrfToken,
+  });
+
+  const mfaRouter = createMfaRouter({
+    mfa: deps.mfaService,
+    sessions: deps.sessionService,
+    limiter: deps.rateLimiter,
+    logger: deps.logger,
+    cookie,
   });
 
   const sessionsRouter = createSessionsRouter({
@@ -92,6 +105,7 @@ export function createApp(options: CreateAppOptions): Express {
    */
   app.use(`${API_PREFIX}/auth`, authRouter);
   app.use(`${API_PREFIX}/sessions`, doubleCsrfProtection, sessionsRouter);
+  app.use(`${API_PREFIX}/mfa`, doubleCsrfProtection, mfaRouter);
 
   app.get(API_PREFIX, (_request, response) => {
     response.status(200).json({ api: API_PREFIX, status: 'ok' });

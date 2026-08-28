@@ -69,6 +69,11 @@ async function seedTenant(db: Db, label: string): Promise<SeededTenant> {
     failedLoginAttempts: 0,
     lockedUntil: null,
     lastLoginAt: null,
+    totpSecret: null,
+    mfaEnabled: false,
+    mfaEnabledAt: null,
+    lastTotpCounter: null,
+    recoveryCodes: [],
     createdAt: now,
     updatedAt: now,
   });
@@ -87,6 +92,11 @@ async function seedTenant(db: Db, label: string): Promise<SeededTenant> {
     failedLoginAttempts: 0,
     lockedUntil: null,
     lastLoginAt: null,
+    totpSecret: null,
+    mfaEnabled: false,
+    mfaEnabledAt: null,
+    lastTotpCounter: null,
+    recoveryCodes: [],
     createdAt: now,
     updatedAt: now,
   });

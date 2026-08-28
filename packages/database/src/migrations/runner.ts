@@ -4,11 +4,16 @@ import { COLLECTIONS } from '../collections.js';
 import type { Migration } from './types.js';
 import { migration001Foundation } from './001-foundation.js';
 import { migration002Auth } from './002-auth.js';
+import { migration003Mfa } from './003-mfa.js';
 
 /**
  * Ordered migration list. Append only; never reorder or reuse an id.
  */
-export const MIGRATIONS: readonly Migration[] = [migration001Foundation, migration002Auth];
+export const MIGRATIONS: readonly Migration[] = [
+  migration001Foundation,
+  migration002Auth,
+  migration003Mfa,
+];
 
 interface MigrationLedgerEntry {
   readonly _id: string;

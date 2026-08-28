@@ -5,6 +5,7 @@ import { UserRepository } from '@lcp/database';
 import type { ServerEnv } from './config/env.js';
 import { AuthService } from './application/auth/auth-service.js';
 import { SessionService } from './application/auth/session-service.js';
+import { MfaService } from './application/auth/mfa-service.js';
 import { AccountAuditRepository } from './application/auth/account-audit-repository.js';
 import { Argon2PasswordHasher } from './infrastructure/auth/argon2-password-hasher.js';
 import {
@@ -15,6 +16,9 @@ import {
 import { RedisSessionStore } from './infrastructure/redis/session-store.js';
 import { RedisRateLimiter } from './infrastructure/redis/rate-limiter.js';
 import { RedisEmailBudget } from './infrastructure/redis/email-budget.js';
+import { RedisMfaChallengeStore } from './infrastructure/redis/mfa-challenge-store.js';
+import { AesSecretCipher, parseMasterKey } from './infrastructure/auth/aes-secret-cipher.js';
+import { OtpauthTotpService } from './infrastructure/auth/otpauth-totp-service.js';
 import { RedisKeyBuilder } from './infrastructure/redis/key-policy.js';
 import { BudgetedEmailSender } from './infrastructure/email/budgeted-sender.js';
 import { BrevoEmailSender } from './infrastructure/email/brevo-sender.js';
@@ -36,6 +40,8 @@ export interface AppDependencies {
   readonly logger: Logger;
   readonly authService: AuthService;
   readonly sessionService: SessionService;
+  readonly mfaService: MfaService;
+  readonly mfaChallengeStore: RedisMfaChallengeStore;
   readonly userRepository: UserRepository;
   readonly rateLimiter: RedisRateLimiter;
   readonly emailSender: EmailSender;
@@ -124,10 +130,23 @@ export function buildDependencies(
     absoluteTtlSeconds: env.sessionAbsoluteTtlSeconds,
   });
 
+  const passwordHasher = new Argon2PasswordHasher();
+
+  /**
+   * Key ring for readable-secret encryption.
+   *
+   * Only the current version is configured today. Rotation adds older versions
+   * here so existing ciphertext stays readable (blueprint 12.4).
+   */
+  const cipher = new AesSecretCipher({
+    currentKeyVersion: env.encryptionKeyVersion,
+    keysByVersion: new Map([[env.encryptionKeyVersion, parseMasterKey(env.encryptionMasterKey)]]),
+  });
+
   const authService = new AuthService({
     users: userRepository,
     auditEvents,
-    hasher: new Argon2PasswordHasher(),
+    hasher: passwordHasher,
     breachChecker: overrides.breachChecker ?? selectBreachChecker(env),
     email: emailSender,
     clock,
@@ -144,10 +163,22 @@ export function buildDependencies(
     absoluteTtlSeconds: env.sessionAbsoluteTtlSeconds,
   });
 
+  const mfaService = new MfaService({
+    users: userRepository,
+    auditEvents,
+    totp: new OtpauthTotpService(env.totpIssuer),
+    cipher,
+    hasher: passwordHasher,
+    clock,
+    logger,
+  });
+
   return {
     logger,
     authService,
     sessionService,
+    mfaService,
+    mfaChallengeStore: new RedisMfaChallengeStore(redis, keys),
     userRepository,
     rateLimiter: new RedisRateLimiter(redis, keys),
     emailSender,

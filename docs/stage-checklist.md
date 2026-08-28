@@ -3,7 +3,7 @@
 The project is implemented in 16 bounded stages (blueprint §19). Exactly one stage is requested per
 implementation prompt, and work stops when that stage's exit gate is green.
 
-**Progress: 3 of 16 stages complete, plus Stage 3a of 3.**
+**Progress: 4 of 16 stages complete.**
 
 ## Stage execution rules (blueprint §19)
 
@@ -41,20 +41,23 @@ test results, remaining limitations, and confirmation of the exit gate.
     idempotent even with the ledger wiped. 36 unit tests cover the shared contracts, log redaction,
     and the Redis key policy._
 
-- [ ] **Stage 3 — Authentication and account security** _(split into 3a and 3b; 3a done)_
+- [x] **Stage 3 — Authentication and account security** _(delivered as 3a + 3b)_
   - **Goal:** Deliver secure public account creation and session management.
   - **Exit gate:** Auth integration and E2E tests prove verification gates, session expiry and
     revocation, MFA, generic responses, and no credential leakage.
-  - **This stage stays unchecked until 3b lands.** MFA, the auth UI, and browser E2E tests are all
-    part of the blueprint gate and none of them exist yet.
+  - _Completed 2026-08-28. All five gate clauses are proven: 74 integration tests against real
+    MongoDB, Redis, and Mailpit, plus 17 browser E2E tests driving the real UI, plus 82 unit tests.
+    Automated axe checks report zero critical or serious violations on every auth page._
   - [x] **Stage 3a — Credential backend, Redis sessions, transactional email** _(2026-08-28)_
     - Registration, verification, login/logout, password reset, Argon2id with policy and breach
       blocking, Redis sessions with 7-day idle and 30-day absolute lifetimes, CSRF, session/device
       listing and revocation (API), per-flow throttles, audit events, and Brevo/Mailpit adapters
       with the section 5.3 budget reserve.
-    - Proven by 34 integration tests against real MongoDB, Redis, and Mailpit, plus 23 auth unit
-      tests. No MFA, no UI, no browser E2E.
-  - [ ] **Stage 3b — TOTP MFA, recovery codes, auth UI, session UI, browser E2E**
+  - [x] **Stage 3b — TOTP MFA, accessible auth UI, browser E2E** _(2026-08-28)_
+    - Two-phase TOTP enrollment with an AES-256-GCM encrypted secret and hashed single-use recovery
+      codes; a login challenge that issues no session until the second factor is satisfied; replay
+      protection on the accepted TOTP counter; session rotation on every MFA change; eight
+      accessible React pages; and a Playwright + axe suite.
 
 - [ ] **Stage 4 — Workspace onboarding, switcher, RBAC, and invitations**
   - **Goal:** Complete the multi-workspace user model.

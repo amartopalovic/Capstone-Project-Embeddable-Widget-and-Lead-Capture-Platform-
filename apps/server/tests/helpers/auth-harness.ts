@@ -111,6 +111,9 @@ export async function createAuthHarness(): Promise<AuthHarness> {
     mailpitHost: MAILPIT_HOST,
     mailpitPort: MAILPIT_SMTP_PORT,
     breachCheckRemote: false,
+    encryptionMasterKey: Buffer.from('test-only-insecure-key-32-bytes!').toString('base64'),
+    encryptionKeyVersion: 1,
+    totpIssuer: 'Lead Capture Test',
   } satisfies ServerEnv;
 
   // The real SMTP sender, pointed at the real Mailpit service.

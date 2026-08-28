@@ -2,13 +2,13 @@
 
 One repeatable proof per requirement.
 
-> ## Status at Stage 3a: **no acceptance probe is proven.**
+> ## Status at Stage 3: **no acceptance probe is proven.**
 >
-> Stage 3a delivered the authentication backend. The credential, session, throttle, and
-> generic-response requirements (C1, C4, C5, and parts of B2 and C2) now carry real executed
-> evidence, alongside the Stage 2 tenancy and migration entries. **All six acceptance probes
-> remain `NOT YET IMPLEMENTED`**, because no widget or submission code exists. MFA and the
-> auth UI are Stage 3b and are marked accordingly rather than claimed.
+> Blueprint Stage 3 is now complete. B2, C1, C3, C4, and C5 are `PROVEN`, and C12 is proven
+> for the first secret that needs it. Proof now includes browser end-to-end tests and
+> automated accessibility checks, not only API-level integration tests. **All six acceptance
+> probes remain `NOT YET IMPLEMENTED`**, because no widget or submission code exists; they
+> are Stage 7.
 >
 > As each stage completes, its entries gain: the exact command an evaluator can re-run, the
 > observed output or transcript, and a link to the test that enforces the behavior. An entry is
@@ -108,16 +108,17 @@ real queue behavior in Stage 9.
 - **Requirement:** Email/password with Argon2id; 12-character minimum with breached-password
   blocking; verification and reset flows; optional TOTP MFA; Redis server sessions with 7-day idle
   and 30-day absolute lifetime; device list and revocation; security audit events.
-- **Status:** `IN PROGRESS` — the credential half is **done and proven in Stage 3a**; MFA is
-  **Stage 3b**.
-- **Done and proven:** Argon2id hashing at 64 MiB / t=3 / p=4; the 12-character minimum with
-  strength feedback and common/breached-password blocking; email verification and password reset
-  over hashed single-use expiring tokens; Redis server sessions with a 7-day idle and 30-day
-  absolute lifetime; the device/session list with individual and global revocation; and security
+- **Status:** `PROVEN`. Blueprint Stage 3 is complete; the credential half landed in Stage 3a and
+  MFA in Stage 3b.
+- **Every clause of section 4.2 is implemented and tested:** Argon2id hashing at 64 MiB / t=3 / p=4;
+  a 12-character minimum with strength feedback and common/breached-password blocking; email
+  verification and password reset over hashed single-use expiring tokens; **optional TOTP MFA with
+  ten hashed single-use recovery codes**; Redis server sessions with a 7-day idle and 30-day
+  absolute lifetime; a device/session list with individual and global revocation; and security
   audit events for every authentication action.
-- **Not done:** optional TOTP MFA and hashed recovery codes. The `User` record still carries no MFA
-  fields; Stage 3b adds them through its own migration.
-- **Evidence:** see Part D-detail, Stage 3a.
+- **MFA is optional and is never forced**, matching section 4.2. "Encouraged for Owner/Admin" is
+  not enforceable yet because roles do not exist until Stage 4.
+- **Evidence:** see Part D-detail, Stage 3b.
 
 ### B3. Widget catalog and builder (§4.3)
 
@@ -193,54 +194,54 @@ The implementation is not complete until every item below is enforced and eviden
 currently unproven. Consolidated verification happens in **Stage 13**, but each item is delivered
 by the stage noted.
 
-| #   | Requirement                                                                                 | Status                                                                                                 | Delivered by                         |
-| --- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------ |
-| C1  | Argon2id hashing and strong password rules                                                  | `PROVEN` - Argon2id 64MiB/t=3/p=4 with policy and breach blocking                                      | Stage 3                              |
-| C2  | Hashed single-use verification, reset, invitation, recovery, and privacy tokens with expiry | `IN PROGRESS` - verification, reset, and invitation tokens hashed; recovery and privacy tokens pending | Stages 3, 4, 11                      |
-| C3  | Optional TOTP MFA and hashed recovery codes                                                 | `NOT YET IMPLEMENTED` - Stage 3b                                                                       | Stage 3                              |
-| C4  | Redis sessions, rotation, expiry, device revocation, secure cookies, CSRF                   | `PROVEN` for sessions, rotation, expiry, revocation, cookies, and CSRF                                 | Stage 3                              |
-| C5  | Generic auth responses and dedicated brute-force limits                                     | `PROVEN` - generic responses and per-flow throttles                                                    | Stage 3                              |
-| C6  | Mandatory workspace scope in every tenant query                                             | `PROVEN` for foundation repositories - see Part D-detail                                               | Stage 2, enforced onward             |
-| C7  | Role and verified-email gates on the server, never only in React                            | `NOT YET IMPLEMENTED`                                                                                  | Stage 4                              |
-| C8  | Strict Origin allowlist and correct CORS/preflight behavior                                 | `NOT YET IMPLEMENTED`                                                                                  | Stages 6, 7                          |
-| C9  | Platform-owned payload schemas and 32 KB body limit                                         | `NOT YET IMPLEMENTED`                                                                                  | Stage 7                              |
-| C10 | Honeypot, timing heuristic, rate limits, quotas, 24-hour idempotency                        | `NOT YET IMPLEMENTED`                                                                                  | Stage 7                              |
-| C11 | No raw IP persistence and monthly HMAC rotation                                             | `NOT YET IMPLEMENTED`                                                                                  | Stage 7                              |
-| C12 | Encryption of readable secrets with key-version support                                     | `NOT YET IMPLEMENTED`                                                                                  | Stages 3, 9                          |
-| C13 | Output escaping, safe template variables, no arbitrary HTML/CSS/JS                          | `NOT YET IMPLEMENTED`                                                                                  | Stages 5, 6, 9                       |
-| C14 | Validated redirects and CTA destinations                                                    | `NOT YET IMPLEMENTED`                                                                                  | Stages 5, 6                          |
-| C15 | Webhook SSRF defenses and HMAC signing                                                      | `NOT YET IMPLEMENTED`                                                                                  | Stage 9                              |
-| C16 | Security headers and an appropriate Content Security Policy                                 | `NOT YET IMPLEMENTED`                                                                                  | Stage 13                             |
-| C17 | PII and secret redaction in logs, errors, analytics, and monitoring                         | `NOT YET IMPLEMENTED`                                                                                  | Stage 13                             |
-| C18 | Dependency review, lockfile integrity, vulnerability and secret scanning in CI              | `IN PROGRESS` - detail below                                                                           | Stage 1 baseline, completed Stage 13 |
-| C19 | Immutable audit and submission evidence within retention windows                            | `IN PROGRESS` - AuditEvent 12-month TTL verified                                                       | Stages 2, 7, 11                      |
+| #   | Requirement                                                                                 | Status                                                                                         | Delivered by                         |
+| --- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------ |
+| C1  | Argon2id hashing and strong password rules                                                  | `PROVEN` - Argon2id 64MiB/t=3/p=4 with policy and breach blocking                              | Stage 3                              |
+| C2  | Hashed single-use verification, reset, invitation, recovery, and privacy tokens with expiry | `PROVEN` for verification, reset, and recovery codes; privacy tokens in Stage 11               | Stages 3, 4, 11                      |
+| C3  | Optional TOTP MFA and hashed recovery codes                                                 | `PROVEN` - optional TOTP with hashed single-use recovery codes                                 | Stage 3                              |
+| C4  | Redis sessions, rotation, expiry, device revocation, secure cookies, CSRF                   | `PROVEN` for sessions, rotation, expiry, revocation, cookies, and CSRF                         | Stage 3                              |
+| C5  | Generic auth responses and dedicated brute-force limits                                     | `PROVEN` - generic responses and per-flow throttles                                            | Stage 3                              |
+| C6  | Mandatory workspace scope in every tenant query                                             | `PROVEN` for foundation repositories - see Part D-detail                                       | Stage 2, enforced onward             |
+| C7  | Role and verified-email gates on the server, never only in React                            | `NOT YET IMPLEMENTED`                                                                          | Stage 4                              |
+| C8  | Strict Origin allowlist and correct CORS/preflight behavior                                 | `NOT YET IMPLEMENTED`                                                                          | Stages 6, 7                          |
+| C9  | Platform-owned payload schemas and 32 KB body limit                                         | `NOT YET IMPLEMENTED`                                                                          | Stage 7                              |
+| C10 | Honeypot, timing heuristic, rate limits, quotas, 24-hour idempotency                        | `NOT YET IMPLEMENTED`                                                                          | Stage 7                              |
+| C11 | No raw IP persistence and monthly HMAC rotation                                             | `NOT YET IMPLEMENTED`                                                                          | Stage 7                              |
+| C12 | Encryption of readable secrets with key-version support                                     | `PROVEN` for the TOTP secret - AES-256-GCM with key version                                    | Stages 3, 9                          |
+| C13 | Output escaping, safe template variables, no arbitrary HTML/CSS/JS                          | `IN PROGRESS` - auth UI escapes output and accepts no HTML; widget templates in Stages 5, 6, 9 | Stages 5, 6, 9                       |
+| C14 | Validated redirects and CTA destinations                                                    | `NOT YET IMPLEMENTED`                                                                          | Stages 5, 6                          |
+| C15 | Webhook SSRF defenses and HMAC signing                                                      | `NOT YET IMPLEMENTED`                                                                          | Stage 9                              |
+| C16 | Security headers and an appropriate Content Security Policy                                 | `NOT YET IMPLEMENTED`                                                                          | Stage 13                             |
+| C17 | PII and secret redaction in logs, errors, analytics, and monitoring                         | `NOT YET IMPLEMENTED`                                                                          | Stage 13                             |
+| C18 | Dependency review, lockfile integrity, vulnerability and secret scanning in CI              | `IN PROGRESS` - detail below                                                                   | Stage 1 baseline, completed Stage 13 |
+| C19 | Immutable audit and submission evidence within retention windows                            | `IN PROGRESS` - AuditEvent 12-month TTL verified                                               | Stages 2, 7, 11                      |
 
 ---
 
 ## Part D — Cross-cutting architecture proofs (blueprint §7–§16)
 
-| #   | Requirement                                                                                                | Status                                                                  | Delivered by                   |
-| --- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------ |
-| D1  | Tenant isolation: two seeded tenants cannot reach each other through any repository                        | `PROVEN` for foundation repositories - see Part D-detail                | Stage 2, re-proven per surface |
-| D2  | Tenant isolation across CRUD, search, export, analytics, SSE, trash, and recovery                          | `IN PROGRESS` - repository CRUD proven; other surfaces do not exist yet | Stages 4, 8, 10                |
-| D3  | Cache contract: 5-minute loader, 1-year immutable hashed runtime, 60-second config with ETag               | `NOT YET IMPLEMENTED`                                                   | Stage 6                        |
-| D4  | A cached config cannot bypass unpublishing, deletion, a domain-rule change, or a quota block               | `NOT YET IMPLEMENTED`                                                   | Stages 6, 7                    |
-| D5  | All three widget types render on a separate origin, multiple instances coexist, host CSS cannot break them | `NOT YET IMPLEMENTED`                                                   | Stage 6                        |
-| D6  | Public config never leaks recipients, webhook URLs/secrets, notes, or tenant identifiers                   | `NOT YET IMPLEMENTED`                                                   | Stage 6                        |
-| D7  | Outbox prevents a transient Redis enqueue failure from losing promised work                                | `NOT YET IMPLEMENTED`                                                   | Stages 7, 9                    |
-| D8  | Transient-only retry, five attempts with backoff, dead letter, and manual replay                           | `NOT YET IMPLEMENTED`                                                   | Stage 9                        |
-| D9  | Brevo daily budget priority reserve and visible deferred states                                            | `NOT YET IMPLEMENTED`                                                   | Stage 9                        |
-| D10 | SSE workspace isolation, heartbeats, and bounded reconnect                                                 | `NOT YET IMPLEMENTED`                                                   | Stages 8, 10                   |
-| D11 | Raw interaction events expire after 90 days leaving aggregates intact                                      | `NOT YET IMPLEMENTED`                                                   | Stage 10                       |
-| D12 | Every recovery window and permanent purge (contact, widget, workspace, account)                            | `NOT YET IMPLEMENTED`                                                   | Stage 11                       |
-| D13 | Repeatable migrations and explicit index management on a clean database                                    | `PROVEN` - see Part D-detail                                            | Stage 2                        |
-| D14 | Liveness and readiness endpoints; degraded optional providers do not make the API unready                  | `IN PROGRESS` - detail below                                            | Stage 1 skeleton, Stage 13     |
-| D15 | WCAG 2.2 AA audit with zero critical automated violations on critical pages and widgets                    | `NOT YET IMPLEMENTED`                                                   | Stage 13                       |
-| D16 | CI installs, type-checks, lints, tests, and builds every workspace before merge                            | `IN PROGRESS` - detail below                                            | Stage 1, extended per stage    |
-| D17 | One documented local command starts dependencies and apps; seed data is reproducible                       | `IN PROGRESS` - detail below                                            | Stage 1                        |
-| D18 | Clean deployment from main passes smoke, cross-origin, auth, queue, and restore checks                     | `NOT YET IMPLEMENTED`                                                   | Stage 14                       |
-| D19 | Encrypted export/restore rehearsal succeeds                                                                | `NOT YET IMPLEMENTED`                                                   | Stage 14                       |
-| D20 | Render sleep delays but does not permanently skip retention or queue work                                  | `NOT YET IMPLEMENTED`                                                   | Stages 11, 14                  |
+| #   | Requirement                                                                                                | Status                                                                                   | Delivered by                   |
+| --- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------ |
+| D1  | Tenant isolation: two seeded tenants cannot reach each other through any repository                        | `PROVEN` for foundation repositories - see Part D-detail                                 | Stage 2, re-proven per surface |
+| D2  | Tenant isolation across CRUD, search, export, analytics, SSE, trash, and recovery                          | `IN PROGRESS` - repository CRUD proven; other surfaces do not exist yet                  | Stages 4, 8, 10                |
+| D3  | Cache contract: 5-minute loader, 1-year immutable hashed runtime, 60-second config with ETag               | `NOT YET IMPLEMENTED`                                                                    | Stage 6                        |
+| D4  | A cached config cannot bypass unpublishing, deletion, a domain-rule change, or a quota block               | `NOT YET IMPLEMENTED`                                                                    | Stages 6, 7                    |
+| D5  | All three widget types render on a separate origin, multiple instances coexist, host CSS cannot break them | `NOT YET IMPLEMENTED`                                                                    | Stage 6                        |
+| D6  | Public config never leaks recipients, webhook URLs/secrets, notes, or tenant identifiers                   | `NOT YET IMPLEMENTED`                                                                    | Stage 6                        |
+| D7  | Outbox prevents a transient Redis enqueue failure from losing promised work                                | `NOT YET IMPLEMENTED`                                                                    | Stages 7, 9                    |
+| D8  | Transient-only retry, five attempts with backoff, dead letter, and manual replay                           | `NOT YET IMPLEMENTED`                                                                    | Stage 9                        |
+| D9  | Brevo daily budget priority reserve and visible deferred states                                            | `NOT YET IMPLEMENTED`                                                                    | Stage 9                        |
+| D10 | SSE workspace isolation, heartbeats, and bounded reconnect                                                 | `NOT YET IMPLEMENTED`                                                                    | Stages 8, 10                   |
+| D11 | Raw interaction events expire after 90 days leaving aggregates intact                                      | `NOT YET IMPLEMENTED`                                                                    | Stage 10                       |
+| D12 | Every recovery window and permanent purge (contact, widget, workspace, account)                            | `NOT YET IMPLEMENTED`                                                                    | Stage 11                       |
+| D13 | Repeatable migrations and explicit index management on a clean database                                    | `PROVEN` - see Part D-detail                                                             | Stage 2                        |
+| D14 | Liveness and readiness endpoints; degraded optional providers do not make the API unready                  | `IN PROGRESS` - detail below                                                             | Stage 1 skeleton, Stage 13     |
+| D15 | WCAG 2.2 AA audit with zero critical automated violations on critical pages and widgets                    | `IN PROGRESS` - axe clean on every auth page; manual audit and full page set in Stage 13 | Stage 13                       |
+| D16 | CI installs, type-checks, lints, tests, and builds every workspace before merge                            | `IN PROGRESS` - detail below                                                             | Stage 1, extended per stage    |
+| D17 | One documented local command starts dependencies and apps; seed data is reproducible                       | `IN PROGRESS` - detail below                                                             | Stage 1                        |
+| D18 | Clean deployment from main passes smoke, cross-origin, auth, queue, and restore checks                     | `NOT YET IMPLEMENTED`                                                                    | Stage 14                       |
+| D19 | Encrypted export/restore rehearsal succeeds                                                                | `NOT YET IMPLEMENTED`                                                                    | Stage 14                       |
+| D20 | Render sleep delays but does not permanently skip retention or queue work                                  | `NOT YET IMPLEMENTED`                                                                    | Stages 11, 14                  |
 
 ---
 
@@ -545,6 +546,93 @@ Unit suites: **Test Files 5 passed (5), Tests 59 passed (59)**.
 
 ---
 
+## Part D-detail - Stage 3b MFA, UI, and browser evidence
+
+Executed on 2026-08-28 against real MongoDB, Redis, and Mailpit.
+
+```
+docker compose up -d --wait mongo redis mailpit
+npm run test                # Test Files 6 passed (6),  Tests 82 passed (82)
+npm run test:integration    # Test Files 5 passed (5),  Tests 74 passed (74)
+npm run test:e2e            # 17 passed (1.8m)
+```
+
+### C3. Optional TOTP MFA and hashed recovery codes
+
+- **Status:** `PROVEN`.
+- **Enrollment is two-phase.** Generating a secret does NOT enable MFA; a valid code must confirm
+  it first. A test asserts that after `POST /mfa/enroll` the status is still `enabled: false`.
+  Enabling on generation alone would let an abandoned setup lock a user out of their own account.
+- **The login challenge issues no session until it is satisfied.** After a correct password,
+  `POST /auth/login` returns `mfa_required` and `GET /auth/me` is still 401. The
+  partially-authenticated state is a short-lived server-side record keyed by an opaque cookie, so
+  the browser holds nothing that could skip the challenge.
+- **TOTP codes cannot be replayed.** A code is valid for its whole 30-second period, so the highest
+  accepted counter is stored and anything at or below it is refused. Tested directly: the code that
+  confirmed enrollment is rejected at the next login, and the following period is accepted.
+- **Recovery codes are single-use.** A code signs in once; the same code is refused afterwards; a
+  different one still works, so the account is not locked out; and the remaining count drops from
+  10 to 8 after two are spent.
+- **A brute-force attempt destroys the challenge** after five failures, so a six-digit code cannot
+  be ground down.
+- **Disabling requires re-authentication**, not a click: a wrong password with a valid code fails,
+  a right password with a wrong code fails, and both together succeed. Disabling clears the stored
+  secret and every recovery code.
+- **The session identifier rotates on every MFA change** (section 10.3), verified by asserting the
+  old Redis session key no longer exists while the caller stays signed in.
+
+### C12. Encryption of readable secrets with key-version support
+
+- **Status:** `PROVEN` for the TOTP secret, which is the first readable secret the system holds.
+  Stage 9 reuses the same cipher for webhook signing secrets.
+- AES-256-GCM with a fresh 96-bit IV per encryption and the key version stored alongside the
+  ciphertext. Tested: round-trip; identical plaintext produces different ciphertext, because IV
+  reuse under one key catastrophically breaks GCM; a value written under an older key version is
+  still readable after rotation while new values use the current one; an unknown key version
+  returns null rather than throwing; and a tampered ciphertext or authentication tag is refused,
+  because GCM is authenticated.
+- An integration test reads the stored user document and asserts the base32 secret appears nowhere
+  in it, and that `ciphertext`, `iv`, `authTag`, and `keyVersion` are all present.
+- Recovery codes are likewise absent from the document in plaintext; only SHA-256 hashes are stored.
+- Neither the secret nor any recovery code appears in an audit record or a log line.
+
+### Browser end-to-end coverage (blueprint 18.3)
+
+17 Playwright tests drive the real UI against the real stack. They cover:
+
+- register, receive the confirmation email in Mailpit, follow the link, sign in, and land on the
+  account page;
+- an unconfirmed account can still sign in, matching section 4.1;
+- a wrong password and an unknown account produce **byte-identical** error text, compared directly
+  in the browser;
+- a verification link cannot be used twice;
+- a breached password is refused with a reason;
+- forgot password, reset by email link, existing sessions revoked, old password dead, new one works;
+- enable MFA, sign out, sign back in and be challenged, fail with a wrong code, sign in with a
+  recovery code, find that same code refused on the next attempt, and sign in with TOTP;
+- disable MFA only with both the password and a current code;
+- list three devices, revoke one, revoke all others, and confirm each context really is signed out
+  while the caller stays in.
+
+### D15. Automated accessibility checks
+
+- **Status:** `IN PROGRESS`. Every auth page is scanned and clean; the manual WCAG 2.2 AA audit and
+  the rest of the page set are Stage 13.
+- axe runs against `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, and `wcag22aa`, failing on any
+  critical or serious violation, and reporting the offending selector so a failure is actionable.
+- Pages scanned: register, sign in, forgot password, reset password, a form **in its error state**,
+  the confirmation-sent and email-confirmed pages, the account page with MFA both off and on, MFA
+  setup, the recovery-code display, and the MFA challenge.
+- A separate test completes registration and sign-in **using only the keyboard**, asserting the
+  focus order reaches email, then password, then the submit button. Automated scanning cannot tell
+  whether a flow is operable without a mouse; this does.
+- Two real defects were found and fixed by these checks rather than by review: a placeholder at 60%
+  opacity computed to about 2.6:1 against the panel, below the 4.5:1 AA threshold; and a field-level
+  validation error was rendered in a plain paragraph while focus stayed on the submit button, so a
+  screen reader announced nothing on a failed submission.
+
+---
+
 ## Part E — Definition of done (blueprint §22)
 
 Version 1 is complete only when all twelve conditions hold. This table is the final checklist an
@@ -577,3 +665,5 @@ evaluator can use; it is fully re-verified in **Stage 15**.
 | 2026-08-28 | 2 | D1, D13, and C6 moved to `PROVEN` for the foundation repositories, evidenced by 25 integration tests against a real MongoDB replica set. D2, C2, C19, B1, and the logging baseline moved to `IN PROGRESS` with their gaps stated. All six acceptance probes remain unproven. |
 
 | 2026-08-28 | 3a | C1, C4, and C5 moved to `PROVEN`; B2 and C2 to `IN PROGRESS` with the MFA gap stated explicitly. Evidenced by 34 auth integration tests against real MongoDB, Redis, and Mailpit plus 23 auth unit tests. MFA, auth UI, and browser E2E are Stage 3b and are NOT claimed. All six acceptance probes remain unproven. |
+
+| 2026-08-28 | 3b | Blueprint Stage 3 COMPLETE. B2, C3, and C12 moved to `PROVEN`; C2 completed for auth tokens; C13 and D15 moved to `IN PROGRESS`. Evidenced by 17 browser E2E tests, 74 integration tests, 82 unit tests, and axe checks reporting zero critical or serious violations on every auth page. All six acceptance probes remain unproven. |

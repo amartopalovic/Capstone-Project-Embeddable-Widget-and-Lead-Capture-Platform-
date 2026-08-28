@@ -1,9 +1,11 @@
 import { Router, type Request, type Response } from 'express';
+import { ObjectId } from 'mongodb';
 import {
   ERROR_CODES,
   GENERIC_ACK,
   confirmPasswordResetSchema,
   loginRequestSchema,
+  mfaChallengeSchema,
   registerRequestSchema,
   requestPasswordResetSchema,
   resendVerificationRequestSchema,
@@ -14,6 +16,9 @@ import {
 } from '@lcp/contracts';
 import type { AuthService } from '../../application/auth/auth-service.js';
 import type { SessionService } from '../../application/auth/session-service.js';
+import type { MfaService } from '../../application/auth/mfa-service.js';
+import type { RedisMfaChallengeStore } from '../../infrastructure/redis/mfa-challenge-store.js';
+import type { UserRepository } from '../../application/auth/types.js';
 import type { RateLimiter } from '../../ports/rate-limiter.js';
 import { AUTH_RATE_RULES } from '../../infrastructure/redis/rate-limiter.js';
 import { ApiError } from '../middleware/error-handler.js';
@@ -23,6 +28,7 @@ import {
   type SessionCookieOptions,
 } from '../middleware/session.js';
 import { emailIdentifier, throttle } from '../middleware/throttle.js';
+import { MFA_CHALLENGE_TTL_SECONDS } from '../../infrastructure/redis/mfa-challenge-store.js';
 import type { WithIdUser } from '../../application/auth/types.js';
 
 /**
@@ -37,9 +43,13 @@ import type { WithIdUser } from '../../application/auth/types.js';
 export interface AuthRouterDeps {
   readonly auth: AuthService;
   readonly sessions: SessionService;
+  readonly mfa: MfaService;
+  readonly mfaChallenges: RedisMfaChallengeStore;
+  readonly users: UserRepository;
   readonly limiter: RateLimiter;
   readonly logger: Logger;
   readonly cookie: SessionCookieOptions;
+  readonly mfaChallengeCookieName: string;
   readonly generateCsrfToken: (
     request: Request,
     response: Response,
@@ -57,7 +67,8 @@ function toAuthenticatedUser(user: WithIdUser): AuthenticatedUser {
 
 export function createAuthRouter(deps: AuthRouterDeps): Router {
   const router = Router();
-  const { auth, sessions, limiter, logger, cookie, generateCsrfToken } = deps;
+  const { auth, sessions, mfa, mfaChallenges, users, limiter, logger, cookie, generateCsrfToken } =
+    deps;
 
   /** Issue a session cookie and a fresh CSRF token bound to it. */
   function establishSession(request: Request, response: Response, sessionId: string): void {
@@ -169,13 +180,93 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
           throw new ApiError(ERROR_CODES.INVALID_CREDENTIALS, 'Email or password is incorrect');
         }
 
+        // The password was correct. If a second factor is enabled, STOP here:
+        // no session is issued until the challenge is satisfied. The partially
+        // authenticated state lives server-side, so the browser holds nothing
+        // that could skip the challenge.
+        if (outcome.user.mfaEnabled) {
+          const challengeId = await mfaChallenges.create(
+            outcome.user._id.toHexString(),
+            new Date(),
+          );
+          response.cookie(cookie.name.replace('.sid', '.mfa'), challengeId, {
+            ...sessionCookieOptions(cookie),
+            maxAge: MFA_CHALLENGE_TTL_SECONDS * 1000,
+          });
+          response.status(200).json({ status: 'mfa_required' });
+          return;
+        }
+
         // Section 10.3: the session identifier rotates after authentication.
         // There is no pre-auth session to rotate here, so a brand new one is
         // minted and any cookie the client already held stops resolving.
         const session = await sessions.start(outcome.user._id, request.get('user-agent'));
         establishSession(request, response, session.id);
 
-        response.status(200).json({ user: toAuthenticatedUser(outcome.user) });
+        response
+          .status(200)
+          .json({ status: 'authenticated', user: toAuthenticatedUser(outcome.user) });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  /**
+   * Complete a login that stopped at the second factor.
+   *
+   * The challenge handle comes from a short-lived cookie set by /login and is
+   * destroyed on success, on too many failures, and on expiry.
+   */
+  router.post(
+    '/mfa-challenge',
+    throttle(limiter, AUTH_RATE_RULES.mfaChallenge, logger),
+    async (request, response, next) => {
+      try {
+        const cookies = request.cookies as Record<string, string | undefined> | undefined;
+        const challengeCookie = cookie.name.replace('.sid', '.mfa');
+        const challengeId = cookies?.[challengeCookie];
+
+        if (challengeId === undefined || challengeId === '') {
+          throw new ApiError(ERROR_CODES.MFA_REQUIRED, 'Start signing in again.');
+        }
+
+        const pending = await mfaChallenges.get(challengeId);
+        if (pending === null) {
+          response.clearCookie(challengeCookie, sessionCookieOptions(cookie));
+          throw new ApiError(
+            ERROR_CODES.MFA_REQUIRED,
+            'That took too long. Start signing in again.',
+          );
+        }
+
+        const parsed = validate(mfaChallengeSchema, request.body);
+        if (!parsed.ok) {
+          throw new ApiError(ERROR_CODES.MFA_INVALID, 'Enter a valid code.');
+        }
+
+        const user = await users.findById(new ObjectId(pending.userId));
+        if (user === null || user.status !== 'active') {
+          await mfaChallenges.destroy(challengeId);
+          throw new ApiError(ERROR_CODES.MFA_REQUIRED, 'Start signing in again.');
+        }
+
+        const verified = await mfa.verifyChallenge(user, parsed.data, request.correlationId);
+        if (verified.kind !== 'verified') {
+          const stillOpen = await mfaChallenges.recordFailure(challengeId);
+          if (!stillOpen) {
+            response.clearCookie(challengeCookie, sessionCookieOptions(cookie));
+          }
+          throw new ApiError(ERROR_CODES.MFA_INVALID, 'That code did not match.');
+        }
+
+        await mfaChallenges.destroy(challengeId);
+        response.clearCookie(challengeCookie, sessionCookieOptions(cookie));
+
+        const session = await sessions.start(user._id, request.get('user-agent'));
+        establishSession(request, response, session.id);
+
+        response.status(200).json({ status: 'authenticated', user: toAuthenticatedUser(user) });
       } catch (error) {
         next(error);
       }

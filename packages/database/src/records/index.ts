@@ -68,8 +68,53 @@ export interface UserRecord extends Timestamped {
   readonly lockedUntil: Date | null;
   readonly lastLoginAt: Date | null;
 
-  // NOTE: MFA material (TOTP seed, recovery codes) is still deliberately
-  // absent. Stage 3b adds it through its own migration.
+  // --- MFA, added in Stage 3b by migration 003_mfa -------------------------
+
+  /**
+   * TOTP secret, AES-256-GCM encrypted at rest (blueprint 12.4 and 17).
+   *
+   * Present but with `mfaEnabled: false` means enrollment has started and is
+   * awaiting a confirming code. MFA is never enabled by generating a secret
+   * alone, or a user could be locked out by an enrollment they never finished.
+   */
+  readonly totpSecret: EncryptedValue | null;
+  readonly mfaEnabled: boolean;
+  readonly mfaEnabledAt: Date | null;
+
+  /**
+   * Highest TOTP counter already accepted.
+   *
+   * A valid code stays valid for its whole 30-second period, so without this a
+   * code observed in transit could be replayed inside that window. Rejecting a
+   * counter at or below the last accepted one closes that gap.
+   */
+  readonly lastTotpCounter: number | null;
+
+  /** Single-use recovery codes, hashed exactly like verification tokens. */
+  readonly recoveryCodes: readonly RecoveryCode[];
+}
+
+/**
+ * Application-level encrypted value (blueprint 12.4).
+ *
+ * The key version travels with the ciphertext so a rotated master key can still
+ * read older values. Stage 9 reuses this shape for webhook secrets.
+ */
+export interface EncryptedValue {
+  /** Base64 AES-256-GCM ciphertext. */
+  readonly ciphertext: string;
+  /** Base64 96-bit nonce, unique per encryption. */
+  readonly iv: string;
+  /** Base64 128-bit authentication tag. */
+  readonly authTag: string;
+  /** Which master key encrypted this, so rotation stays readable. */
+  readonly keyVersion: number;
+}
+
+/** A single-use recovery code. Only the hash is stored. */
+export interface RecoveryCode {
+  readonly codeHash: string;
+  readonly usedAt: Date | null;
 }
 
 /**

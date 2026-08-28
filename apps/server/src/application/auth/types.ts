@@ -29,6 +29,7 @@ export interface UserRepository {
   recordSuccessfulLogin(id: ObjectId, at: Date): Promise<void>;
 }
 
+/** Look up a user by id even when inactive, for the MFA challenge step. */
 export interface AccountAuditEvent {
   readonly type: string;
   readonly actorUserId: ObjectId;

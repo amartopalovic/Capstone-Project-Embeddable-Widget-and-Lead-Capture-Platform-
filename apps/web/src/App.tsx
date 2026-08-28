@@ -1,20 +1,36 @@
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router';
+import { RegisterPage } from './pages/RegisterPage.jsx';
+import { LoginPage } from './pages/LoginPage.jsx';
+import { MfaChallengePage } from './pages/MfaChallengePage.jsx';
+import { MfaSetupPage } from './pages/MfaSetupPage.jsx';
+import { VerifyEmailPage } from './pages/VerifyEmailPage.jsx';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage.jsx';
+import { ResetPasswordPage } from './pages/ResetPasswordPage.jsx';
+import { AccountPage } from './pages/AccountPage.jsx';
+
 /**
- * Stage 1 placeholder shell.
+ * Routes for the authentication surface.
  *
- * This exists only to prove the React build and dev server work. The real
- * landing page, authentication entry points, dashboard, widget builder, and
- * contact inbox arrive from Stage 3 onward.
+ * Only auth exists here. The landing page, dashboard, and workspace switcher
+ * arrive in Stages 4 and 12, so `/` simply redirects to sign in rather than
+ * pretending there is somewhere else to go.
+ *
+ * Paths match the links the server puts in verification and reset emails
+ * (`/auth/verify?token=` and `/auth/reset?token=`), so those links resolve.
  */
+const router = createBrowserRouter([
+  { path: '/', element: <Navigate to="/login" replace /> },
+  { path: '/register', element: <RegisterPage /> },
+  { path: '/login', element: <LoginPage /> },
+  { path: '/mfa-challenge', element: <MfaChallengePage /> },
+  { path: '/mfa-setup', element: <MfaSetupPage /> },
+  { path: '/auth/verify', element: <VerifyEmailPage /> },
+  { path: '/forgot-password', element: <ForgotPasswordPage /> },
+  { path: '/auth/reset', element: <ResetPasswordPage /> },
+  { path: '/account', element: <AccountPage /> },
+  { path: '*', element: <Navigate to="/login" replace /> },
+]);
+
 export function App(): React.JSX.Element {
-  return (
-    <main className="mx-auto max-w-2xl p-8">
-      <h1 className="text-2xl font-semibold">Embeddable Widget &amp; Lead-Capture Platform</h1>
-      <p className="mt-4">
-        Stage 1 skeleton. This application boots and builds; it has no features yet.
-      </p>
-      <p className="mt-2 text-sm">
-        The separate-origin demo sandbox runs independently on port 5174.
-      </p>
-    </main>
-  );
+  return <RouterProvider router={router} />;
 }

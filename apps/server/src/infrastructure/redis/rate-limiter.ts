@@ -35,6 +35,12 @@ export const AUTH_RATE_RULES = {
    * consumes it yet.
    */
   invitationAcceptance: { name: 'invitation-acceptance', limit: 10, windowSeconds: 3600 },
+  /**
+   * MFA code submission. Tight, because a 6-digit code is only a million
+   * possibilities and the otpauth documentation explicitly calls for
+   * throttling alongside a drift window.
+   */
+  mfaChallenge: { name: 'mfa-challenge', limit: 10, windowSeconds: 900 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export class RedisRateLimiter implements RateLimiter {

@@ -690,3 +690,207 @@ Every command was executed. Beyond the happy paths:
    reset destroys every session including the current one, which is stronger. True in-place rotation
    is used at login; the `rotate` method exists and is typed for the Stage 3b MFA flow, which is the
    next event section 10.3 names.
+
+---
+
+## Stage 3b - TOTP MFA, accessible auth UI, and browser E2E (2026-08-28)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Stage 3b, the second half of blueprint Stage 3.
+**This stage COMPLETES blueprint Stage 3**, which is now checked off in
+`docs/stage-checklist.md` for the first time.
+
+### What was done
+
+Verified `typescript-lsp` worked, read the whole Stage 3a backend, then added the second factor and
+the interface:
+
+- `packages/contracts`: MFA schemas and response shapes, plus two error codes.
+- `packages/database`: migration `003_mfa` adding an encrypted TOTP secret, enrollment state, a
+  replay counter, and hashed recovery codes to `User`.
+- `apps/server`: `SecretCipher` port with an AES-256-GCM adapter, `TotpService` port with an
+  `otpauth` adapter, recovery-code domain logic, `MfaService`, a Redis-backed pending-challenge
+  store, the `/mfa` router, and the MFA branch in login.
+- `apps/web`: eight accessible pages, a typed API client that carries the CSRF token, shared
+  components, and Tailwind v4 design tokens.
+- `e2e/`: a Playwright suite with axe accessibility checks.
+
+Tooling choices the blueprint leaves open:
+
+| Choice                                                  | Reason                                                                                                                                                                                                                  |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `otpauth` for TOTP                                      | Pure JavaScript with no install script, which matters given the `&` path problem. Its documentation is also explicit that replay prevention via `counter()` is the caller's job, which directly shaped the design.      |
+| SHA1 / 6 digits / 30s                                   | Not laziness: Google Authenticator and several other popular apps silently ignore the algorithm and digits parameters in the enrollment URI, so a "stronger" choice would produce codes the user's app cannot generate. |
+| Node's built-in `crypto` for AES-256-GCM                | No dependency needed. GCM is authenticated, so a tampered ciphertext fails rather than yielding attacker-chosen plaintext.                                                                                              |
+| React Router v8 library mode                            | `createBrowserRouter` + `RouterProvider`, the current approach for a plain Vite SPA.                                                                                                                                    |
+| Playwright + `@axe-core/playwright`                     | The framework the blueprint's browser-matrix ambitions point at, and the standard axe integration.                                                                                                                      |
+| Native semantic elements, no headless component library | See judgment call 4.                                                                                                                                                                                                    |
+
+### Where AI helped
+
+- Translating "optional TOTP MFA" into the properties that actually make it safe rather than merely
+  present: two-phase enrollment, a challenge that issues no session, a replay guard on the accepted
+  counter, and re-authentication to disable. None of those are stated in the blueprint; they are
+  what the requirement means in practice.
+- Noticing that a TOTP code stays valid for its whole 30-second period, so accepting one twice
+  would let an observed code be reused. The `otpauth` docs flag this and it is easy to miss.
+- Designing the E2E suite to assert the _security_ properties through the UI, not just the happy
+  path: byte-identical error text for a wrong password and an unknown account, a recovery code
+  refused on its second use, and each revoked device genuinely signed out.
+
+### Where AI failed or was corrected
+
+- **Two real accessibility defects were found by axe and the keyboard test, not by review.**
+  1. `placeholder:text-muted/60` computed to roughly **2.6:1** against the panel, well below the
+     4.5:1 that AA requires. A faded placeholder looked right and was not. Fixed to full-strength
+     muted, which measures about 6.2:1.
+  2. A field-level validation error rendered in a plain paragraph while focus stayed on the submit
+     button, so a screen reader announced **nothing** on a failed submission. The form-level
+     `role="alert"` is now shown for field errors too. The visual design was fine and the
+     experience was broken; only the test caught it.
+- **An axe failure that was NOT a real defect, and diagnosing it correctly mattered.** Contrast
+  violations appeared with colours that were not in the palette at all - `#727791` instead of
+  `#5A5F7D`. The panel was still mid-fade when axe measured it, so it was reading blended values.
+  The fix is to wait for animations to settle before scanning, not to change the colours: the
+  settled page is what a user reads, and a reduced-motion user never sees the transition. Changing
+  the palette here would have been fixing the wrong thing.
+- **Two E2E tests failed against the replay guard, and the tests were wrong, not the code.** They
+  generated a second TOTP code inside the same period the enrollment had already consumed, which is
+  precisely what the guard exists to refuse. Corrected by waiting for the next period. A related
+  integration test then failed by overcorrecting to `+2` periods, which falls outside the one-period
+  drift window - the only acceptable value is exactly `+1`, where the replay guard and the drift
+  window meet.
+- **The `&` path problem appeared in a third form.** In Stage 1 it broke `npm run`; in Stage 3a it
+  broke `npm install` for a package with an install script; here it broke Playwright's `webServer`,
+  which spawns `npm run` through `cmd.exe`. Fixed by invoking `node <binary>` directly. `npx` is
+  affected too, so the Chromium install and the Playwright CLI are also called through `node`.
+- **A test race of my own making.** One MFA test called `enableMfa` without waiting for sign-in to
+  complete, so the enroll request raced the login response setting the cookie. It failed as
+  "Authentication is required", which reads like a product bug and was not.
+- **An intermittent E2E failure turned out to be a real bug, and the first read of it was wrong.**
+  MFA setup failed with "That code did not match" about one run in three. It looked like a TOTP
+  period boundary, which would have been a test problem. It was not. React StrictMode invokes mount
+  effects twice, so `POST /mfa/enroll` fired twice, and each enroll REPLACES the pending secret.
+  When the two responses resolved out of order the page displayed one secret while the server had
+  stored the other, so the typed code could never match. Fixed with the same `useRef` guard the
+  verification page already used for its single-use token. Worth recording for two reasons: the
+  fix belongs in product code rather than the test, and a double submit or a remount could
+  reproduce it outside StrictMode. Verified by two consecutive clean E2E runs.
+- **`verbatimModuleSyntax` and React 19 types.** The LSP flagged `FormEvent` as deprecated - React
+  19 types say it "doesn't actually exist" and point to `SubmitEvent` - and separately flagged
+  `z.string().email()` as deprecated in favour of Zod 4's top-level `z.email()`. Both were caught
+  live while editing rather than at build time.
+
+### Judgment calls
+
+1. **The pending MFA state is a server-side record, not a token.** A signed token handed to the
+   client would work, but anything the browser holds between the password and the second factor is
+   something an attacker might forge or replay. An opaque handle to a five-minute Redis record,
+   destroyed after five failures, gives the client nothing to attack.
+
+2. **Enrollment does not enable MFA.** Only a confirming code does. The alternative - enabling as
+   soon as a secret exists - would let a user who closed the tab mid-setup lock themselves out of
+   an account they can still log into today.
+
+3. **Disabling MFA is not covered by the "generic response" rule.** A wrong password and a wrong
+   code both return the same message, which is right, but the endpoint requires an existing session,
+   so there is no enumeration surface to protect. The shared message is about not revealing which
+   half was correct.
+
+4. **Native semantic elements instead of a headless component library.** Blueprint 14.1 lists
+   "accessible headless primitives" among the UI foundations. For forms the native elements ARE
+   those primitives: `<label for>`, `<button>`, and `aria-describedby` need no JavaScript and cannot
+   break. A headless library earns its place for dialogs, comboboxes, and tabs, none of which this
+   auth surface has. Stage 12 can add one when the dashboard introduces those patterns. This is a
+   reading of the blueprint rather than a departure from it, and it is recorded here so a later
+   stage can revisit it deliberately.
+
+5. **Design direction, and why it is not generic.** The `frontend-design` skill warns that AI design
+   clusters around three looks. The palette here is a cool periwinkle paper with an electric indigo
+   signal, which is none of them. The signature is a **mount bracket**: four corner ticks framing
+   each auth panel, borrowed from the product's own world, since this platform makes widgets that
+   get mounted into someone else's page and an auth form is itself a capture form. It would be
+   meaningless on a generic SaaS, which is the point. Monospace is used only where it is
+   functional - TOTP codes, recovery codes, session timestamps - because those are read character by
+   character and glyph disambiguation matters. Numbered steps appear only in MFA setup, because that
+   flow genuinely is an ordered sequence; numbering anything else would be decoration.
+
+6. **Fonts are self-hosted.** Space Grotesk and JetBrains Mono ship as `@fontsource` packages rather
+   than a Google Fonts link, so no page depends on an external CDN at run time or test time. That
+   keeps blueprint 15.1 true and stops E2E from depending on the network.
+
+7. **The Vite dev server proxies `/api` to Express.** The browser therefore sees ONE origin in
+   development. This is load-bearing rather than convenience: the session cookie is host-scoped and
+   `SameSite=Lax`, so a cross-origin dev setup would silently drop it and the whole auth surface
+   would appear broken for reasons unrelated to the code.
+
+8. **E2E throttle isolation, again.** Every browser test hits 127.0.0.1, so the real per-IP limits
+   would make each test spend the next one's allowance. A fixture clears only this run's counters.
+   The production limits are untouched, and the throttle tests still exercise them deliberately.
+
+### Verification performed
+
+Every command was executed. Beyond the happy paths:
+
+- Both MFA factors were tested for single use: a TOTP counter cannot be reused, and a recovery code
+  works exactly once while a different one still works.
+- The challenge was brute-forced deliberately to confirm it is destroyed after five failures.
+- Disabling was attempted with a wrong password and a valid code, then a right password and a wrong
+  code, before the successful case.
+- The stored user document was read directly and asserted to contain neither the base32 secret nor
+  any plaintext recovery code, and to carry a well-formed `keyVersion`.
+- The cipher was tested against a tampered ciphertext, a tampered authentication tag, an unknown key
+  version, and a rotated key ring.
+- Accessibility was scanned in error states and with MFA both on and off, not only on pristine
+  pages, and a keyboard-only path through registration and sign-in was asserted.
+
+### Plugin usage this stage
+
+- **`frontend-design`** - installed, available, and **invoked substantively**, unlike every prior
+  stage where there was no UI to apply it to. It shaped the work in concrete ways: it pushed past
+  the three default AI looks it names, which is why the palette is periwinkle-and-indigo rather than
+  cream-and-terracotta; it prompted the "spend your boldness in one place" discipline that produced
+  the mount bracket as the single signature with everything else kept quiet; and its guidance on
+  structural devices is why numbering appears only in MFA setup, where the content genuinely is a
+  sequence. Its writing guidance shaped the copy: active voice, an action keeping the same name
+  through a flow, and errors that say what to do rather than apologise.
+
+- **`typescript-lsp`** - installed, available, and **it worked**, checked before any other work.
+  Used for cross-package verification: `findReferences` on the `SecretCipher` port confirmed it is
+  consumed only through the port by the adapter and the service; `hover` on `MfaEnrollment` in
+  `apps/web` confirmed the new `apps/web` to `packages/contracts` boundary resolves with its
+  documentation intact. It also caught two live deprecations while editing - React 19's `FormEvent`
+  and Zod 4's `z.string().email()` - which `tsc` reports only as advisories. Final state: zero
+  unexpected diagnostics, cross-checked against `tsc` reporting zero errors.
+
+  One recurring caveat, unchanged from Stage 3a: the LSP serves stale buffers for files edited
+  through shell scripts rather than the editor tool, occasionally reporting errors against lines
+  that no longer exist. `tsc` was treated as authoritative and the LSP re-queried afterwards.
+
+- **`context7`** - installed, available, **invoked substantively**:
+  - **otpauth** (`/hectorm/otpauth`): the TOTP API, the `window` drift parameter, and the explicit
+    warning that server-side replay prevention via `counter()` is the caller's responsibility.
+  - **Pwned Passwords** (`/lionheart/pwnedpasswords`, Stage 3a) and **React Router**
+    (`/websites/reactrouter`): v7/v8 library mode with `createBrowserRouter` and `RouterProvider`.
+  - **Playwright** (`/microsoft/playwright`): `defineConfig`, the `webServer` option, and the
+    `@axe-core/playwright` `AxeBuilder` fixture pattern with WCAG tag sets.
+    No conflict with a locked blueprint decision was found.
+
+### Open questions for a human
+
+1. **Blueprint Stage 3 is now complete and checked off.** All five clauses of its gate are proven,
+   and the proof includes real browser interaction rather than only API calls.
+2. **E2E covers Chromium only.** Blueprint 14.1 names current Chrome, Edge, Firefox, and Safari.
+   Adding the other three is cheap in Playwright but slow in CI, and Stage 13 owns the browser
+   matrix, so it was left there rather than pulled forward.
+3. **Automated accessibility is a floor, not a certificate.** axe catches roughly a third of real
+   problems. The keyboard test covers one thing it cannot, but the manual WCAG 2.2 AA audit is
+   Stage 13 and this stage does not claim to have done it.
+4. **The `&` in the folder name has now broken three different tools.** Renaming the local folder is
+   the standing recommendation and gets stronger each stage.
+5. **CI still has never run.** The workflow now has three jobs including browser E2E, all verified
+   locally with the same commands, but no remote exists.
+6. **Recovery codes cannot be regenerated yet.** A user who spends all ten and loses their
+   authenticator has no self-service path back. The count is surfaced in the UI so it is visible,
+   but a regenerate flow is genuinely missing and would fit naturally with the account-settings work
+   in a later stage.

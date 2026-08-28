@@ -1,0 +1,13 @@
+{
+  "extends": "@lcp/config/tsconfig.node.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    // page.evaluate runs in the browser, so specs legitimately reference DOM
+    // globals even though the test process itself is Node.
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["**/*.ts", "../playwright.config.ts"]
+}

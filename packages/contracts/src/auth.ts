@@ -118,3 +118,84 @@ export const GENERIC_ACK: GenericAcknowledgement = {
   status: 'accepted',
   message: 'If that email address can receive this request, a message has been sent to it.',
 };
+
+// ---------------------------------------------------------------------------
+// Multi-factor authentication (blueprint 4.2: optional TOTP for every user)
+// ---------------------------------------------------------------------------
+
+/** Six digits, the near-universal authenticator-app default. */
+export const TOTP_DIGITS = 6;
+/** Thirty seconds, likewise. */
+export const TOTP_PERIOD_SECONDS = 30;
+/** How many recovery codes are issued at enrollment. */
+export const RECOVERY_CODE_COUNT = 10;
+
+export const totpCodeSchema = z
+  .string()
+  .trim()
+  // Authenticator apps often display the code as "123 456".
+  .transform((value) => value.replace(/\s+/g, ''))
+  .pipe(z.string().regex(/^[0-9]{6}$/, 'Enter the 6-digit code from your authenticator app'));
+
+export const recoveryCodeSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .transform((value) => value.replace(/\s+/g, ''))
+  .pipe(z.string().regex(/^[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$/, 'Enter a recovery code'));
+
+/** Either factor satisfies the challenge, so the schema accepts one of them. */
+export const mfaChallengeSchema = z.union([
+  z.object({ totpCode: totpCodeSchema }),
+  z.object({ recoveryCode: recoveryCodeSchema }),
+]);
+export type MfaChallenge = z.infer<typeof mfaChallengeSchema>;
+
+export const mfaConfirmSchema = z.object({ totpCode: totpCodeSchema });
+export type MfaConfirm = z.infer<typeof mfaConfirmSchema>;
+
+/**
+ * Disabling MFA requires re-authentication, not just a click: the current
+ * password AND a current second factor (blueprint 17, privilege-sensitive
+ * change).
+ */
+export const mfaDisableSchema = z.object({
+  password: z.string().min(1).max(PASSWORD_MAX_LENGTH),
+  totpCode: totpCodeSchema,
+});
+export type MfaDisable = z.infer<typeof mfaDisableSchema>;
+
+/**
+ * Returned once, when enrollment begins.
+ *
+ * The secret appears here and never again. After confirmation it is encrypted
+ * at rest and no endpoint returns it.
+ */
+export interface MfaEnrollment {
+  /** otpauth:// URI for the QR code. */
+  readonly otpauthUri: string;
+  /** Base32 secret, for manual entry when a camera is unavailable. */
+  readonly manualEntryKey: string;
+}
+
+/** Returned once, immediately after MFA is confirmed. Never retrievable again. */
+export interface MfaRecoveryCodes {
+  readonly recoveryCodes: readonly string[];
+}
+
+export interface MfaStatus {
+  readonly enabled: boolean;
+  /** Codes not yet spent. Prompts the user to regenerate when it runs low. */
+  readonly recoveryCodesRemaining: number;
+}
+
+/**
+ * Login either completes or stops at the second factor.
+ *
+ * The pending state carries no token: the partially-authenticated state lives
+ * in a short-lived server-side record, so a client cannot forge its way past
+ * the challenge.
+ */
+export type LoginResult =
+  | { readonly status: 'authenticated'; readonly user: AuthenticatedUser }
+  | { readonly status: 'mfa_required' };

@@ -1,2 +1,91 @@
-/* Tailwind CSS v4 entry point. No custom theme or tokens yet - see @lcp/ui. */
 @import 'tailwindcss';
+
+/* Self-hosted so no page depends on an external CDN at run or test time. */
+@import '@fontsource-variable/space-grotesk';
+@import '@fontsource-variable/jetbrains-mono';
+
+/**
+ * Design tokens.
+ *
+ * The palette is a cool periwinkle paper with a deep indigo ink and one
+ * electric indigo signal colour. Every pairing below meets WCAG 2.2 AA for its
+ * intended use; --muted is the lightest text tone and still clears 4.5:1 on
+ * paper.
+ *
+ * Space Grotesk carries the interface. JetBrains Mono is reserved for material
+ * that must be read character by character - TOTP codes, recovery codes, field
+ * eyebrows, session timestamps - where glyph disambiguation is a legibility
+ * requirement rather than a stylistic choice.
+ */
+@theme {
+  --color-paper: #edeff7;
+  --color-panel: #ffffff;
+  --color-ink: #14162b;
+  --color-muted: #5a5f7d;
+  --color-signal: #3d2bd9;
+  --color-signal-hover: #3222b8;
+  --color-edge: #d3d7e8;
+  --color-danger: #b3261e;
+  --color-danger-soft: #fdeceb;
+  --color-secure: #1f6f4a;
+  --color-secure-soft: #e8f4ee;
+
+  --font-sans:
+    'Space Grotesk Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+}
+
+@layer base {
+  html {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+  }
+
+  /**
+   * A visible, high-contrast focus ring on every interactive element.
+   * WCAG 2.2 adds Focus Appearance and Focus Not Obscured; a 2px ring with a
+   * 2px offset satisfies both against this palette.
+   */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Honour a reduced-motion preference rather than animating regardless. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/**
+ * The mount animation: the panel settles into its bracket, echoing a widget
+ * mounting into a host page. One motion cue in the whole surface.
+ */
+@keyframes mount-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.mount-in {
+  animation: mount-in 260ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}

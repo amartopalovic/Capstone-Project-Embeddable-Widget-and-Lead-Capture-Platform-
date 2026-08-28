@@ -32,6 +32,9 @@ export function buildTestApp(healthService: HealthService): Express {
     mailpitHost: 'localhost',
     mailpitPort: 1025,
     breachCheckRemote: false,
+    encryptionMasterKey: Buffer.from('test-only-insecure-key-32-bytes!').toString('base64'),
+    encryptionKeyVersion: 1,
+    totpIssuer: 'Lead Capture Test',
   } satisfies ServerEnv;
 
   // Only the health surface is exercised, so the auth graph is never called.

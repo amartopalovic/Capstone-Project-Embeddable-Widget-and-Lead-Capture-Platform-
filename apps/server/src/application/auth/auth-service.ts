@@ -142,6 +142,11 @@ export class AuthService {
       failedLoginAttempts: 0,
       lockedUntil: null,
       lastLoginAt: null,
+      totpSecret: null,
+      mfaEnabled: false,
+      mfaEnabledAt: null,
+      lastTotpCounter: null,
+      recoveryCodes: [],
       createdAt: now,
       updatedAt: now,
     });

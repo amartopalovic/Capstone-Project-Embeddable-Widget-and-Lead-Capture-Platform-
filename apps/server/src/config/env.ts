@@ -44,6 +44,12 @@ export interface ServerEnv {
   readonly mailpitPort: number;
   /** Opt-in remote breach check. The offline list always runs regardless. */
   readonly breachCheckRemote: boolean;
+
+  // --- Stage 3b: MFA and secret encryption ---------------------------------
+  readonly encryptionMasterKey: string;
+  readonly encryptionKeyVersion: number;
+  /** Shown by authenticator apps beside the account name. */
+  readonly totpIssuer: string;
 }
 
 export function loadEnv(): ServerEnv {
@@ -71,7 +77,33 @@ export function loadEnv(): ServerEnv {
     mailpitHost: readString('MAILPIT_SMTP_HOST', 'localhost'),
     mailpitPort: readNumber('MAILPIT_SMTP_PORT', 1025),
     breachCheckRemote: readString('BREACH_CHECK_REMOTE', 'false') === 'true',
+    encryptionMasterKey: readEncryptionMasterKey(),
+    encryptionKeyVersion: readNumber('ENCRYPTION_KEY_VERSION', 1),
+    totpIssuer: readString('TOTP_ISSUER', 'Lead Capture Platform'),
   };
+}
+
+/**
+ * AES-256-GCM master key for readable secrets (blueprint 12.4).
+ *
+ * Same discipline as the session secret: production refuses to start without a
+ * real value, development falls back to a fixed obviously-fake key so
+ * `docker compose up` needs no credentials.
+ */
+function readEncryptionMasterKey(): string {
+  const configured = process.env['ENCRYPTION_MASTER_KEY'];
+  const isProduction = readString('NODE_ENV', 'development') === 'production';
+
+  if (configured === undefined || configured === '' || configured.startsWith('replace-me')) {
+    if (isProduction) {
+      throw new Error(
+        'ENCRYPTION_MASTER_KEY must be set to a real 32-byte base64 key in production',
+      );
+    }
+    // 32 bytes of the literal text below, base64 encoded. Not a secret.
+    return Buffer.from('development-only-insecure-key-32').toString('base64');
+  }
+  return configured;
 }
 
 function readNumber(name: string, fallback: number): number {
