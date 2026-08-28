@@ -10,6 +10,9 @@ export function VerifyEmailPage(): React.JSX.Element {
   const [params] = useSearchParams();
   const [state, setState] = useState<State>('working');
   const [message, setMessage] = useState('');
+  // Confirming an address also redeems any invitations waiting for it, so the
+  // page can tell someone they have already been let in.
+  const [joined, setJoined] = useState(0);
   // React 18+ StrictMode mounts effects twice in development; the token is
   // single-use, so a second submit would fail and show a spurious error.
   const submitted = useRef(false);
@@ -25,8 +28,9 @@ export function VerifyEmailPage(): React.JSX.Element {
     submitted.current = true;
 
     void (async () => {
-      const result = await api.post('/auth/verify', { token });
+      const result = await api.post<{ joinedWorkspaces?: number }>('/auth/verify', { token });
       if (result.ok) {
+        setJoined(result.data.joinedWorkspaces ?? 0);
         setState('verified');
       } else {
         setState('failed');
@@ -47,10 +51,18 @@ export function VerifyEmailPage(): React.JSX.Element {
     return (
       <AuthPanel
         title="Email confirmed"
-        intro="Your address is verified. You can publish widgets and invite teammates once those features arrive."
+        intro={
+          joined > 0
+            ? 'Your address is verified, and the invitations waiting for it have been accepted.'
+            : 'Your address is verified. You can now invite teammates to your workspace.'
+        }
         footer={<Link to="/login">Continue to sign in</Link>}
       >
-        <Alert tone="success">All set.</Alert>
+        <Alert tone="success">
+          {joined > 0
+            ? `All set. You joined ${String(joined)} workspace${joined === 1 ? '' : 's'}.`
+            : 'All set.'}
+        </Alert>
       </AuthPanel>
     );
   }

@@ -1061,3 +1061,179 @@ Every command was executed. Beyond the happy paths:
    policy engine is complete and tested for all 16 rows; Stages 5, 8, and 9 must remember to attach
    `requireCapability` to the routes they add. Nothing enforces that they will.
 5. **CI has still never run.** Unchanged since Stage 1: no remote is configured.
+
+---
+
+## Stage 4b - Workspace UI, onboarding flow, and browser E2E (2026-08-28)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Stage 4b, the second half of blueprint Stage 4.
+**Blueprint Stage 4 is now COMPLETE** and is checked off in `docs/stage-checklist.md`. Its gate
+asks for the role matrix "from API through browser"; Stage 4a delivered the API half and this
+stage delivers the browser half.
+
+### What was done
+
+Verified `typescript-lsp` (see below - it needed a restart first), read the whole Stage 4a
+backend, then built:
+
+- `apps/web/src/pages/`: `OnboardingPage`, `WorkspaceHomePage` (usage meters),
+  `MembersPage` (roster, invitations, role controls), `AcceptInvitationPage`, `AuditLogPage`,
+  and `WorkspaceSettingsPage` (ownership transfer and the danger zone).
+- `apps/web/src/components/WorkspaceShell.tsx`: the minimal shell - switcher, nav, and the single
+  place workspace state is loaded and shared.
+- `apps/web/src/lib/`: `workspace-context.ts`, `navigation.ts` (`safeNext`), and `workspaceApi`
+  added to the existing client rather than a second one.
+- `apps/web/src/components/ui.tsx`: `RoleChip` and `Meter`.
+- `e2e/`: `helpers/journeys.ts` plus `workspace-journey.spec.ts` (12 tests) and
+  `workspace-accessibility.spec.ts` (8 tests).
+- Server, to make the UI possible without duplicating policy: `GET /workspaces/current` now
+  returns the caller's derived capability list, `GET /members` returns per-member
+  `assignableRoles` and `canRemove`, and `GET /workspaces/recoverable` was added.
+
+### Where AI helped
+
+- Spotting that the obvious way to build this - map role to visible controls in React - would
+  have created a second copy of the section 11 matrix. The requirement was to drive the UI from
+  what the API reports, and the API reported only a _role_. Having the server derive and return
+  the capability list, and the per-member decisions, is what makes "one copy of the policy" a
+  literal fact rather than an aspiration. `findReferences` on `can()` now shows the same function
+  behind the guard and behind what the UI reads.
+- Catching that per-member decisions cannot be expressed as a flat capability list at all.
+  "Admins manage Members but only the Owner touches Admin status" depends on both roles at once,
+  so `assignableRoles` is computed per row by the same `canChangeRole` the mutation route uses.
+- Noticing that a soft-deleted workspace was undiscoverable. Recovery existed in Stage 4a, but a
+  deleted workspace is hidden from the switcher and cannot be the active workspace, so after a
+  reload nothing could name it. Without `GET /workspaces/recoverable` the required recovery UI
+  would have been a button that only worked in the same page session.
+- Reading the invitation email subject out of the code instead of guessing it, and reading the
+  emitted audit event types out of the services rather than inventing plausible ones. One
+  invented case (`membership.created`) was written and then removed once the real list was
+  checked - it is never emitted.
+
+### Where AI failed or was corrected
+
+- **I invented an outcome the server does not produce.** The acceptance page had a "This
+  invitation is for someone else" state for a signed-in user whose address does not match. Stage
+  4a deliberately returns `invalid_token` there, with a comment saying why: distinguishing "not
+  yours" from "not real" would confirm that an intercepted link is a live invitation. The E2E
+  test failed and was right to. The branch was removed and the test rewritten to assert the
+  actual, better behaviour - identical wording either way - plus the two things that matter: the
+  interloper joins nothing, and the real invitation stays pending. A neutral suggestion to sign
+  out and try another account is now shown for _all_ failures, which helps the honest case
+  without confirming anything.
+- **A sign-in race.** `signIn` clicks and returns without waiting, which is correct for the auth
+  tests that submit bad credentials and stay put. Two new tests then navigated immediately and
+  raced the response that sets the session cookie, so the destination rendered signed-out. Added
+  `signInAndLand`, which waits for the app to leave `/login`, rather than weakening assertions.
+- **`?next=` leaked into a URL the auth tests assert on.** Adding invitation return-to support
+  made login send `/mfa-challenge?next=%2Fworkspace` even for the default destination, breaking
+  two Stage 3b tests. The fix was in the product, not the tests: the parameter is only attached
+  when the destination is not the default.
+- **A duplicate `data-testid`.** `RoleChip` renders in the shell and again in a page heading, so
+  `getByTestId('role-owner')` matched two elements. Scoped the assertions to the banner.
+- **`useCan` was dead code.** I exported a hook and then never used it; lint does not flag an
+  unused export. `findReferences` returned exactly one reference - its own declaration - and it
+  was removed.
+- **The suite exhausted the daily email budget, and I nearly called it a flake.** The final run
+  failed with `No "Join " email ... within 20000ms` on a test that had just passed. The UI had
+  said "Invitation sent", so the send path was fine. The cause was real:
+  `lcp:e2e:quota:email:2026-08-28:total` had reached 300, the Stage 3a Brevo day budget, after
+  four suite runs. The guard was _working_ - deferring rather than exceeding a provider cap - but
+  it made the suite unrepeatable within a UTC day. Fixed in the fixture that already resets
+  throttle counters, on the same reasoning it documents: only this run's counters are cleared,
+  under this run's own key prefix, and the guard keeps its unit and integration coverage. Verified
+  by re-running from an exhausted counter: 37 passed.
+
+### Judgment calls
+
+1. **No headless component library, again - but decided, not defaulted.** Stage 3b left this open
+   for the first genuine composite widget, and this stage had two candidates. A native `details`
+   disclosure gives the switcher a focusable trigger, keyboard toggling, and an announced expanded
+   state for free; a native `select` is precisely the right primitive for choosing one of two
+   roles; and destructive actions reuse the inline-confirmation pattern from turning off two-step
+   verification rather than becoming modals. A library would have added behaviour to re-implement
+   and nothing a user gains. Reconsider in Stage 12, which brings real dialogs and comboboxes.
+2. **A component guard, not a route loader.** React Router 8 supports loaders in data mode, and
+   the current docs present `redirect` from a loader as the idiomatic guard. Every existing page
+   in this app fetches from a component, so introducing a second data paradigm for four routes
+   would cost more in consistency than the extra render costs. Stage 12 can move the surface to
+   loaders wholesale.
+3. **Post-sign-in now lands in the workspace, not on `/account`.** `AccountPage` said in its own
+   comment that it was "deliberately NOT a dashboard" and that this arrives in Stage 4. Fifteen
+   assertions in the Stage 3b suite were updated to match, via two named constants in
+   `fixtures.ts` so the decision lives in one place. This is a deliberate behaviour change, not a
+   regression, and the pages themselves are untouched.
+4. **Onboarding is not gated on a verified email.** Section 4.1 blocks only "publishing and
+   invitations" for unverified users and says the dashboard is available, and journey 1 in
+   section 18.3 is ordered "Register, onboard, verify, sign in". So an unverified user reaches
+   onboarding and the workspace, and is refused only at the invite form.
+5. **Name and timezone are read-only.** Stage 4a exposes no endpoint that changes them. A form
+   posting to something that does not exist would be a worse lie than a read-only row.
+6. **Unmeasured usage meters draw an empty dashed track**, labelled with the stage that will fill
+   them, rather than a zero-width bar. The API sends `null` precisely so that "nothing yet" and
+   "not counted yet" stay distinguishable; a confident 0 would throw that away in the UI.
+7. **Recovery lives on the onboarding screen.** That is where an owner who has just deleted their
+   only workspace is sent, so it is where the offer to restore it belongs.
+8. **The switcher collapses to plain text with one workspace.** A disclosure that reveals a list
+   of one is noise.
+9. **Auto-select the first workspace when a session has none.** Signing in creates a session with
+   no active workspace, so a returning member would otherwise land nowhere. The id comes from the
+   list the server just returned, and `/switch` re-verifies membership before writing.
+
+### Verification performed
+
+Every command run from a clean tree, in this order:
+
+```
+npm run format:check   All matched files use Prettier code style!
+npm run lint           exit 0
+npm run typecheck      exit 0
+npm run build          exit 0
+npm test               Test Files 7 passed (7)   Tests 125 passed (125)
+npm run test:integration   Test Files 6 passed (6)   Tests 110 passed (110)
+npm run test:e2e       37 passed (5.2m)
+```
+
+The E2E suite went 30/7 then 36/1 before reaching 37/0; each failure is described above. The 17
+pre-existing browser tests all pass, as do the 106 pre-existing integration tests.
+
+### Plugin usage this stage
+
+- **`typescript-lsp` - worked, after a restart it needed.** On first contact it was serving a
+  _stale buffer_: it resolved `can()` at line 101 of a file where line 98 was correct, and it
+  returned byte-identical results after a real on-disk change. The server had been running since
+  before the Stage 4a formatting pass, and it never re-reads a file it has opened. Killing it
+  (it respawns) fixed the offsets exactly. Verified afterwards with two deliberate type errors,
+  both reported at the right lines. Used substantively for the `apps/web` to `packages/contracts`
+  boundary (`MemberSummary.canRemove` resolves across the package edge), to prove one copy of the
+  policy via `findReferences` on `can()`, to confirm only the two intended auth pages touch
+  `safeNext`, and to find the dead `useCan`. **Operational caveat, worth knowing for later
+  stages:** because it never re-reads changed files, `tsc` was treated as the authority during
+  editing and the LSP was restarted before the final diagnostics.
+- **`context7` - consulted.** React Router: confirmed loaders with `redirect` as the current
+  guard idiom in data mode, which informed judgment call 2 (documented as a deliberate departure
+  rather than an oversight). Resolved the library to `/remix-run/react-router`; note the indexed
+  docs are v7 while this repo is on 8.3.0, so the finding was treated as directional.
+- **`frontend-design` - applied.** The skill was loaded earlier in this session and its guidance
+  was followed here rather than re-invoked, per this session's instruction not to re-execute
+  already-loaded skills. Its influence is concrete: the brief pinned the visual direction to
+  Stage 3b's system, so the work was extension rather than reinvention. Role became the
+  organising structural device, expressed as one `RoleChip` treatment in the established mono
+  micro-type everywhere a role appears, and the active row in the switcher carries a
+  signal-coloured left edge that echoes the auth panel's corner ticks. Numbered markers were
+  explicitly rejected - onboarding is one step and a roster is not a sequence. The boldness stays
+  spent on the existing mount-bracket signature, and the new surfaces are quiet by comparison.
+
+### Open questions for a human
+
+1. **A workspace's name and timezone cannot be changed by anyone.** The API has no endpoint, so
+   an owner who mistypes their workspace name is stuck with it. Worth an early settings endpoint
+   rather than waiting for Stage 12.
+2. **A removed member sees a generic failure.** Revocation takes effect on the next request, and
+   the shell simply redirects them; it does not say "you were removed from that workspace".
+3. **Expired invitations still show as pending** until Stage 11's sweep. They are refused on use,
+   and the list shows the expiry date, but the row does not say "expired".
+4. **Capabilities for widgets, contacts, exports, and deliveries are answered but unattached.**
+   Stages 5, 8, and 9 must remember to attach `requireCapability`; nothing enforces that they do.
+5. **CI has still never run**, because no remote is configured.

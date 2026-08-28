@@ -1,11 +1,12 @@
 # Embeddable Widget & Lead-Capture Platform
 
-> **Project status: Stage 3 of 16 complete, plus Stage 4a — the workspace and RBAC backend.**
-> Authentication works end to end through a real accessible interface. On top of it, workspaces,
-> the full role matrix, invitations, and ownership transfer now work at the API level, proven by
-> 125 unit, 106 integration, and 17 browser end-to-end tests. There is **no workspace UI yet**
-> (Stage 4b) and still no widgets or submissions. Every command, link, and proof marked
-> _planned_ or _TBD_ below does not work today.
+> **Project status: Stage 4 of 16 complete.**
+> Authentication and the multi-workspace user model both work end to end through a real
+> accessible interface: onboarding, the workspace switcher, the full role matrix, invitations,
+> ownership transfer, and workspace delete/recover. Proven by 125 unit, 110 integration, and 37
+> browser end-to-end tests, the last of which include `axe` WCAG 2.2 AA scans on every page.
+> There are still no widgets, submissions, contacts, or analytics. Every command, link, and
+> proof marked _planned_ or _TBD_ below does not work today.
 
 ---
 
@@ -242,8 +243,8 @@ Run these on the host after `npm ci`:
 | `npm run format:check`     | Prettier formatting check                                                                                      | Real      |
 | `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                                   | Real      |
 | `npm run test`             | Unit tests, no infrastructure needed (125 tests, incl. the full role matrix)                                   | Real      |
-| `npm run test:integration` | Tenancy, migrations, auth, and the workspace/RBAC backend against real MongoDB, Redis, and Mailpit (106 tests) | Real      |
-| `npm run test:e2e`         | Browser journeys plus axe accessibility checks, driven through the real UI (17 tests)                          | Real      |
+| `npm run test:integration` | Tenancy, migrations, auth, and the workspace/RBAC backend against real MongoDB, Redis, and Mailpit (110 tests) | Real      |
+| `npm run test:e2e`         | Browser journeys plus axe accessibility checks, driven through the real UI (37 tests)                          | Real      |
 | `npm run migrate`          | Apply committed migrations and indexes; repeatable                                                             | Real      |
 | `npm run build`            | Production build of every workspace                                                                            | Real      |
 | BullMQ queue tests         | Background job integration                                                                                     | _Stage 9_ |
@@ -303,22 +304,24 @@ reflects that this repository is only at Stage 0.
 - Everything listed in §4 above is out of scope.
 - The repository is organized as an npm-workspaces monorepo — see §3.
 
-### 7.2 Stage 4a limitations (temporary)
+### 7.2 Stage 4 limitations (temporary)
 
-- **There is no workspace UI.** Onboarding, the switcher, the members list, invitations,
-  and workspace settings all exist as API only. Those pages, and the browser E2E covering
-  the role matrix, are Stage 4b — which is why blueprint Stage 4 is still unchecked in the
-  stage checklist.
-- The only UI is authentication, from Stage 3b.
+- **There is no dashboard chrome.** The workspace pages sit in a deliberately minimal shell
+  — a switcher, four links, and an account link. The real product navigation is Stage 12.
+- A workspace's name and timezone are shown but cannot be edited: no endpoint changes them
+  yet, and a form posting to nothing would be worse than a read-only row.
 - No widgets, submissions, contacts, or analytics. The policy engine already answers for
   their capabilities, but there are no routes to attach those answers to until Stages 5,
   8, and 9.
+- Contact and widget trash is a separate idea from the workspace-level delete and recover
+  built here; it arrives in Stage 8.
 - Soft-delete and recovery are implemented; the scheduled purge sweep that actually
   removes expired records is Stage 11.
 - Account deletion is enforced as a _precondition_ only. Full self-service account
   deletion is a later stage.
 - Only the user meter in workspace usage is real. The widget, submission, and event
-  meters report null rather than a fabricated zero.
+  meters report null rather than a fabricated zero, and the UI draws them as an empty
+  dashed track labelled with the stage that will fill them in.
 - Every acceptance probe in [`EVIDENCE.md`](./EVIDENCE.md) is still unproven; they are
   Stage 7.
 - CI has still never executed, because no remote is configured.
@@ -352,24 +355,24 @@ The six acceptance probes that must eventually pass are:
 
 ## 9. Repository map
 
-| Path                                                                                           | Purpose                                                       | Status                                        |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------- |
-| [`Embeddable_Widget_Lead_Capture_Blueprint.md`](./Embeddable_Widget_Lead_Capture_Blueprint.md) | Authoritative architecture and 16-stage plan                  | Complete                                      |
-| [`README.md`](./README.md)                                                                     | This file — orientation for a stranger                        | Stage 1                                       |
-| [`docs/architecture-summary.md`](./docs/architecture-summary.md)                               | One-page evaluator summary                                    | Current                                       |
-| [`docs/repository-layout.md`](./docs/repository-layout.md)                                     | Workspace ownership map                                       | Current                                       |
-| [`docs/stage-checklist.md`](./docs/stage-checklist.md)                                         | All 16 stages, goals, and exit gates                          | Stages 0–3 checked, 4a done                   |
-| [`EVIDENCE.md`](./EVIDENCE.md)                                                                 | One proof per requirement                                     | Stage 4a items updated; probes still unproven |
-| [`BUILDLOG.md`](./BUILDLOG.md)                                                                 | Where AI helped, failed, and was corrected                    | Stages 0–3 and 4a recorded                    |
-| [`capstone.yaml`](./capstone.yaml)                                                             | Machine-readable run/seed/test/probe manifest                 | Real commands; production URLs `TBD`          |
-| [`.env.example`](./.env.example)                                                               | Safe placeholder configuration                                | Placeholders only, no secrets                 |
-| [`.gitignore`](./.gitignore)                                                                   | Established before dependencies or secrets could be committed | Current                                       |
-| [`LICENSE`](./LICENSE)                                                                         | MIT                                                           | Complete                                      |
-| [`package.json`](./package.json)                                                               | npm workspaces root and quality scripts                       | Stage 1                                       |
-| [`docker-compose.yml`](./docker-compose.yml)                                                   | Local six-service topology                                    | Stage 1                                       |
-| [`Dockerfile.dev`](./Dockerfile.dev)                                                           | Shared development image for the three apps                   | Stage 1                                       |
-| [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)                                       | CI baseline                                                   | Stage 1                                       |
-| `apps/`, `packages/`                                                                           | The nine npm workspaces                                       | See §2.5                                      |
+| Path                                                                                           | Purpose                                                       | Status                                       |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------- |
+| [`Embeddable_Widget_Lead_Capture_Blueprint.md`](./Embeddable_Widget_Lead_Capture_Blueprint.md) | Authoritative architecture and 16-stage plan                  | Complete                                     |
+| [`README.md`](./README.md)                                                                     | This file — orientation for a stranger                        | Stage 1                                      |
+| [`docs/architecture-summary.md`](./docs/architecture-summary.md)                               | One-page evaluator summary                                    | Current                                      |
+| [`docs/repository-layout.md`](./docs/repository-layout.md)                                     | Workspace ownership map                                       | Current                                      |
+| [`docs/stage-checklist.md`](./docs/stage-checklist.md)                                         | All 16 stages, goals, and exit gates                          | Stages 0–3 checked, 4a done                  |
+| [`EVIDENCE.md`](./EVIDENCE.md)                                                                 | One proof per requirement                                     | Stage 4 items updated; probes still unproven |
+| [`BUILDLOG.md`](./BUILDLOG.md)                                                                 | Where AI helped, failed, and was corrected                    | Stages 0–3 and 4a recorded                   |
+| [`capstone.yaml`](./capstone.yaml)                                                             | Machine-readable run/seed/test/probe manifest                 | Real commands; production URLs `TBD`         |
+| [`.env.example`](./.env.example)                                                               | Safe placeholder configuration                                | Placeholders only, no secrets                |
+| [`.gitignore`](./.gitignore)                                                                   | Established before dependencies or secrets could be committed | Current                                      |
+| [`LICENSE`](./LICENSE)                                                                         | MIT                                                           | Complete                                     |
+| [`package.json`](./package.json)                                                               | npm workspaces root and quality scripts                       | Stage 1                                      |
+| [`docker-compose.yml`](./docker-compose.yml)                                                   | Local six-service topology                                    | Stage 1                                      |
+| [`Dockerfile.dev`](./Dockerfile.dev)                                                           | Shared development image for the three apps                   | Stage 1                                      |
+| [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)                                       | CI baseline                                                   | Stage 1                                      |
+| `apps/`, `packages/`                                                                           | The nine npm workspaces                                       | See §2.5                                     |
 
 ---
 

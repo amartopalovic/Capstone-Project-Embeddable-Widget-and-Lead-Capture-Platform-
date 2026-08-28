@@ -3,7 +3,7 @@
 The project is implemented in 16 bounded stages (blueprint §19). Exactly one stage is requested per
 implementation prompt, and work stops when that stage's exit gate is green.
 
-**Progress: 4 of 16 stages complete, plus Stage 4a of 4.**
+**Progress: 5 of 16 stages complete.**
 
 ## Stage execution rules (blueprint §19)
 
@@ -59,12 +59,13 @@ test results, remaining limitations, and confirmation of the exit gate.
       protection on the accepted TOTP counter; session rotation on every MFA change; eight
       accessible React pages; and a Playwright + axe suite.
 
-- [ ] **Stage 4 — Workspace onboarding, switcher, RBAC, and invitations** _(split into 4a and 4b; 4a done)_
+- [x] **Stage 4 — Workspace onboarding, switcher, RBAC, and invitations** _(delivered as 4a + 4b, 2026-08-28)_
   - **Goal:** Complete the multi-workspace user model.
   - **Exit gate:** Role matrix and cross-tenant tests pass from API through browser; unverified
-    users cannot invite or publish.
-  - **This stage stays unchecked until 4b lands.** The gate says "through browser", and there is no
-    workspace UI and no browser E2E yet.
+    users cannot invite or publish. **Met.** The matrix is proven at both levels: 110 integration
+    tests over HTTP, and 20 browser tests that assert a Member is never shown an invite, role,
+    transfer, or delete control, that an Admin is offered Member but never Admin, and that an
+    unverified Owner is refused an invite with `email_not_verified` rather than a bare forbidden.
   - [x] **Stage 4a — Onboarding, workspace context, RBAC policy, invitations backend** _(2026-08-28)_
     - Onboarding with name and IANA timezone and the one-owned-workspace limit; session-derived
       workspace context and a switcher that verifies membership; a policy engine covering the whole
@@ -74,7 +75,17 @@ test results, remaining limitations, and confirmation of the exit gate.
     - Proven by 32 integration tests against real MongoDB, Redis, and Mailpit, plus 43 unit tests
       that assert every cell of the §11 matrix against an independently transcribed copy of it.
       No UI, no browser E2E.
-  - [ ] **Stage 4b — Workspace UI (onboarding, switcher, members, invitations, settings) and browser E2E**
+  - [x] **Stage 4b — Workspace UI (onboarding, switcher, members, invitations, settings) and browser E2E** _(2026-08-28)_
+    - Onboarding with a detected, editable timezone; a `details`-based workspace switcher; a
+      members and invitations page whose controls are driven by capabilities the SERVER derives
+      from the §11 matrix; an invitation-acceptance page covering every outcome the API returns;
+      a workspace-scoped audit log; settings with ownership transfer and a soft-delete danger
+      zone; honest usage meters that show unmeasured quotas as unmeasured rather than as zero;
+      and a minimal shell to host them.
+    - Proven by 20 new Playwright tests (37 in the suite) against the real Compose stack, with
+      `axe` WCAG 2.2 AA scans on every new page including error and empty states.
+    - Closed one gap left by 4a: a soft-deleted workspace was undiscoverable, so recovery had no
+      reachable entry point. Added `GET /workspaces/recoverable`.
 
 - [ ] **Stage 5 — Widget domain model, builder, drafts, and publishing**
   - **Goal:** Let teams configure the three widget types safely.

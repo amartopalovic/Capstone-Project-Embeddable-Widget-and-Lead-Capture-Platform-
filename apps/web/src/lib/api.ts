@@ -1,4 +1,16 @@
-import { API_PREFIX, type ApiErrorPayload, type ApiFieldError } from '@lcp/contracts';
+import {
+  API_PREFIX,
+  type ApiErrorPayload,
+  type ApiFieldError,
+  type AuditEntrySummary,
+  type Capability,
+  type InvitableRole,
+  type InvitationSummary,
+  type MemberSummary,
+  type RecoverableWorkspaceSummary,
+  type WorkspaceSummary,
+  type WorkspaceUsage,
+} from '@lcp/contracts';
 
 /**
  * Typed client for the Stage 3a/3b auth API.
@@ -114,6 +126,7 @@ async function request<T>(
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
+  patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),
 };
 
@@ -121,3 +134,63 @@ export const api = {
 export function fieldError(failure: ApiFailure, path: string): string | undefined {
   return failure.fieldErrors.find((error) => error.path === path)?.message;
 }
+
+// ---------------------------------------------------------------------------
+// Workspace endpoints (Stage 4a API)
+// ---------------------------------------------------------------------------
+
+/**
+ * Typed calls for the workspace surface.
+ *
+ * These are thin: each one names an endpoint and its response shape and does
+ * nothing else. In particular NONE of them decides what the caller may do. The
+ * section 11 matrix lives on the server, and the UI asks the API what the
+ * current user's role is rather than keeping a second copy of the policy that
+ * could drift out of step with it.
+ */
+export const workspaceApi = {
+  list: () =>
+    api.get<{ workspaces: WorkspaceSummary[]; activeWorkspaceId: string | null }>('/workspaces'),
+
+  /** The active workspace plus the capabilities the server derived for us. */
+  current: () =>
+    api.get<{ workspace: WorkspaceSummary; capabilities: Capability[] }>('/workspaces/current'),
+
+  onboard: (name: string, timezone: string) =>
+    api.post<{ workspace: WorkspaceSummary }>('/workspaces', { name, timezone }),
+
+  switchTo: (workspaceId: string) =>
+    api.post<{ workspace: WorkspaceSummary }>('/workspaces/switch', { workspaceId }),
+
+  usage: () => api.get<WorkspaceUsage>('/workspaces/usage'),
+
+  audit: () => api.get<{ events: AuditEntrySummary[] }>('/workspaces/audit'),
+
+  transferOwnership: (toUserId: string) =>
+    api.post<{ status: string }>('/workspaces/transfer-ownership', { toUserId }),
+
+  softDelete: () => api.delete<{ status: string }>('/workspaces/current'),
+
+  recoverable: () =>
+    api.get<{ workspaces: RecoverableWorkspaceSummary[] }>('/workspaces/recoverable'),
+
+  recover: (workspaceId: string) =>
+    api.post<{ status: string }>(`/workspaces/${workspaceId}/recover`),
+
+  members: () => api.get<{ members: MemberSummary[] }>('/members'),
+
+  changeRole: (userId: string, role: InvitableRole) =>
+    api.patch<{ status: string }>(`/members/${userId}/role`, { role }),
+
+  removeMember: (userId: string) => api.delete<void>(`/members/${userId}`),
+
+  invitations: () => api.get<{ invitations: InvitationSummary[] }>('/invitations'),
+
+  invite: (email: string, role: InvitableRole) =>
+    api.post<{ status: string }>('/invitations', { email, role }),
+
+  revokeInvitation: (invitationId: string) => api.delete<void>(`/invitations/${invitationId}`),
+
+  acceptInvitation: (token: string) =>
+    api.post<{ status: string; workspaceId: string }>('/invitations/accept', { token }),
+};

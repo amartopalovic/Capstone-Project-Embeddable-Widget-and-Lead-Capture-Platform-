@@ -7,19 +7,41 @@ import { VerifyEmailPage } from './pages/VerifyEmailPage.jsx';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage.jsx';
 import { ResetPasswordPage } from './pages/ResetPasswordPage.jsx';
 import { AccountPage } from './pages/AccountPage.jsx';
+import { OnboardingPage } from './pages/OnboardingPage.jsx';
+import { AcceptInvitationPage } from './pages/AcceptInvitationPage.jsx';
+import { WorkspaceShell } from './components/WorkspaceShell.jsx';
+import { WorkspaceHomePage } from './pages/WorkspaceHomePage.jsx';
+import { MembersPage } from './pages/MembersPage.jsx';
+import { AuditLogPage } from './pages/AuditLogPage.jsx';
+import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage.jsx';
 
 /**
- * Routes for the authentication surface.
+ * Application routes.
  *
- * Only auth exists here. The landing page, dashboard, and workspace switcher
- * arrive in Stages 4 and 12, so `/` simply redirects to sign in rather than
- * pretending there is somewhere else to go.
+ * Two areas: the auth surface from Stage 3b, and the workspace surface added in
+ * Stage 4b. `/` now points into the workspace rather than at sign-in, because
+ * there is finally somewhere to land.
  *
- * Paths match the links the server puts in verification and reset emails
- * (`/auth/verify?token=` and `/auth/reset?token=`), so those links resolve.
+ * The workspace routes sit under one `WorkspaceShell` parent. The shell is what
+ * decides where an authenticated user actually belongs - sign-in for a stranger,
+ * onboarding for someone with no workspace yet, otherwise the workspace itself -
+ * so the guard exists once instead of on each child.
+ *
+ * The guard is a component rather than a route loader. React Router supports
+ * loaders here in data mode, and they avoid a render pass before redirecting,
+ * but every existing page in this app fetches from a component; introducing a
+ * second data-loading paradigm for four routes would cost more in consistency
+ * than the extra render costs. Stage 12 can move the whole surface to loaders
+ * at once if the dashboard warrants it.
+ *
+ * Paths match the links the server puts in its emails (`/auth/verify?token=`,
+ * `/auth/reset?token=`, and `/invitations/accept?token=`), so those links
+ * resolve.
  */
 const router = createBrowserRouter([
-  { path: '/', element: <Navigate to="/login" replace /> },
+  { path: '/', element: <Navigate to="/workspace" replace /> },
+
+  // --- auth surface (Stage 3a/3b) ---
   { path: '/register', element: <RegisterPage /> },
   { path: '/login', element: <LoginPage /> },
   { path: '/mfa-challenge', element: <MfaChallengePage /> },
@@ -28,6 +50,21 @@ const router = createBrowserRouter([
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
   { path: '/auth/reset', element: <ResetPasswordPage /> },
   { path: '/account', element: <AccountPage /> },
+
+  // --- workspace surface (Stage 4b) ---
+  { path: '/onboarding', element: <OnboardingPage /> },
+  { path: '/invitations/accept', element: <AcceptInvitationPage /> },
+  {
+    path: '/workspace',
+    element: <WorkspaceShell />,
+    children: [
+      { index: true, element: <WorkspaceHomePage /> },
+      { path: 'members', element: <MembersPage /> },
+      { path: 'audit', element: <AuditLogPage /> },
+      { path: 'settings', element: <WorkspaceSettingsPage /> },
+    ],
+  },
+
   { path: '*', element: <Navigate to="/login" replace /> },
 ]);
 

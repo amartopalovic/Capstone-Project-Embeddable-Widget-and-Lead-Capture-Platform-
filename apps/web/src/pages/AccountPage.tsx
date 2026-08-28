@@ -82,9 +82,15 @@ export function AccountPage(): React.JSX.Element {
   return (
     <main className="mx-auto max-w-2xl px-5 py-12">
       <header className="mb-10 border-b border-edge pb-6">
-        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-signal">
-          Account security
-        </p>
+        <div className="mb-3 flex items-center justify-between gap-4">
+          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-signal">
+            Account security
+          </p>
+          {/* Stage 4b gives this page somewhere to go back to. */}
+          <Link to="/workspace" className="text-sm text-muted underline hover:text-ink">
+            Back to workspace
+          </Link>
+        </div>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight text-ink">{user?.email}</h1>
         <p className="mt-2 text-sm text-muted">
           {user?.emailVerified === true ? (

@@ -2,7 +2,8 @@
 # capstone.yaml - machine-readable evaluation manifest
 # =============================================================================
 #
-# STATUS: Stage 3 complete, plus Stage 4a (workspace and RBAC backend). Install, run, seed,
+# STATUS: Stage 4 complete (workspace onboarding, switcher, RBAC, and invitations, UI
+# included). Install, run, seed,
 # migrate, lint, typecheck, build, unit, integration, and browser E2E commands below are REAL
 # and verified. The six acceptance probes and every production URL remain `TBD`.
 #
@@ -26,9 +27,7 @@ project:
   authoritative_reference: Embeddable_Widget_Lead_Capture_Blueprint.md
   license: MIT
   repository: TBD # filled_in_by: Stage 14
-  stage_completed: 3
-  # Blueprint Stage 4 is split into 4a (backend, done) and 4b (UI and E2E).
-  sub_stage_completed: 4a
+  stage_completed: 4
   stages_total: 16
 
 # -----------------------------------------------------------------------------
@@ -54,7 +53,7 @@ commands:
   test:
     command: npm run test
     description: >-
-      Unit tests, no infrastructure required (125 tests as of Stage 4a),
+      Unit tests, no infrastructure required (125 tests as of Stage 4),
       including the complete section 11 authorization matrix. Integration and
       browser E2E are separate commands.
   test_unit:

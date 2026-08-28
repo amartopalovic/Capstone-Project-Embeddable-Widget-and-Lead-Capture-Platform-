@@ -61,6 +61,26 @@ export class WorkspaceRepository {
     return this.#collection.find({ _id: { $in: [...ids] } }).toArray();
   }
 
+  /**
+   * Soft-deleted workspaces this user owns that are still inside the recovery
+   * window (blueprint 9.5).
+   *
+   * Filtered by `ownerUserId`, which is the caller's own id, so like
+   * `findOwnedBy` this reads only records the caller already owns. It exists
+   * because a deleted workspace is deliberately absent from the switcher and
+   * can never be the ACTIVE workspace, so without it an owner would have no
+   * way to name the workspace they are entitled to restore.
+   */
+  async listRecoverableOwnedBy(
+    ownerUserId: ObjectId,
+    now: Date,
+  ): Promise<WithId<WorkspaceRecord>[]> {
+    return this.#collection
+      .find({ ownerUserId, status: 'deleted', purgeAfter: { $gt: now } })
+      .sort({ deletedAt: -1 })
+      .toArray();
+  }
+
   /** Restore a soft-deleted workspace, scoped to the one being restored. */
   async restore(id: ObjectId, at: Date): Promise<boolean> {
     const result = await this.#collection.updateOne(

@@ -866,6 +866,110 @@ describe('workspace-scoped audit (blueprint 9.3)', () => {
   }, 240_000);
 });
 
+describe('what the UI is told it may do (Stage 4b)', () => {
+  it('reports the capability list the section 11 matrix grants, per role', async () => {
+    const owner = await verifiedUser('cap-owner');
+    await onboard(owner, 'Capability Co');
+    const member = await verifiedUser('cap-member');
+    await inviteAndAccept(owner, member, 'member');
+
+    const asOwner = await owner.api.get('/api/v1/workspaces/current');
+    const ownerCaps = (asOwner.body as { capabilities: string[] }).capabilities;
+
+    // Switch the member into the same workspace to read their view of it.
+    const asMember = await member.api.get('/api/v1/workspaces/current');
+    const memberCaps = (asMember.body as { capabilities: string[] }).capabilities;
+
+    // The Owner-only rows.
+    for (const capability of ['admin.manage', 'workspace.transfer', 'workspace.delete']) {
+      expect(ownerCaps).toContain(capability);
+      expect(memberCaps).not.toContain(capability);
+    }
+
+    // Owner and Admin, but not Member.
+    expect(ownerCaps).toContain('audit.view');
+    expect(memberCaps).not.toContain('audit.view');
+    expect(ownerCaps).toContain('member.manage');
+    expect(memberCaps).not.toContain('member.manage');
+
+    // Everyone can see the workspace they belong to.
+    expect(memberCaps).toContain('workspace.view');
+  });
+
+  it('withholds member.manage from an unverified Owner, who may still look around', async () => {
+    // Blueprint 4.1: "Dashboard is available, but publishing and invitations
+    // are blocked." The UI needs both halves of that to be true.
+    const owner = await unverifiedUser('cap-unverified');
+    await onboard(owner, 'Unconfirmed Co');
+
+    const response = await owner.api.get('/api/v1/workspaces/current');
+    const capabilities = (response.body as { capabilities: string[] }).capabilities;
+
+    expect(capabilities).toContain('workspace.view');
+    expect(capabilities).not.toContain('member.manage');
+  });
+
+  it('tells each caller which members they may re-role or remove', async () => {
+    const owner = await verifiedUser('perm-owner');
+    await onboard(owner, 'Permissions Co');
+    const admin = await verifiedUser('perm-admin');
+    const member = await verifiedUser('perm-member');
+    await inviteAndAccept(owner, admin, 'admin');
+    await inviteAndAccept(owner, member, 'member');
+
+    const byEmail = async (actor: Actor): Promise<Map<string, MemberSummary>> => {
+      const response = await actor.api.get('/api/v1/members');
+      expect(response.status).toBe(200);
+      const members = (response.body as { members: MemberSummary[] }).members;
+      return new Map(members.map((entry) => [entry.email, entry]));
+    };
+
+    const ownerView = await byEmail(owner);
+    const adminView = await byEmail(admin);
+
+    // The Owner may demote and remove the Admin.
+    expect(ownerView.get(admin.email)?.assignableRoles).toContain('member');
+    expect(ownerView.get(admin.email)?.canRemove).toBe(true);
+    // ...and promote or remove the Member.
+    expect(ownerView.get(member.email)?.assignableRoles).toContain('admin');
+    expect(ownerView.get(member.email)?.canRemove).toBe(true);
+    // Nobody may act on the Owner, including the Owner.
+    expect(ownerView.get(owner.email)?.assignableRoles).toEqual([]);
+    expect(ownerView.get(owner.email)?.canRemove).toBe(false);
+
+    // An Admin may remove a Member but never promote one to Admin.
+    expect(adminView.get(member.email)?.canRemove).toBe(true);
+    expect(adminView.get(member.email)?.assignableRoles).not.toContain('admin');
+    // ...and may not touch the Owner or themselves.
+    expect(adminView.get(owner.email)?.canRemove).toBe(false);
+    expect(adminView.get(admin.email)?.canRemove).toBe(false);
+    expect(adminView.get(admin.email)?.assignableRoles).toEqual([]);
+  });
+
+  it('lets an owner find the workspace they deleted, and nobody else find it', async () => {
+    const owner = await verifiedUser('recover-list');
+    await onboard(owner, 'Findable Again');
+    const stranger = await verifiedUser('recover-stranger');
+    await onboard(stranger, 'Unrelated Co');
+
+    expect(
+      (await owner.api.delete('/api/v1/workspaces/current', await owner.api.csrfHeaders())).status,
+    ).toBe(200);
+
+    const mine = await owner.api.get('/api/v1/workspaces/recoverable');
+    expect(mine.status).toBe(200);
+    const recoverable = (mine.body as { workspaces: { name: string; purgeAfter: string }[] })
+      .workspaces;
+    expect(recoverable).toHaveLength(1);
+    expect(recoverable[0]?.name).toBe('Findable Again');
+    expect(new Date(recoverable[0]?.purgeAfter ?? 0).getTime()).toBeGreaterThan(Date.now());
+
+    // A different user's deleted workspace is not theirs to see.
+    const theirs = await stranger.api.get('/api/v1/workspaces/recoverable');
+    expect((theirs.body as { workspaces: unknown[] }).workspaces).toHaveLength(0);
+  });
+});
+
 describe('cross-tenant isolation across the new write paths', () => {
   it('keeps memberships, invitations, and audit events inside their own workspace', async () => {
     const alice = await verifiedUser('tenanta');

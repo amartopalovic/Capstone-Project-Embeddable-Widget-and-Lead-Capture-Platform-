@@ -1,8 +1,9 @@
 import { useState, type SubmitEvent } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import type { LoginResult } from '@lcp/contracts';
 import { api, invalidateCsrfToken, type ApiFailure } from '../lib/api.js';
 import { Alert, AuthPanel, Button, Field } from '../components/ui.jsx';
+import { safeNext } from '../lib/navigation.js';
 
 /**
  * The second step of signing in when MFA is on.
@@ -13,6 +14,8 @@ import { Alert, AuthPanel, Button, Field } from '../components/ui.jsx';
  */
 export function MfaChallengePage(): React.JSX.Element {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const next = safeNext(params.get('next'));
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const [totpCode, setTotpCode] = useState('');
   const [recoveryCode, setRecoveryCode] = useState('');
@@ -36,7 +39,7 @@ export function MfaChallengePage(): React.JSX.Element {
     }
 
     invalidateCsrfToken();
-    await navigate('/account');
+    await navigate(next);
   }
 
   return (

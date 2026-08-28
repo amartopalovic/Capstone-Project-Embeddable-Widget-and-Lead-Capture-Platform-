@@ -66,10 +66,11 @@ export function createMembersRouter(deps: MembersRouterDeps): Router {
       try {
         const scope = request.workspaceScope;
         const user = request.currentUser;
-        if (scope === undefined || user === undefined) {
+        const role = request.workspaceRole;
+        if (scope === undefined || user === undefined || role === undefined) {
           throw new ApiError(ERROR_CODES.NOT_FOUND, 'Not available');
         }
-        response.status(200).json({ members: await memberships.list(scope, user._id) });
+        response.status(200).json({ members: await memberships.list(scope, user, role) });
       } catch (error) {
         next(error);
       }

@@ -140,6 +140,17 @@ export interface MemberSummary {
   readonly emailVerified: boolean;
   readonly joinedAt: string;
   readonly isSelf: boolean;
+  /**
+   * What the CALLER may do to this member, decided by the section 11 matrix.
+   *
+   * These are caller-relative, like `isSelf`, and they are computed on the
+   * server by the same functions the mutation routes enforce with. A client
+   * cannot work them out from the role alone - "Admins manage Members but only
+   * the Owner touches Admin status" depends on both roles at once - so sending
+   * the answer is what keeps the policy in exactly one place.
+   */
+  readonly assignableRoles: readonly InvitableRole[];
+  readonly canRemove: boolean;
 }
 
 export interface InvitationSummary {
@@ -148,6 +159,20 @@ export interface InvitationSummary {
   readonly role: WorkspaceRoleName;
   readonly invitedAt: string;
   readonly expiresAt: string;
+}
+
+/**
+ * A soft-deleted workspace the caller owns and may still restore.
+ *
+ * Kept separate from `WorkspaceSummary` because it is deliberately NOT
+ * switchable: it carries no role and cannot be made active. The only action it
+ * offers is recovery, and `purgeAfter` is what the UI counts down to.
+ */
+export interface RecoverableWorkspaceSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly deletedAt: string;
+  readonly purgeAfter: string;
 }
 
 /**

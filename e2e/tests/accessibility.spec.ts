@@ -1,5 +1,6 @@
 import * as OTPAuth from 'otpauth';
 import {
+  AFTER_SIGN_IN_NO_WORKSPACE,
   STRONG_PASSWORD,
   expect,
   linkFromEmail,
@@ -85,9 +86,10 @@ test.describe('accessibility of the auth surface', () => {
     await page.getByLabel('Email').fill(email);
     await page.getByLabel('Password').fill(STRONG_PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page).toHaveURL(/\/account$/);
+    await expect(page).toHaveURL(AFTER_SIGN_IN_NO_WORKSPACE);
 
     // Account page, MFA off.
+    await page.goto('/account');
     await checkA11y(page);
 
     // MFA setup, step 1.
@@ -165,6 +167,6 @@ test.describe('accessibility of the auth surface', () => {
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeFocused();
     await page.keyboard.press('Enter');
 
-    await expect(page).toHaveURL(/\/account$/);
+    await expect(page).toHaveURL(AFTER_SIGN_IN_NO_WORKSPACE);
   });
 });

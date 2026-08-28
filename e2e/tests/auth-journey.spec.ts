@@ -1,6 +1,8 @@
 import * as OTPAuth from 'otpauth';
 import type { Page } from '@playwright/test';
+import { register, signIn, verifyViaEmail } from '../helpers/journeys.js';
 import {
+  AFTER_SIGN_IN_NO_WORKSPACE,
   STRONG_PASSWORD,
   expect,
   linkFromEmail,
@@ -13,28 +15,6 @@ import {
  * Blueprint 18.3, journey 1 (auth portion): register, verify, sign in, and
  * manage sessions - driven through the real UI against the real stack.
  */
-
-async function register(page: Page, email: string): Promise<void> {
-  await page.goto('/register');
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill(STRONG_PASSWORD);
-  await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
-}
-
-async function verifyViaEmail(page: Page, email: string): Promise<void> {
-  const message = await waitForEmail(email, 'Confirm');
-  const link = await linkFromEmail(message.ID);
-  await page.goto(link);
-  await expect(page.getByRole('heading', { name: 'Email confirmed' })).toBeVisible();
-}
-
-async function signIn(page: Page, email: string, password = STRONG_PASSWORD): Promise<void> {
-  await page.goto('/login');
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-}
 
 /**
  * Wait until the TOTP period rolls over.
@@ -83,7 +63,10 @@ test.describe('registration, verification, and sign in', () => {
     await verifyViaEmail(page, email);
     await signIn(page, email);
 
-    await expect(page).toHaveURL(/\/account$/);
+    // Stage 4b: a verified user with no workspace yet lands on onboarding.
+    await expect(page).toHaveURL(AFTER_SIGN_IN_NO_WORKSPACE);
+
+    await page.goto('/account');
     await expect(page.getByRole('heading', { name: email })).toBeVisible();
     await expect(page.getByText('Email confirmed')).toBeVisible();
   });
@@ -95,7 +78,11 @@ test.describe('registration, verification, and sign in', () => {
     await register(page, email);
     await signIn(page, email);
 
-    await expect(page).toHaveURL(/\/account$/);
+    // Blueprint 4.1 gives unverified users the dashboard, so they land in the
+    // same place; only inviting and publishing are blocked.
+    await expect(page).toHaveURL(AFTER_SIGN_IN_NO_WORKSPACE);
+
+    await page.goto('/account');
     await expect(page.getByText('Email not confirmed yet.')).toBeVisible();
   });
 
@@ -151,7 +138,7 @@ test.describe('password reset', () => {
     await register(page, email);
     await verifyViaEmail(page, email);
     await signIn(page, email);
-    await expect(page).toHaveURL(/\/account$/);
+    await expect(page).toHaveURL(AFTER_SIGN_IN_NO_WORKSPACE);
 
     const browser = context.browser();
     if (browser === null) throw new Error('No browser available');
@@ -178,7 +165,7 @@ test.describe('password reset', () => {
 
     // The new password works.
     await signIn(page, email, newPassword);
-    await expect(page).toHaveURL(/\/account$/);
+    await expect(page).toHaveURL(AFTER_SIGN_IN_NO_WORKSPACE);
 
     await other.close();
   });
@@ -190,7 +177,7 @@ test.describe('two-step verification', () => {
     await register(page, email);
     await verifyViaEmail(page, email);
     await signIn(page, email);
-    await expect(page).toHaveURL(/\/account$/);
+    await expect(page).toHaveURL(AFTER_SIGN_IN_NO_WORKSPACE);
 
     const { secret, recoveryCodes } = await enableMfa(page);
     await expect(page.getByTestId('mfa-state')).toContainText('On.');
@@ -213,9 +200,11 @@ test.describe('two-step verification', () => {
     await page.getByRole('button', { name: 'Use a recovery code instead' }).click();
     await page.getByLabel('Recovery code').fill(firstCode);
     await page.getByRole('button', { name: 'Verify and sign in' }).click();
-    await expect(page).toHaveURL(/\/account$/);
+    await expect(page).toHaveURL(AFTER_SIGN_IN_NO_WORKSPACE);
 
-    // That same recovery code must not work a second time.
+    // That same recovery code must not work a second time. Signing out lives
+    // on the account page, which is no longer where signing in lands.
+    await page.goto('/account');
     await page.getByTestId('sign-out').click();
     await signIn(page, email);
     await expect(page).toHaveURL(/\/mfa-challenge$/);
@@ -231,7 +220,7 @@ test.describe('two-step verification', () => {
     await page.getByRole('button', { name: 'Use your authenticator app instead' }).click();
     await page.getByLabel('Authentication code').fill(totp.generate());
     await page.getByRole('button', { name: 'Verify and sign in' }).click();
-    await expect(page).toHaveURL(/\/account$/);
+    await expect(page).toHaveURL(AFTER_SIGN_IN_NO_WORKSPACE);
   });
 
   test('turning MFA off requires the password and a current code', async ({ page }) => {
@@ -241,7 +230,7 @@ test.describe('two-step verification', () => {
     await signIn(page, email);
     // Wait for the session to be established before enrolling; otherwise the
     // enroll request races the login response setting the cookie.
-    await expect(page).toHaveURL(/\/account$/);
+    await expect(page).toHaveURL(AFTER_SIGN_IN_NO_WORKSPACE);
 
     const { secret } = await enableMfa(page);
     const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secret) });
@@ -274,7 +263,7 @@ test.describe('device and session management', () => {
     const email = uniqueEmail('devices');
     await register(page, email);
     await signIn(page, email);
-    await expect(page).toHaveURL(/\/account$/);
+    await expect(page).toHaveURL(AFTER_SIGN_IN_NO_WORKSPACE);
 
     const browser = context.browser();
     if (browser === null) throw new Error('No browser available');
@@ -282,14 +271,15 @@ test.describe('device and session management', () => {
     const second = await browser.newContext();
     const secondPage = await second.newPage();
     await signIn(secondPage, email);
-    await expect(secondPage).toHaveURL(/\/account$/);
+    await expect(secondPage).toHaveURL(AFTER_SIGN_IN_NO_WORKSPACE);
 
     const third = await browser.newContext();
     const thirdPage = await third.newPage();
     await signIn(thirdPage, email);
-    await expect(thirdPage).toHaveURL(/\/account$/);
+    await expect(thirdPage).toHaveURL(AFTER_SIGN_IN_NO_WORKSPACE);
 
-    await page.reload();
+    // The device list lives on the account page, not where sign-in lands.
+    await page.goto('/account');
     const deviceList = page.getByTestId('device-list');
     await expect(deviceList.getByRole('listitem')).toHaveCount(3);
     await expect(page.getByText('this device')).toBeVisible();
@@ -314,7 +304,7 @@ test.describe('device and session management', () => {
     await expect(thirdPage).toHaveURL(/\/login$/);
 
     // This device is still in.
-    await page.reload();
+    await page.goto('/account');
     await expect(page.getByRole('heading', { name: email })).toBeVisible();
 
     await second.close();

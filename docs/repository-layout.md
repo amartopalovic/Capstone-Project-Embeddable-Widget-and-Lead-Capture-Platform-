@@ -1,6 +1,6 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 4a.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+**Status: Stage 4.** All nine workspaces exist. `packages/config`, `packages/contracts`,
 `packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
 rest remain deliberate shells until the stage that fills them.
 
@@ -109,41 +109,58 @@ expiry, throttle windows, and the daily email budget are all time-dependent.
 Injecting time lets the integration tests cross a 30-day boundary in
 milliseconds instead of sleeping, and keeps those tests deterministic.
 
-### What `apps/web` provides after Stage 3b
+### What `apps/web` provides after Stage 4b
 
-| Path                    | Contents                                                                                                  |
-| ----------------------- | --------------------------------------------------------------------------------------------------------- |
-| `src/App.tsx`           | Routes for the auth surface. `/` redirects to sign in; there is no dashboard yet.                         |
-| `src/pages/`            | Register, login, MFA challenge, MFA setup, verify email, forgot password, reset password, account.        |
-| `src/components/ui.tsx` | `AuthPanel` with the mount-bracket signature, `Field`, `Button`, `Alert`, `PasswordStrength`, `CodeList`. |
-| `src/lib/api.ts`        | Typed API client that carries cookies and echoes the CSRF token automatically.                            |
-| `src/index.css`         | Tailwind v4 `@theme` design tokens, focus-visible ring, reduced-motion handling.                          |
+| Path                                | Contents                                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `src/App.tsx`                       | Routes for both surfaces. `/` now points into the workspace; the workspace pages nest under one shell.                         |
+| `src/pages/` (auth)                 | Register, login, MFA challenge, MFA setup, verify email, forgot password, reset password, account.                             |
+| `src/pages/` (workspace)            | Onboarding, workspace overview and usage, members and invitations, invitation acceptance, audit log, settings.                 |
+| `src/components/WorkspaceShell.tsx` | The minimal shell: workspace switcher, nav, and the single load of workspace state shared through context.                     |
+| `src/components/ui.tsx`             | `AuthPanel` with the mount-bracket signature, `Field`, `Button`, `Alert`, `PasswordStrength`, `CodeList`, `RoleChip`, `Meter`. |
+| `src/lib/api.ts`                    | Typed API client that carries cookies and echoes the CSRF token, plus `workspaceApi` for the Stage 4a routes.                  |
+| `src/lib/workspace-context.ts`      | The active workspace, the caller's capabilities, and the `useWorkspace` hook.                                                  |
+| `src/lib/navigation.ts`             | `safeNext`, which keeps a `?next=` redirect on this origin.                                                                    |
+| `src/index.css`                     | Tailwind v4 `@theme` design tokens, focus-visible ring, reduced-motion handling.                                               |
 
-**Components are native semantic elements, not a headless component library.**
-For forms the native elements already ARE the accessible primitives: a real
-`<label for>`, a real `<button>`, and `aria-describedby` need no JavaScript to
-work. A headless library earns its place for composite widgets such as dialogs
-and comboboxes, which this surface has none of; Stage 12 can add one when the
-dashboard introduces those patterns.
+**Components are still native semantic elements, not a headless component
+library.** Stage 3b left this question open for the first composite widget, and
+Stage 4b is where it came up: the switcher and the role controls. A native
+`<details>` disclosure already gives the switcher a focusable trigger, keyboard
+toggling, and an announced expanded state, and a native `<select>` is exactly
+the right primitive for choosing one of two roles. Destructive actions reuse the
+inline-confirmation pattern from turning off two-step verification rather than
+introducing a modal. None of these needed a library, so none was added; the
+question stays open for Stage 12, which introduces genuine dialogs and comboboxes.
+
+**How the UI knows what to show.** It never re-implements the section 11 matrix.
+`GET /workspaces/current` returns the capability list the server derived for the
+caller, and `GET /members` returns, per member, which roles the caller may assign
+and whether they may remove them — computed by the same `canChangeRole` and
+`canRemoveMember` the mutation routes enforce with. A second copy of the policy
+in the frontend could drift, and the drift would be invisible.
 
 ### End-to-end tests
 
 `e2e/` holds the Playwright suite: `fixtures.ts` (shared axe scanner, Mailpit
-helpers, throttle isolation) and `tests/` (`auth-journey.spec.ts`,
-`accessibility.spec.ts`). `playwright.config.ts` at the root starts the API and
-web servers itself and expects Mongo, Redis, and Mailpit to be up.
+helpers, throttle isolation, and the post-sign-in landing constants),
+`helpers/journeys.ts` (register, verify, sign in, onboard, invite, and accept as
+a second browser context), and `tests/` (`auth-journey.spec.ts`,
+`accessibility.spec.ts`, `workspace-journey.spec.ts`,
+`workspace-accessibility.spec.ts`). `playwright.config.ts` at the root starts the
+API and web servers itself and expects Mongo, Redis, and Mailpit to be up.
 
-### What `apps/server` gained in Stage 4a
+### What `apps/server` gained in Stage 4
 
-| Path                                   | Contents                                                                                                           |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `src/domain/workspace/capabilities.ts` | The section 11 authorization matrix as a static table, plus the role-change and removal asymmetries                |
-| `src/domain/workspace/timezone.ts`     | IANA validation by `Intl.DateTimeFormat` construction                                                              |
-| `src/domain/workspace/retention.ts`    | The 30-day soft-delete window arithmetic                                                                           |
-| `src/application/workspace/`           | `WorkspaceService`, `MembershipService`, `InvitationService`, the workspace-scoped audit adapter, and narrow ports |
-| `src/http/middleware/workspace.ts`     | `requireWorkspaceContext` and `requireCapability`                                                                  |
-| `src/http/routes/workspaces.ts`        | Onboarding, switcher, current, usage, audit, transfer, delete, recover                                             |
-| `src/http/routes/members.ts`           | Members list, role change, removal, and the invitation routes                                                      |
+| Path                                   | Contents                                                                                                                                  |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/workspace/capabilities.ts` | The section 11 authorization matrix as a static table, plus the role-change and removal asymmetries                                       |
+| `src/domain/workspace/timezone.ts`     | IANA validation by `Intl.DateTimeFormat` construction                                                                                     |
+| `src/domain/workspace/retention.ts`    | The 30-day soft-delete window arithmetic                                                                                                  |
+| `src/application/workspace/`           | `WorkspaceService`, `MembershipService`, `InvitationService`, the workspace-scoped audit adapter, and narrow ports                        |
+| `src/http/middleware/workspace.ts`     | `requireWorkspaceContext` and `requireCapability`                                                                                         |
+| `src/http/routes/workspaces.ts`        | Onboarding, switcher, current (with the caller's derived capabilities), usage, audit, transfer, delete, recover, and the recoverable list |
+| `src/http/routes/members.ts`           | Members list, role change, removal, and the invitation routes                                                                             |
 
 **Where workspace scope comes from.** Only from the server-side session. No
 route reads a workspace id out of a body or a path, apart from `/switch` and

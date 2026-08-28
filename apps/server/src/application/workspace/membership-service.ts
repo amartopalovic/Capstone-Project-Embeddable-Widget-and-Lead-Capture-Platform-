@@ -1,5 +1,6 @@
 import type { ObjectId } from 'mongodb';
 import type { WorkspaceScope } from '@lcp/database';
+import { INVITABLE_ROLES } from '@lcp/contracts';
 import type { Logger, MemberSummary, WorkspaceRoleName } from '@lcp/contracts';
 import type {
   MembershipRepositoryPort,
@@ -45,13 +46,25 @@ export class MembershipService {
     this.#deps = deps;
   }
 
-  async list(scope: WorkspaceScope, callerUserId: ObjectId): Promise<readonly MemberSummary[]> {
+  async list(
+    scope: WorkspaceScope,
+    caller: WithIdUser,
+    callerRole: WorkspaceRoleName,
+  ): Promise<readonly MemberSummary[]> {
     const { memberships, users } = this.#deps;
     const records = await memberships.findMany(scope);
+
+    const callerUserId = caller._id;
+    const actor: PolicySubject & { userId: string } = {
+      role: callerRole,
+      emailVerified: caller.emailVerifiedAt !== null,
+      userId: callerUserId.toHexString(),
+    };
 
     const summaries = await Promise.all(
       records.map(async (membership) => {
         const user = await users.findById(membership.userId);
+        const target = { userId: membership.userId.toHexString(), role: membership.role };
         return {
           userId: membership.userId.toHexString(),
           // A membership whose user record is gone should not crash the list.
@@ -60,6 +73,11 @@ export class MembershipService {
           emailVerified: user?.emailVerifiedAt !== null && user?.emailVerifiedAt !== undefined,
           joinedAt: membership.createdAt.toISOString(),
           isSelf: membership.userId.equals(callerUserId),
+          // Asked of the policy module, never re-derived here.
+          assignableRoles: INVITABLE_ROLES.filter((nextRole) =>
+            canChangeRole(actor, target, nextRole),
+          ),
+          canRemove: canRemoveMember(actor, target),
         } satisfies MemberSummary;
       }),
     );

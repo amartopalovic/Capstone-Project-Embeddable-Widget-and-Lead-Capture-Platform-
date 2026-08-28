@@ -4,6 +4,7 @@ import {
   WORKSPACE_LIMITS,
   type Logger,
   type WorkspaceRoleName,
+  type RecoverableWorkspaceSummary,
   type WorkspaceSummary,
   type WorkspaceUsage,
 } from '@lcp/contracts';
@@ -153,6 +154,24 @@ export class WorkspaceService {
         })
         .sort((a, b) => a.name.localeCompare(b.name))
     );
+  }
+
+  /**
+   * Deleted workspaces this user may still restore.
+   *
+   * The switcher deliberately hides deleted workspaces, so this is the only
+   * place a recoverable one can be named. It reports the deadline rather than
+   * a remaining-days count, leaving the presentation to the caller.
+   */
+  async listRecoverable(userId: ObjectId): Promise<readonly RecoverableWorkspaceSummary[]> {
+    const now = this.#deps.clock.now();
+    const records = await this.#deps.workspaces.listRecoverableOwnedBy(userId, now);
+    return records.map((workspace) => ({
+      id: workspace._id.toHexString(),
+      name: workspace.name,
+      deletedAt: (workspace.deletedAt ?? now).toISOString(),
+      purgeAfter: (workspace.purgeAfter ?? purgeDeadline(now)).toISOString(),
+    }));
   }
 
   async findActive(scope: WorkspaceScope): Promise<WithIdWorkspace | null> {

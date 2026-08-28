@@ -1,11 +1,16 @@
 import { useState, type SubmitEvent } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import type { LoginResult } from '@lcp/contracts';
 import { api, invalidateCsrfToken, type ApiFailure } from '../lib/api.js';
 import { Alert, AuthPanel, Button, Field } from '../components/ui.jsx';
+import { DEFAULT_LANDING, safeNext } from '../lib/navigation.js';
 
 export function LoginPage(): React.JSX.Element {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  // An invitation link sends people here first, so sign-in has to give them
+  // back to where they were going.
+  const next = safeNext(params.get('next'));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -28,10 +33,16 @@ export function LoginPage(): React.JSX.Element {
     invalidateCsrfToken();
 
     if (result.data.status === 'mfa_required') {
-      await navigate('/mfa-challenge');
+      // Carry the destination only when it is not the default one, so the
+      // common sign-in URL stays clean.
+      await navigate(
+        next === DEFAULT_LANDING
+          ? '/mfa-challenge'
+          : `/mfa-challenge?next=${encodeURIComponent(next)}`,
+      );
       return;
     }
-    await navigate('/account');
+    await navigate(next);
   }
 
   return (

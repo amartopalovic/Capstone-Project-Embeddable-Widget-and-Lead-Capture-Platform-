@@ -1,4 +1,5 @@
 import { useId, type ReactNode, type InputHTMLAttributes, type ButtonHTMLAttributes } from 'react';
+import type { WorkspaceRoleName } from '@lcp/contracts';
 
 /**
  * Shared auth components.
@@ -263,5 +264,91 @@ export function CodeList({ codes }: { readonly codes: readonly string[] }): Reac
         </li>
       ))}
     </ul>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// RoleChip
+// ---------------------------------------------------------------------------
+
+/**
+ * A role, in the same mono micro-type the auth panels use for eyebrows.
+ *
+ * Role is the organising fact of the whole workspace surface - it decides what
+ * every page shows - so it gets one consistent treatment everywhere it appears
+ * rather than being reworded per page. The role name is spelled out, so the
+ * colour is reinforcement and never the only carrier of meaning.
+ */
+export function RoleChip({ role }: { readonly role: WorkspaceRoleName }): React.JSX.Element {
+  const tone: Record<WorkspaceRoleName, string> = {
+    owner: 'border-signal text-signal',
+    admin: 'border-edge text-ink',
+    member: 'border-edge text-muted',
+  };
+
+  return (
+    <span
+      data-testid={`role-${role}`}
+      className={`border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] ${tone[role]}`}
+    >
+      {role}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Meter
+// ---------------------------------------------------------------------------
+
+export interface MeterProps {
+  readonly label: string;
+  /** `null` means this is not measured yet - not that the count is zero. */
+  readonly used: number | null;
+  readonly limit: number;
+  /** Where the real number arrives, shown when `used` is null. */
+  readonly pending: string;
+}
+
+/**
+ * One usage meter (blueprint 4.10).
+ *
+ * A meter with no data draws a dashed empty track and says where the number
+ * will come from. Rendering it as a full-looking zero bar would assert that
+ * nothing has happened yet, which is a different and currently untrue claim:
+ * the thing simply is not counted until a later stage builds it.
+ */
+export function Meter({ label, used, limit, pending }: MeterProps): React.JSX.Element {
+  const measured = used !== null;
+  const percent = measured ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+
+  return (
+    <div className="py-3">
+      <div className="flex items-baseline justify-between gap-4">
+        <span className="text-sm text-ink">{label}</span>
+        <span className="font-mono text-xs text-muted">
+          {measured ? `${String(used)} / ${String(limit)}` : `— / ${String(limit)}`}
+        </span>
+      </div>
+
+      {measured ? (
+        <div
+          role="meter"
+          aria-valuenow={used}
+          aria-valuemin={0}
+          aria-valuemax={limit}
+          aria-label={label}
+          className="mt-2 h-1.5 w-full bg-edge"
+        >
+          <div className="h-full bg-signal" style={{ width: `${String(percent)}%` }} />
+        </div>
+      ) : (
+        <>
+          <div aria-hidden="true" className="mt-2 h-1.5 w-full border border-dashed border-edge" />
+          <p className="mt-1.5 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+            {pending}
+          </p>
+        </>
+      )}
+    </div>
   );
 }

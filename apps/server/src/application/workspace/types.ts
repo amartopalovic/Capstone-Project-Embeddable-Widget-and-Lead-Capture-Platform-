@@ -31,6 +31,7 @@ export interface WorkspaceRepositoryPort {
   findOwnedBy(ownerUserId: ObjectId): Promise<WithIdWorkspace | null>;
   findManyByIds(ids: readonly ObjectId[]): Promise<WithIdWorkspace[]>;
   restore(id: ObjectId, at: Date): Promise<boolean>;
+  listRecoverableOwnedBy(ownerUserId: ObjectId, now: Date): Promise<WithIdWorkspace[]>;
 }
 
 export interface MembershipRepositoryPort {

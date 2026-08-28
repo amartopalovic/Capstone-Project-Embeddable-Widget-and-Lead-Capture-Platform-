@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ObjectId } from 'mongodb';
 import {
+  CAPABILITIES,
   ERROR_CODES,
   onboardWorkspaceSchema,
   switchWorkspaceSchema,
@@ -18,6 +19,7 @@ import type { WorkspaceAuditPort } from '../../application/workspace/types.js';
 import { ApiError } from '../middleware/error-handler.js';
 import { requireAuth } from '../middleware/session.js';
 import { requireCapability, requireWorkspaceContext } from '../middleware/workspace.js';
+import { can } from '../../domain/workspace/capabilities.js';
 
 /**
  * Workspace lifecycle and context (blueprint 4.1, 9.5, 10.3, 11).
@@ -185,6 +187,24 @@ export function createWorkspacesRouter(deps: WorkspacesRouterDeps): Router {
           throw new ApiError(ERROR_CODES.NOT_FOUND, 'This workspace is not available');
         }
 
+        /**
+         * The caller's capabilities, computed from the SAME section 11 table
+         * the guards use.
+         *
+         * This is what lets the UI hide a control it may not use without
+         * keeping its own copy of the matrix: a second copy in the frontend
+         * could drift out of step with the server's, and the drift would be
+         * invisible until someone saw a button that always 403s - or worse,
+         * did not see one they were entitled to. The list is derived, never
+         * hand-maintained.
+         */
+        const user = request.currentUser;
+        const subject = {
+          role,
+          emailVerified: user !== undefined && user.emailVerifiedAt !== null,
+        };
+        const capabilities = CAPABILITIES.filter((capability) => can(subject, capability));
+
         response.status(200).json({
           workspace: {
             id: workspace._id.toHexString(),
@@ -193,6 +213,7 @@ export function createWorkspacesRouter(deps: WorkspacesRouterDeps): Router {
             role,
             isActive: true,
           } satisfies WorkspaceSummary,
+          capabilities,
         });
       } catch (error) {
         next(error);
@@ -324,6 +345,26 @@ export function createWorkspacesRouter(deps: WorkspacesRouterDeps): Router {
       }
     },
   );
+
+  /**
+   * Soft-deleted workspaces the caller owns and can still restore.
+   *
+   * Registered BEFORE `/:workspaceId/recover` only for readability; the paths
+   * cannot collide, since `recoverable` is a single segment and that route
+   * needs two. Like the recover route it sits outside `requireWorkspaceContext`,
+   * because a deleted workspace can never be the active one.
+   */
+  router.get('/recoverable', async (request, response, next) => {
+    try {
+      const user = request.currentUser;
+      if (user === undefined) {
+        throw new ApiError(ERROR_CODES.UNAUTHENTICATED, 'Authentication is required');
+      }
+      response.status(200).json({ workspaces: await workspaces.listRecoverable(user._id) });
+    } catch (error) {
+      next(error);
+    }
+  });
 
   /**
    * Recover a soft-deleted workspace.

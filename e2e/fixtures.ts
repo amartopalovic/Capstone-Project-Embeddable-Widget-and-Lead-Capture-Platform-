@@ -29,16 +29,27 @@ const E2E_KEY_PREFIX = 'lcp:e2e';
 
 export const test = base.extend<Fixtures>({
   /**
-   * Clear this run's throttle counters before every test.
+   * Clear this run's throttle and email-quota counters before every test.
    *
    * Every request originates from 127.0.0.1, so without this the real per-IP
-   * limits would make each test spend the next test's allowance. The production
-   * limits are untouched; only the counters are reset.
+   * limits would make each test spend the next test's allowance. The daily
+   * email budget is the same problem on a longer clock: the whole suite shares
+   * one 300-message UTC-day counter, so a few consecutive runs exhaust it and
+   * the budget guard starts (correctly) deferring invitation and verification
+   * emails, which then never arrive in Mailpit. That is the guard working, not
+   * failing - but it makes the suite unrepeatable within a day.
+   *
+   * Only the COUNTERS are reset, and only under this run's own key prefix. The
+   * production limits and the guard itself are untouched, and both keep their
+   * own unit and integration coverage.
    */
   clearThrottles: [
     async ({}, use) => {
       const redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 2 });
-      const keys = await redis.keys(`${E2E_KEY_PREFIX}:ratelimit:*`);
+      const keys = [
+        ...(await redis.keys(`${E2E_KEY_PREFIX}:ratelimit:*`)),
+        ...(await redis.keys(`${E2E_KEY_PREFIX}:quota:email:*`)),
+      ];
       if (keys.length > 0) await redis.del(...keys);
       redis.disconnect();
       await use();
@@ -98,6 +109,17 @@ export function uniqueEmail(label: string): string {
 }
 
 export const STRONG_PASSWORD = 'ripe-avocado-lantern-7731';
+
+/**
+ * Where signing in lands.
+ *
+ * Until Stage 4b there was nowhere to go but the account page, so the auth
+ * tests asserted `/account`. Now `/` points into the workspace, and a brand-new
+ * user with no workspace yet is sent to onboarding. Naming both here keeps that
+ * product decision in one place rather than in fifteen assertions.
+ */
+export const AFTER_SIGN_IN_NO_WORKSPACE = /\/onboarding$/;
+export const AFTER_SIGN_IN_WITH_WORKSPACE = /\/workspace$/;
 
 // ---------------------------------------------------------------------------
 // Mailpit
