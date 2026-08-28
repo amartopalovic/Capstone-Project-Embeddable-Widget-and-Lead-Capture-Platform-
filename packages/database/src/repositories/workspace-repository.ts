@@ -48,4 +48,25 @@ export class WorkspaceRepository {
   async findOwnedBy(ownerUserId: ObjectId): Promise<WithId<WorkspaceRecord> | null> {
     return this.#collection.findOne({ ownerUserId, status: 'active' });
   }
+
+  /**
+   * Load several workspaces by id.
+   *
+   * Used only to hydrate the switcher list, whose ids come from the caller's
+   * OWN memberships. It never widens what a user can see: the id set is already
+   * the set they belong to.
+   */
+  async findManyByIds(ids: readonly ObjectId[]): Promise<WithId<WorkspaceRecord>[]> {
+    if (ids.length === 0) return [];
+    return this.#collection.find({ _id: { $in: [...ids] } }).toArray();
+  }
+
+  /** Restore a soft-deleted workspace, scoped to the one being restored. */
+  async restore(id: ObjectId, at: Date): Promise<boolean> {
+    const result = await this.#collection.updateOne(
+      { _id: id, status: 'deleted' },
+      { $set: { status: 'active', deletedAt: null, purgeAfter: null, updatedAt: at } },
+    );
+    return result.modifiedCount > 0;
+  }
 }

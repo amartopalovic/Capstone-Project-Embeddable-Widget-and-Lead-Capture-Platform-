@@ -66,3 +66,28 @@ export function passwordChangedEmail(to: string, appUrl: string): OutboundEmail 
     html: layout(heading, body, appUrl, 'Open Lead Capture'),
   };
 }
+
+export function invitationEmail(
+  to: string,
+  workspaceName: string,
+  inviterEmail: string,
+  acceptUrl: string,
+): OutboundEmail {
+  const heading = `Join ${workspaceName} on Lead Capture`;
+  const body = `${inviterEmail} invited you to collaborate on ${workspaceName}. This invitation expires in 7 days and can be used once.`;
+  return {
+    to,
+    subject: heading,
+    // Invitations are account-critical rather than a marketing side effect, so
+    // they draw on the reserved allowance (blueprint 5.3).
+    priority: 'critical',
+    text: `${heading}
+
+${body}
+
+${acceptUrl}
+
+If you did not expect this, you can ignore this email.`,
+    html: layout(heading, body, acceptUrl, 'Accept invitation'),
+  };
+}

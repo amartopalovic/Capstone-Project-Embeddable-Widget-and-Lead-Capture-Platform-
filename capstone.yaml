@@ -2,9 +2,9 @@
 # capstone.yaml - machine-readable evaluation manifest
 # =============================================================================
 #
-# STATUS: Stage 3 complete (delivered as 3a + 3b). Install, run, seed, migrate, lint,
-# typecheck, build, unit, integration, and browser E2E commands below are REAL and verified.
-# The six acceptance probes and every production URL remain `TBD`.
+# STATUS: Stage 3 complete, plus Stage 4a (workspace and RBAC backend). Install, run, seed,
+# migrate, lint, typecheck, build, unit, integration, and browser E2E commands below are REAL
+# and verified. The six acceptance probes and every production URL remain `TBD`.
 #
 # A `TBD` value means the value does not exist - it is NOT a command that will
 # silently fail, and it must not be executed or reported as passing.
@@ -27,6 +27,8 @@ project:
   license: MIT
   repository: TBD # filled_in_by: Stage 14
   stage_completed: 3
+  # Blueprint Stage 4 is split into 4a (backend, done) and 4b (UI and E2E).
+  sub_stage_completed: 4a
   stages_total: 16
 
 # -----------------------------------------------------------------------------
@@ -52,9 +54,9 @@ commands:
   test:
     command: npm run test
     description: >-
-      Unit and smoke tests, no infrastructure required (59 tests as of Stage 3a).
-      Integration tests are a separate command; the E2E suite arrives in Stage 3b
-      for auth journeys and Stage 6 for the widget runtime.
+      Unit tests, no infrastructure required (125 tests as of Stage 4a),
+      including the complete section 11 authorization matrix. Integration and
+      browser E2E are separate commands.
   test_unit:
     command: npm run test
   test_integration:

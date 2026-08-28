@@ -13,3 +13,4 @@ export * from './pagination.js';
 export * from './concurrency.js';
 export * from './logging.js';
 export * from './auth.js';
+export * from './workspace.js';

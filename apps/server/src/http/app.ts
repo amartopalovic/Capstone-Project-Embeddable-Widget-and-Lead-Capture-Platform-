@@ -8,6 +8,8 @@ import { createHealthRouter } from './routes/health.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createSessionsRouter } from './routes/sessions.js';
 import { createMfaRouter } from './routes/mfa.js';
+import { createWorkspacesRouter } from './routes/workspaces.js';
+import { createInvitationsRouter, createMembersRouter } from './routes/members.js';
 import { correlationMiddleware } from './middleware/correlation.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { sessionMiddleware, type SessionCookieOptions } from './middleware/session.js';
@@ -72,6 +74,7 @@ export function createApp(options: CreateAppOptions): Express {
     sessions: deps.sessionService,
     mfa: deps.mfaService,
     mfaChallenges: deps.mfaChallengeStore,
+    invitations: deps.invitationService,
     users: deps.userRepository,
     limiter: deps.rateLimiter,
     logger: deps.logger,
@@ -87,6 +90,20 @@ export function createApp(options: CreateAppOptions): Express {
     logger: deps.logger,
     cookie,
   });
+
+  const workspaceRouterDeps = {
+    workspaces: deps.workspaceService,
+    memberships: deps.membershipService,
+    invitations: deps.invitationService,
+    sessions: deps.sessionService,
+    audit: deps.workspaceAudit,
+    limiter: deps.rateLimiter,
+    logger: deps.logger,
+  };
+
+  const workspacesRouter = createWorkspacesRouter(workspaceRouterDeps);
+  const membersRouter = createMembersRouter(workspaceRouterDeps);
+  const invitationsRouter = createInvitationsRouter(workspaceRouterDeps);
 
   const sessionsRouter = createSessionsRouter({
     sessions: deps.sessionService,
@@ -106,6 +123,9 @@ export function createApp(options: CreateAppOptions): Express {
   app.use(`${API_PREFIX}/auth`, authRouter);
   app.use(`${API_PREFIX}/sessions`, doubleCsrfProtection, sessionsRouter);
   app.use(`${API_PREFIX}/mfa`, doubleCsrfProtection, mfaRouter);
+  app.use(`${API_PREFIX}/workspaces`, doubleCsrfProtection, workspacesRouter);
+  app.use(`${API_PREFIX}/members`, doubleCsrfProtection, membersRouter);
+  app.use(`${API_PREFIX}/invitations`, doubleCsrfProtection, invitationsRouter);
 
   app.get(API_PREFIX, (_request, response) => {
     response.status(200).json({ api: API_PREFIX, status: 'ok' });

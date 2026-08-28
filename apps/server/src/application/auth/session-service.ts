@@ -74,6 +74,9 @@ export class SessionService {
       absoluteExpiresAt: new Date(now.getTime() + this.#deps.absoluteTtlSeconds * 1000),
       idleExpiresAt: new Date(now.getTime() + this.#deps.idleTtlSeconds * 1000),
       userAgentSummary: summariseUserAgent(userAgent),
+      // A fresh sign-in selects no workspace; the client picks one, or
+      // onboarding creates the first.
+      activeWorkspaceId: null,
     });
   }
 
@@ -93,9 +96,26 @@ export class SessionService {
       absoluteExpiresAt: previous.absoluteExpiresAt,
       idleExpiresAt: new Date(now.getTime() + this.#deps.idleTtlSeconds * 1000),
       userAgentSummary: previous.userAgentSummary,
+      // Rotation preserves the selection: it is the same person continuing.
+      activeWorkspaceId: previous.activeWorkspaceId,
     });
     await this.#deps.sessions.destroy(previous.id);
     return rotated;
+  }
+
+  /** Point a session at a workspace. Membership is checked by the caller. */
+  async selectWorkspace(sessionId: string, workspaceId: string | null): Promise<boolean> {
+    return this.#deps.sessions.setActiveWorkspace(sessionId, workspaceId);
+  }
+
+  /**
+   * Drop a workspace from every session of one user.
+   *
+   * Called when a membership is revoked or a workspace is deleted, so another
+   * open tab cannot keep acting inside it.
+   */
+  async clearWorkspaceEverywhere(userId: string, workspaceId: string): Promise<number> {
+    return this.#deps.sessions.clearActiveWorkspaceEverywhere(userId, workspaceId);
   }
 
   async resolve(sessionId: string): Promise<SessionRecord | null> {

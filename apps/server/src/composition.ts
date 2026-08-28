@@ -1,11 +1,23 @@
 import type { Db } from 'mongodb';
 import type Redis from 'ioredis';
 import { createLogger, type Logger } from '@lcp/contracts';
-import { UserRepository } from '@lcp/database';
+import {
+  InvitationRepository,
+  MembershipRepository,
+  UserRepository,
+  WorkspaceRepository,
+  type InvitationRecord,
+} from '@lcp/database';
+import { COLLECTIONS } from '@lcp/database';
+import type { WithId } from 'mongodb';
 import type { ServerEnv } from './config/env.js';
 import { AuthService } from './application/auth/auth-service.js';
 import { SessionService } from './application/auth/session-service.js';
 import { MfaService } from './application/auth/mfa-service.js';
+import { WorkspaceService } from './application/workspace/workspace-service.js';
+import { MembershipService } from './application/workspace/membership-service.js';
+import { InvitationService } from './application/workspace/invitation-service.js';
+import { WorkspaceAuditRepository } from './application/workspace/workspace-audit.js';
 import { AccountAuditRepository } from './application/auth/account-audit-repository.js';
 import { Argon2PasswordHasher } from './infrastructure/auth/argon2-password-hasher.js';
 import {
@@ -42,6 +54,10 @@ export interface AppDependencies {
   readonly sessionService: SessionService;
   readonly mfaService: MfaService;
   readonly mfaChallengeStore: RedisMfaChallengeStore;
+  readonly workspaceService: WorkspaceService;
+  readonly membershipService: MembershipService;
+  readonly invitationService: InvitationService;
+  readonly workspaceAudit: WorkspaceAuditRepository;
   readonly userRepository: UserRepository;
   readonly rateLimiter: RedisRateLimiter;
   readonly emailSender: EmailSender;
@@ -173,11 +189,60 @@ export function buildDependencies(
     logger,
   });
 
+  const workspaceRepository = new WorkspaceRepository(db);
+  const membershipRepository = new MembershipRepository(db);
+  const invitationRepository = new InvitationRepository(db);
+  const workspaceAudit = new WorkspaceAuditRepository(db);
+
+  const workspaceService = new WorkspaceService({
+    workspaces: workspaceRepository,
+    memberships: membershipRepository,
+    users: userRepository,
+    audit: workspaceAudit,
+    clock,
+    logger,
+  });
+
+  const membershipService = new MembershipService({
+    memberships: membershipRepository,
+    users: userRepository,
+    audit: workspaceAudit,
+    clock,
+    logger,
+  });
+
+  const invitationService = new InvitationService({
+    invitations: invitationRepository,
+    memberships: membershipRepository,
+    workspaces: workspaceRepository,
+    users: userRepository,
+    audit: workspaceAudit,
+    email: emailSender,
+    clock,
+    logger,
+    appBaseUrl: env.appBaseUrl,
+    /**
+     * The single unscoped invitation lookup.
+     *
+     * Kept here, in the composition root, rather than added to the scoped
+     * repository, so the escape hatch is visible in one place and cannot be
+     * reached accidentally from ordinary workspace code. The token hash is
+     * globally unique, so it resolves to exactly one workspace - the same
+     * shape as blueprint 9.1's public widget identifiers.
+     */
+    redeemByTokenHash: async (tokenHash: string): Promise<WithId<InvitationRecord> | null> =>
+      db.collection<InvitationRecord>(COLLECTIONS.invitations).findOne({ tokenHash }),
+  });
+
   return {
     logger,
     authService,
     sessionService,
     mfaService,
+    workspaceService,
+    membershipService,
+    invitationService,
+    workspaceAudit,
     mfaChallengeStore: new RedisMfaChallengeStore(redis, keys),
     userRepository,
     rateLimiter: new RedisRateLimiter(redis, keys),

@@ -2,13 +2,13 @@
 
 One repeatable proof per requirement.
 
-> ## Status at Stage 3: **no acceptance probe is proven.**
+> ## Status at Stage 4a: **no acceptance probe is proven.**
 >
-> Blueprint Stage 3 is now complete. B2, C1, C3, C4, and C5 are `PROVEN`, and C12 is proven
-> for the first secret that needs it. Proof now includes browser end-to-end tests and
-> automated accessibility checks, not only API-level integration tests. **All six acceptance
-> probes remain `NOT YET IMPLEMENTED`**, because no widget or submission code exists; they
-> are Stage 7.
+> Blueprint Stage 3 is complete. Stage 4a adds the workspace and RBAC backend: B1 and C7 are
+> now `PROVEN` at the API level, and D2 has widened as the first real workspace-scoped write
+> paths appeared. **All six acceptance probes remain `NOT YET IMPLEMENTED`**, because no widget
+> or submission code exists; they are Stage 7. Blueprint Stage 4 itself is NOT complete - the
+> workspace UI and its browser E2E are Stage 4b.
 >
 > As each stage completes, its entries gain: the exact command an evaluator can re-run, the
 > observed output or transcript, and a link to the test that enforces the behavior. An entry is
@@ -92,16 +92,17 @@ real queue behavior in Stage 9.
 - **Requirement:** Public registration; shared workspaces; a user may own one workspace and join
   many; Owner/Admin/Member roles; 7-day invitations; unverified users may use the dashboard but
   cannot publish or invite; Owner-only ownership transfer; 30-day workspace soft deletion.
-- **Status:** `IN PROGRESS` — **data shape only**, delivered in Stage 2. The behaviour is
-  **Stage 4** (accounts themselves in **Stage 3**).
-- **What is real today:** `Workspace`, `Membership`, and `Invitation` records exist with the
-  Owner/Admin/Member role type, a 7-day invitation expiry field, and soft-deletion fields. Two
-  storage constraints are enforced and tested: a unique workspace-user membership pair, and a
-  partial unique index allowing a user to own only ONE _active_ workspace while still joining many
-  others.
-- **What is NOT real:** registration, verification gates, role enforcement, invitation issuing or
-  acceptance, and ownership transfer. Nothing checks a permission yet.
-- **Evidence:** the constraint tests described in Part D-detail (D13).
+- **Status:** `PROVEN` at the API level in Stage 4a. The UI half is Stage 4b.
+- **Every clause of section 4.1 now works and is tested:** public registration; shared workspaces
+  with Owner/Admin/Member roles; a user owning at most one active workspace while joining many;
+  first-workspace onboarding with a name and a confirmed IANA timezone; the Admins-manage-Members
+  but Owner-assigns-Admins asymmetry; invitations by email link with a 7-day expiry; unverified
+  users keeping dashboard access but being blocked from inviting; ownership transfer to a verified
+  Admin; Owner-only workspace soft-delete with 30-day recovery; and the account-deletion
+  precondition requiring the owned workspace to be resolved first.
+- **What is still missing:** the UI for all of it, and browser E2E across the role matrix, both of
+  which the blueprint Stage 4 exit gate names explicitly. That is why Stage 4 remains unchecked.
+- **Evidence:** see Part D-detail, Stage 4a.
 
 ### B2. Authentication and account security (§4.2)
 
@@ -201,8 +202,8 @@ by the stage noted.
 | C3  | Optional TOTP MFA and hashed recovery codes                                                 | `PROVEN` - optional TOTP with hashed single-use recovery codes                                 | Stage 3                              |
 | C4  | Redis sessions, rotation, expiry, device revocation, secure cookies, CSRF                   | `PROVEN` for sessions, rotation, expiry, revocation, cookies, and CSRF                         | Stage 3                              |
 | C5  | Generic auth responses and dedicated brute-force limits                                     | `PROVEN` - generic responses and per-flow throttles                                            | Stage 3                              |
-| C6  | Mandatory workspace scope in every tenant query                                             | `PROVEN` for foundation repositories - see Part D-detail                                       | Stage 2, enforced onward             |
-| C7  | Role and verified-email gates on the server, never only in React                            | `NOT YET IMPLEMENTED`                                                                          | Stage 4                              |
+| C6  | Mandatory workspace scope in every tenant query                                             | `PROVEN` - scope is session-derived and re-checked per request                                 | Stage 2, enforced onward             |
+| C7  | Role and verified-email gates on the server, never only in React                            | `PROVEN` - the whole section 11 matrix is enforced server-side                                 | Stage 4                              |
 | C8  | Strict Origin allowlist and correct CORS/preflight behavior                                 | `NOT YET IMPLEMENTED`                                                                          | Stages 6, 7                          |
 | C9  | Platform-owned payload schemas and 32 KB body limit                                         | `NOT YET IMPLEMENTED`                                                                          | Stage 7                              |
 | C10 | Honeypot, timing heuristic, rate limits, quotas, 24-hour idempotency                        | `NOT YET IMPLEMENTED`                                                                          | Stage 7                              |
@@ -220,28 +221,28 @@ by the stage noted.
 
 ## Part D — Cross-cutting architecture proofs (blueprint §7–§16)
 
-| #   | Requirement                                                                                                | Status                                                                                   | Delivered by                   |
-| --- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------ |
-| D1  | Tenant isolation: two seeded tenants cannot reach each other through any repository                        | `PROVEN` for foundation repositories - see Part D-detail                                 | Stage 2, re-proven per surface |
-| D2  | Tenant isolation across CRUD, search, export, analytics, SSE, trash, and recovery                          | `IN PROGRESS` - repository CRUD proven; other surfaces do not exist yet                  | Stages 4, 8, 10                |
-| D3  | Cache contract: 5-minute loader, 1-year immutable hashed runtime, 60-second config with ETag               | `NOT YET IMPLEMENTED`                                                                    | Stage 6                        |
-| D4  | A cached config cannot bypass unpublishing, deletion, a domain-rule change, or a quota block               | `NOT YET IMPLEMENTED`                                                                    | Stages 6, 7                    |
-| D5  | All three widget types render on a separate origin, multiple instances coexist, host CSS cannot break them | `NOT YET IMPLEMENTED`                                                                    | Stage 6                        |
-| D6  | Public config never leaks recipients, webhook URLs/secrets, notes, or tenant identifiers                   | `NOT YET IMPLEMENTED`                                                                    | Stage 6                        |
-| D7  | Outbox prevents a transient Redis enqueue failure from losing promised work                                | `NOT YET IMPLEMENTED`                                                                    | Stages 7, 9                    |
-| D8  | Transient-only retry, five attempts with backoff, dead letter, and manual replay                           | `NOT YET IMPLEMENTED`                                                                    | Stage 9                        |
-| D9  | Brevo daily budget priority reserve and visible deferred states                                            | `NOT YET IMPLEMENTED`                                                                    | Stage 9                        |
-| D10 | SSE workspace isolation, heartbeats, and bounded reconnect                                                 | `NOT YET IMPLEMENTED`                                                                    | Stages 8, 10                   |
-| D11 | Raw interaction events expire after 90 days leaving aggregates intact                                      | `NOT YET IMPLEMENTED`                                                                    | Stage 10                       |
-| D12 | Every recovery window and permanent purge (contact, widget, workspace, account)                            | `NOT YET IMPLEMENTED`                                                                    | Stage 11                       |
-| D13 | Repeatable migrations and explicit index management on a clean database                                    | `PROVEN` - see Part D-detail                                                             | Stage 2                        |
-| D14 | Liveness and readiness endpoints; degraded optional providers do not make the API unready                  | `IN PROGRESS` - detail below                                                             | Stage 1 skeleton, Stage 13     |
-| D15 | WCAG 2.2 AA audit with zero critical automated violations on critical pages and widgets                    | `IN PROGRESS` - axe clean on every auth page; manual audit and full page set in Stage 13 | Stage 13                       |
-| D16 | CI installs, type-checks, lints, tests, and builds every workspace before merge                            | `IN PROGRESS` - detail below                                                             | Stage 1, extended per stage    |
-| D17 | One documented local command starts dependencies and apps; seed data is reproducible                       | `IN PROGRESS` - detail below                                                             | Stage 1                        |
-| D18 | Clean deployment from main passes smoke, cross-origin, auth, queue, and restore checks                     | `NOT YET IMPLEMENTED`                                                                    | Stage 14                       |
-| D19 | Encrypted export/restore rehearsal succeeds                                                                | `NOT YET IMPLEMENTED`                                                                    | Stage 14                       |
-| D20 | Render sleep delays but does not permanently skip retention or queue work                                  | `NOT YET IMPLEMENTED`                                                                    | Stages 11, 14                  |
+| #   | Requirement                                                                                                | Status                                                                                                                                               | Delivered by                   |
+| --- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| D1  | Tenant isolation: two seeded tenants cannot reach each other through any repository                        | `PROVEN` for foundation repositories - see Part D-detail                                                                                             | Stage 2, re-proven per surface |
+| D2  | Tenant isolation across CRUD, search, export, analytics, SSE, trash, and recovery                          | `IN PROGRESS` - membership, invitation, and audit write paths proven isolated; export, analytics, SSE, trash, and recovery surfaces do not exist yet | Stages 8, 10                   |
+| D3  | Cache contract: 5-minute loader, 1-year immutable hashed runtime, 60-second config with ETag               | `NOT YET IMPLEMENTED`                                                                                                                                | Stage 6                        |
+| D4  | A cached config cannot bypass unpublishing, deletion, a domain-rule change, or a quota block               | `NOT YET IMPLEMENTED`                                                                                                                                | Stages 6, 7                    |
+| D5  | All three widget types render on a separate origin, multiple instances coexist, host CSS cannot break them | `NOT YET IMPLEMENTED`                                                                                                                                | Stage 6                        |
+| D6  | Public config never leaks recipients, webhook URLs/secrets, notes, or tenant identifiers                   | `NOT YET IMPLEMENTED`                                                                                                                                | Stage 6                        |
+| D7  | Outbox prevents a transient Redis enqueue failure from losing promised work                                | `NOT YET IMPLEMENTED`                                                                                                                                | Stages 7, 9                    |
+| D8  | Transient-only retry, five attempts with backoff, dead letter, and manual replay                           | `NOT YET IMPLEMENTED`                                                                                                                                | Stage 9                        |
+| D9  | Brevo daily budget priority reserve and visible deferred states                                            | `NOT YET IMPLEMENTED`                                                                                                                                | Stage 9                        |
+| D10 | SSE workspace isolation, heartbeats, and bounded reconnect                                                 | `NOT YET IMPLEMENTED`                                                                                                                                | Stages 8, 10                   |
+| D11 | Raw interaction events expire after 90 days leaving aggregates intact                                      | `NOT YET IMPLEMENTED`                                                                                                                                | Stage 10                       |
+| D12 | Every recovery window and permanent purge (contact, widget, workspace, account)                            | `NOT YET IMPLEMENTED`                                                                                                                                | Stage 11                       |
+| D13 | Repeatable migrations and explicit index management on a clean database                                    | `PROVEN` - see Part D-detail                                                                                                                         | Stage 2                        |
+| D14 | Liveness and readiness endpoints; degraded optional providers do not make the API unready                  | `IN PROGRESS` - detail below                                                                                                                         | Stage 1 skeleton, Stage 13     |
+| D15 | WCAG 2.2 AA audit with zero critical automated violations on critical pages and widgets                    | `IN PROGRESS` - axe clean on every auth page; manual audit and full page set in Stage 13                                                             | Stage 13                       |
+| D16 | CI installs, type-checks, lints, tests, and builds every workspace before merge                            | `IN PROGRESS` - detail below                                                                                                                         | Stage 1, extended per stage    |
+| D17 | One documented local command starts dependencies and apps; seed data is reproducible                       | `IN PROGRESS` - detail below                                                                                                                         | Stage 1                        |
+| D18 | Clean deployment from main passes smoke, cross-origin, auth, queue, and restore checks                     | `NOT YET IMPLEMENTED`                                                                                                                                | Stage 14                       |
+| D19 | Encrypted export/restore rehearsal succeeds                                                                | `NOT YET IMPLEMENTED`                                                                                                                                | Stage 14                       |
+| D20 | Render sleep delays but does not permanently skip retention or queue work                                  | `NOT YET IMPLEMENTED`                                                                                                                                | Stages 11, 14                  |
 
 ---
 
@@ -633,6 +634,119 @@ npm run test:e2e            # 17 passed (1.8m)
 
 ---
 
+## Part D-detail - Stage 4a workspace and RBAC evidence
+
+Executed on 2026-08-28 against real MongoDB, Redis, and Mailpit.
+
+```
+docker compose up -d --wait mongo redis mailpit
+npm run test                # Test Files 7 passed (7),  Tests 125 passed (125)
+npm run test:integration    # Test Files 6 passed (6),  Tests 106 passed (106)
+npm run test:e2e            # 17 passed  (Stage 3b suite, no regression)
+```
+
+Of those, 43 unit tests and 32 integration tests are new in Stage 4a.
+
+### C7. Role and verified-email gates enforced on the server
+
+- **Status:** `PROVEN`.
+- The section 11 matrix is a single static table. **Every cell is asserted** against a copy of the
+  matrix transcribed independently from the blueprint inside the test file, rather than imported
+  from the implementation - otherwise the test would only prove the code equals itself. The two
+  tables are also asserted to cover exactly the same capability set, so a capability cannot be
+  added to one and forgotten in the other.
+- Every cell is additionally resolved twice, once for a verified subject and once for an
+  unverified one, which is what pins down the two "Yes, verified" rows.
+- The asymmetries the blueprint calls out are each tested directly, over HTTP as well as in
+  isolation:
+  - an Admin can invite and remove Members, but inviting someone AS an Admin is refused, promoting
+    a Member to Admin is refused, and demoting another Admin is refused;
+  - ownership transfer and workspace deletion are refused for Admin and Member;
+  - the Owner can promote and demote Admins;
+  - the Owner can never be removed, not even by themselves, so a workspace cannot be orphaned;
+  - nobody can change their own role.
+- **An unverified Owner keeps dashboard access but cannot invite**, which is section 4.1 exactly.
+  The refusal is `email_not_verified`, distinct from a plain `forbidden`, because "confirm your
+  email" and "your role may never" are different problems. This is the gate Stage 3a built and
+  had nothing to attach to.
+
+### C6. Mandatory workspace scope
+
+- **Status:** `PROVEN` for every surface that exists.
+- Scope is derived from the server-side session and never from a request body or URL. Requests
+  without a selected workspace are refused rather than defaulting to one.
+- **Membership is re-checked on every request**, not trusted from the session. A test removes a
+  member and asserts their very next call fails, so revocation is immediate rather than taking
+  effect at their next switch.
+- Switching workspace verifies membership BEFORE writing the selection. A non-member gets the same
+  404 as a nonexistent workspace, so this cannot enumerate which workspace ids are real.
+- The one unscoped read is invitation redemption by token hash, where the caller has no workspace
+  context by definition. The hash is globally unique, so it resolves to exactly one workspace, the
+  same shape as blueprint 9.1's public widget identifiers. It is wired in the composition root so
+  the exception is visible in one place rather than available as a general escape hatch.
+
+### Onboarding and the one-owned-workspace limit
+
+- Onboarding creates the workspace, makes the creator its Owner, and selects it for the session.
+- A second owned workspace is refused with a clean **409**, and the test asserts the response body
+  contains no `E11000`, `duplicate key`, or `mongo` text - the Stage 2 unique index still backs the
+  rule under a race, but a driver error must never reach the client.
+- **A timezone finding worth recording.** Validation constructs an `Intl.DateTimeFormat` rather
+  than checking membership of `Intl.supportedValuesOf('timeZone')`. On this runtime that list omits
+  `UTC`, `Etc/UTC`, and `Asia/Kolkata` - it carries the legacy `Asia/Calcutta` instead - so a
+  membership check would reject both UTC and the canonical spelling of a zone used by a sixth of
+  the world. There is a test asserting `UTC` is accepted and that `supportedValuesOf` does not
+  contain it.
+
+### Invitations
+
+- Hashed, single-use, 7-day expiry, reusing the Stage 3a token pattern. A test reads the stored
+  document and asserts the plaintext token is absent and only a 64-character hash remains.
+- **Both recipient paths work.** An existing verified user joins by following the link. A brand-new
+  recipient is invited, registers, and is joined automatically on verification - with the
+  membership count asserted before and after, so it is proven that **no membership exists for an
+  unverified identity**.
+- An unverified signed-in recipient is refused with `email_not_verified`.
+- A reused token is refused. A token addressed to someone else is refused even when the interceptor
+  is signed in and verified. A revoked invitation stops working.
+- Invitations reuse the Stage 3a email sender, so they draw on the same section 5.3 daily budget as
+  auth mail rather than opening a second unbounded path.
+
+### Ownership transfer
+
+- Transfers only to a **verified Admin** of the same workspace. Refused for a Member, for a
+  non-member, and for an Admin who already owns another workspace.
+- The outgoing Owner becomes an **Admin**, not a Member - see the BUILDLOG for why.
+- The two role writes are ordered demote-then-promote, so the unique active-owner index is never
+  contended. A test asserts exactly one owner membership afterwards, and that the powers really
+  moved: the old Owner can no longer delete the workspace, and the new one can read the audit log.
+
+### Workspace deletion, recovery, and the account-deletion precondition
+
+- Soft delete sets `status`, `deletedAt`, and a `purgeAfter` 30 days out, and the workspace
+  immediately disappears from the switcher and refuses further use - without anything being purged.
+- Recovery works inside the window and is refused once `purgeAfter` has passed.
+- Only the Owner may recover, and an Admin attempting it gets a 404 rather than a 403, so a
+  deleted workspace is not revealed to someone who cannot restore it.
+- Account deletion is blocked while the user owns a workspace and clears the moment they transfer
+  it, which is asserted end to end.
+
+### Workspace-scoped audit
+
+- Every invite, accept, revoke, role change, transfer, and workspace delete/recover writes an
+  `AuditEvent` carrying the **real** `workspaceId`, not Stage 3a's account-level sentinel. A test
+  reads the stored events and asserts none of them carries the all-zero sentinel id.
+- Audit metadata and log records are asserted to contain no invitation token.
+
+### Cross-tenant isolation across the new write paths
+
+- Two full tenants are built, each with an owner and an invited guest. Each owner sees only their
+  own members; an attempt to remove the other tenant's guest by their real user id returns 404 and
+  leaves that guest in place; audit event ids do not overlap; and the stored invitations carry the
+  correct `workspaceId`. This extends the Stage 2 proof onto mutation paths that did not exist then.
+
+---
+
 ## Part E — Definition of done (blueprint §22)
 
 Version 1 is complete only when all twelve conditions hold. This table is the final checklist an
@@ -667,3 +781,5 @@ evaluator can use; it is fully re-verified in **Stage 15**.
 | 2026-08-28 | 3a | C1, C4, and C5 moved to `PROVEN`; B2 and C2 to `IN PROGRESS` with the MFA gap stated explicitly. Evidenced by 34 auth integration tests against real MongoDB, Redis, and Mailpit plus 23 auth unit tests. MFA, auth UI, and browser E2E are Stage 3b and are NOT claimed. All six acceptance probes remain unproven. |
 
 | 2026-08-28 | 3b | Blueprint Stage 3 COMPLETE. B2, C3, and C12 moved to `PROVEN`; C2 completed for auth tokens; C13 and D15 moved to `IN PROGRESS`. Evidenced by 17 browser E2E tests, 74 integration tests, 82 unit tests, and axe checks reporting zero critical or serious violations on every auth page. All six acceptance probes remain unproven. |
+
+| 2026-08-28 | 4a | B1, C6, and C7 moved to `PROVEN` at the API level; D2 widened onto the new workspace write paths. Evidenced by 32 workspace integration tests against real MongoDB, Redis, and Mailpit, plus 43 unit tests asserting every cell of the section 11 matrix against an independently transcribed copy. Blueprint Stage 4 is NOT complete: the workspace UI and its browser E2E are Stage 4b. All six acceptance probes remain unproven. |

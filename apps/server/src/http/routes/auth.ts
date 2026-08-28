@@ -17,6 +17,7 @@ import {
 import type { AuthService } from '../../application/auth/auth-service.js';
 import type { SessionService } from '../../application/auth/session-service.js';
 import type { MfaService } from '../../application/auth/mfa-service.js';
+import type { InvitationService } from '../../application/workspace/invitation-service.js';
 import type { RedisMfaChallengeStore } from '../../infrastructure/redis/mfa-challenge-store.js';
 import type { UserRepository } from '../../application/auth/types.js';
 import type { RateLimiter } from '../../ports/rate-limiter.js';
@@ -44,6 +45,7 @@ export interface AuthRouterDeps {
   readonly auth: AuthService;
   readonly sessions: SessionService;
   readonly mfa: MfaService;
+  readonly invitations: InvitationService;
   readonly mfaChallenges: RedisMfaChallengeStore;
   readonly users: UserRepository;
   readonly limiter: RateLimiter;
@@ -67,8 +69,18 @@ function toAuthenticatedUser(user: WithIdUser): AuthenticatedUser {
 
 export function createAuthRouter(deps: AuthRouterDeps): Router {
   const router = Router();
-  const { auth, sessions, mfa, mfaChallenges, users, limiter, logger, cookie, generateCsrfToken } =
-    deps;
+  const {
+    auth,
+    sessions,
+    mfa,
+    mfaChallenges,
+    users,
+    invitations,
+    limiter,
+    logger,
+    cookie,
+    generateCsrfToken,
+  } = deps;
 
   /** Issue a session cookie and a fresh CSRF token bound to it. */
   function establishSession(request: Request, response: Response, sessionId: string): void {
@@ -129,7 +141,21 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
         throw new ApiError(ERROR_CODES.INVALID_TOKEN, 'This link is invalid or has expired');
       }
 
-      response.status(200).json({ status: 'verified' });
+      /**
+       * Join any workspaces that were waiting for this address.
+       *
+       * Someone invited before they had an account has a pending invitation
+       * they cannot redeem until they are verified. Completing it here means
+       * they do not have to find the original email again. Nothing is created
+       * for an unverified identity: this runs only after verification succeeds.
+       */
+      let joinedWorkspaces = 0;
+      const verified = await users.findById(outcome.userId);
+      if (verified !== null) {
+        joinedWorkspaces = await invitations.acceptAllPendingFor(verified, request.correlationId);
+      }
+
+      response.status(200).json({ status: 'verified', joinedWorkspaces });
     } catch (error) {
       next(error);
     }

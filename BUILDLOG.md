@@ -894,3 +894,170 @@ Every command was executed. Beyond the happy paths:
    authenticator has no self-service path back. The count is surfaced in the UI so it is visible,
    but a regenerate flow is genuinely missing and would fit naturally with the account-settings work
    in a later stage.
+
+---
+
+## Stage 4a - Onboarding, workspace context, RBAC policy, and invitations backend (2026-08-28)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Stage 4a, the first half of blueprint Stage 4. Backend only.
+**Blueprint Stage 4 is NOT complete** and remains unchecked in `docs/stage-checklist.md`: its gate
+says the role matrix must pass "from API through browser", and there is no workspace UI yet.
+
+### What was done
+
+Verified `typescript-lsp`, read the Stage 2/3 foundation being extended, then built:
+
+- `packages/contracts/src/workspace.ts`: capabilities, policy decisions, request schemas, and
+  response shapes.
+- `packages/database`: migration `004_workspace` (indexes only - Stage 2 already had every field
+  needed), plus three narrowly-documented unscoped repository reads.
+- `apps/server/src/domain/workspace/`: the section 11 matrix, IANA timezone validation, and the
+  30-day recovery window arithmetic - all pure.
+- `apps/server/src/application/workspace/`: `WorkspaceService`, `MembershipService`,
+  `InvitationService`, and the workspace-scoped audit adapter.
+- `apps/server/src/http/`: `requireWorkspaceContext` and `requireCapability`, plus the workspaces,
+  members, and invitations routers.
+- Session layer: sessions now carry an `activeWorkspaceId`, which is where every workspace-scoped
+  route gets its scope.
+
+### Where AI helped
+
+- Turning section 11 from a table into enforcement that is actually checkable. The valuable move
+  was writing the test's copy of the matrix **independently from the blueprint** rather than
+  importing the implementation's table - otherwise the test proves only that the code equals
+  itself. The two are then asserted to cover the same capability set, so neither can drift.
+- Noticing that role changes are not a single capability lookup. Whether an action needs
+  `member.manage` or `admin.manage` depends on the roles of both parties, which is why
+  `canChangeRole` and `canRemoveMember` exist as separate predicates rather than being inlined
+  into the routes where each would be re-derived slightly differently.
+- Spotting that inviting someone _as an Admin_ is assigning Admin status. The coarse route guard
+  only proves `member.manage`, so an Admin would have been able to create another Admin by
+  invitation - the exact asymmetry blueprint 4.1 forbids - if the role in the request body were
+  not checked separately.
+
+### Where AI failed or was corrected
+
+- **A timezone validator that would have rejected UTC.** The obvious implementation checks
+  membership of `Intl.supportedValuesOf('timeZone')`. Verifying it against the actual runtime
+  before writing the code showed that list omits `UTC`, `Etc/UTC`, and `Asia/Kolkata` - it carries
+  the legacy `Asia/Calcutta` instead. A membership check would have rejected UTC and the canonical
+  spelling of a zone used by a sixth of the world. Constructing an `Intl.DateTimeFormat` and
+  catching the RangeError accepts every zone the runtime can compute with. This was caught by
+  checking rather than assuming, and there is now a test pinning it.
+- **`noUncheckedIndexedAccess` on the policy table.** Indexing a complete `Record` still yields
+  `| undefined` under that flag. The first version silently satisfied the checker in a way that
+  would have made an unknown capability return a value; it now throws instead, because an
+  authorization layer returning `allow` or `deny` for something it does not recognise is the worst
+  possible failure mode.
+- **Express 5 types a route parameter as `string | string[]`.** Six call sites failed to compile.
+  A `pathParam` helper takes the first value and treats anything else as absent, rather than
+  coercing an array into a string that would then be parsed as an id.
+- **Four lint errors after the first full pass**: two type-only imports, an `!=` where the value is
+  `Date | null | undefined`, and an empty interface extending its supertype. All small, all real.
+- **The `&` path problem did not bite this stage**, because no new dependency was added. That is
+  now three stages where it has caused work and one where it did not.
+
+### Judgment calls
+
+1. **The outgoing Owner becomes an Admin.** The blueprint does not say. Section 11 notes that "an
+   Owner remains functionally the highest role", which reads as stepping _down_ one rung rather
+   than out of the workspace. Admin also keeps them able to undo a mistaken transfer by agreement,
+   whereas Member would strip the ability to manage anything. Demoting to Member, or removing them
+   entirely, would both be defensible; Admin is the least surprising and the least destructive.
+
+2. **A hand-written policy table instead of an authorization library.** Section 11 is a static
+   matrix with no per-record conditions, and CASL's own cookbook recommends a code-defined table
+   for exactly that case. Wrapping a literal table in a rules engine would add indirection and make
+   "assert every cell" harder rather than easier. Revisit if Stage 8 introduces conditions such as
+   "only the assignee may edit this contact".
+
+3. **Pending invitations count toward the 10-user cap.** Blueprint 4.10 caps users, not
+   invitations. Counting only accepted memberships would let ten simultaneous invites overshoot the
+   cap the moment they were all accepted, so pending ones are counted and the cap holds.
+
+4. **Verification auto-accepts waiting invitations.** Someone invited before they had an account
+   cannot redeem the link until they are verified. Rather than making them find the original email
+   again, verification joins them to every invitation waiting for that address. Each is still
+   consumed exactly once, and nothing runs for an unverified identity, because it happens only
+   after verification succeeds. Wired at the route rather than inside `AuthService`, so the auth
+   layer keeps no workspace dependency.
+
+5. **Three unscoped repository reads, each documented at its definition.** `listAllForUser`,
+   `listPendingForRecipient`, and the token-hash redemption all answer questions that cannot be
+   asked from inside a single workspace. Each filters on something the caller owns - their own user
+   id, their own email, or a globally-unique token they hold - so none can surface another tenant's
+   data. The redemption lookup is wired in the composition root rather than added to the scoped
+   repository, so the exception is visible in one place instead of becoming a general escape hatch.
+
+6. **Membership is re-checked on every request, not cached in the session.** The session stores
+   only _which_ workspace is selected; the role is resolved per request. Caching the role would
+   make revocation take effect at the next switch rather than immediately, and there is a test for
+   the immediate case.
+
+7. **Recovery takes the workspace id in the path.** Every other route derives scope from the
+   session, but a deleted workspace cannot be the _active_ one - `requireWorkspaceContext` refuses
+   it by design. Ownership is therefore checked directly in that handler, and a non-owner gets 404
+   rather than 403 so a deleted workspace is not revealed to someone who cannot restore it.
+
+8. **Unbuilt usage meters report null, not zero.** A zero would assert "no widgets exist yet",
+   which is a different claim from "widgets are not built yet". There is a test asserting null.
+
+### Verification performed
+
+Every command was executed. Beyond the happy paths:
+
+- The role matrix is exercised twice: once as a pure unit table covering all 48 cells for both
+  verified and unverified subjects, and again over HTTP for the rows that have routes.
+- Enumeration was probed: switching into a stranger's workspace, recovering someone else's deleted
+  workspace, and removing another tenant's member all return 404 rather than 403.
+- Both invitation recipient paths were tested, including asserting the membership count before and
+  after verification to prove none is created for an unverified identity.
+- An intercepted invitation link was tested against a different signed-in verified user.
+- Ownership transfer was verified to leave exactly one owner membership and to actually move the
+  powers, not just the field.
+- The recovery window was tested on both sides by moving `purgeAfter` into the past.
+- Cross-tenant isolation was re-proven on the new mutation paths, not just the Stage 2 reads.
+- The Stage 3b browser E2E suite was re-run after the session record changed shape: 17 passed, no
+  regression.
+
+### Plugin usage this stage
+
+- **`typescript-lsp`** - installed, available, and **it worked**, checked before any other work.
+  Used for cross-package verification: `findReferences` on `can()` returned 17 references across
+  exactly three files - the policy module itself, the middleware guard, and the tests - confirming
+  no route bypasses the engine; `findReferences` on the new `activeWorkspaceId` field returned 8
+  across 4 files, confirming every consumer of the changed session shape was updated. It also
+  surfaced the `noUncheckedIndexedAccess` and Express-5 param problems live. Zero unexpected
+  diagnostics remain, cross-checked against `tsc` at zero errors.
+
+  Same caveat as prior stages: the LSP indexes files lazily, so a brand-new file needs a
+  `documentSymbol` call before `findReferences` returns anything.
+
+- **`context7`** - installed, available, **invoked substantively**:
+  - **CASL** (`/stalniy/casl`): its roles-with-static-permissions cookbook, which recommends a
+    code-defined table when permissions are known at build time. That corroborated the decision NOT
+    to take the dependency, which is a legitimate outcome of consulting documentation.
+  - **Intl / IANA timezones**: the resolver found no useful library match, so the approach was
+    verified directly against the runtime instead - which is what surfaced the `supportedValuesOf`
+    gap described above. Documented here because "consulted and found nothing useful, then verified
+    empirically" is the honest account.
+    No conflict with a locked blueprint decision was found.
+
+- **`frontend-design`** - installed and available; **not invoked**. Stage 4a built no UI. It
+  becomes relevant again in Stage 4b.
+
+### Open questions for a human
+
+1. **Blueprint Stage 4 is NOT complete.** Its gate requires the role matrix to pass through the
+   browser. Stage 4b owns the workspace UI and that E2E. Do not read "Stage 4a passed" as "Stage 4
+   passed".
+2. **The outgoing-owner role is a judgment call**, not a blueprint decision - see judgment call 1.
+   Worth a sentence of confirmation before Stage 4b builds UI copy around it.
+3. **Invitation expiry is enforced on read, not swept.** An expired invitation is filtered out and
+   refused, but its record stays `pending` until Stage 11's retention sweep. That is consistent with
+   how the rest of the soft-delete machinery waits for Stage 11, but it does mean a stale row lingers.
+4. **Capabilities for widgets, contacts, exports, and deliveries are answered but unattached.** The
+   policy engine is complete and tested for all 16 rows; Stages 5, 8, and 9 must remember to attach
+   `requireCapability` to the routes they add. Nothing enforces that they will.
+5. **CI has still never run.** Unchanged since Stage 1: no remote is configured.

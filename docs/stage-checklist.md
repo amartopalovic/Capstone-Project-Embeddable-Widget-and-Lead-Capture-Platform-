@@ -3,7 +3,7 @@
 The project is implemented in 16 bounded stages (blueprint §19). Exactly one stage is requested per
 implementation prompt, and work stops when that stage's exit gate is green.
 
-**Progress: 4 of 16 stages complete.**
+**Progress: 4 of 16 stages complete, plus Stage 4a of 4.**
 
 ## Stage execution rules (blueprint §19)
 
@@ -59,10 +59,22 @@ test results, remaining limitations, and confirmation of the exit gate.
       protection on the accepted TOTP counter; session rotation on every MFA change; eight
       accessible React pages; and a Playwright + axe suite.
 
-- [ ] **Stage 4 — Workspace onboarding, switcher, RBAC, and invitations**
+- [ ] **Stage 4 — Workspace onboarding, switcher, RBAC, and invitations** _(split into 4a and 4b; 4a done)_
   - **Goal:** Complete the multi-workspace user model.
   - **Exit gate:** Role matrix and cross-tenant tests pass from API through browser; unverified
     users cannot invite or publish.
+  - **This stage stays unchecked until 4b lands.** The gate says "through browser", and there is no
+    workspace UI and no browser E2E yet.
+  - [x] **Stage 4a — Onboarding, workspace context, RBAC policy, invitations backend** _(2026-08-28)_
+    - Onboarding with name and IANA timezone and the one-owned-workspace limit; session-derived
+      workspace context and a switcher that verifies membership; a policy engine covering the whole
+      §11 matrix; invitation send/accept/revoke including the register-then-verify path for a
+      brand-new recipient; ownership transfer to a verified Admin; workspace soft-delete and
+      recovery; the account-deletion precondition; workspace-scoped audit; and the usage meter.
+    - Proven by 32 integration tests against real MongoDB, Redis, and Mailpit, plus 43 unit tests
+      that assert every cell of the §11 matrix against an independently transcribed copy of it.
+      No UI, no browser E2E.
+  - [ ] **Stage 4b — Workspace UI (onboarding, switcher, members, invitations, settings) and browser E2E**
 
 - [ ] **Stage 5 — Widget domain model, builder, drafts, and publishing**
   - **Goal:** Let teams configure the three widget types safely.

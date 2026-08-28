@@ -40,6 +40,7 @@ interface StoredSession {
    */
   readonly idleExpiresAt: string;
   readonly userAgentSummary: string;
+  readonly activeWorkspaceId: string | null;
 }
 
 export class RedisSessionStore implements SessionStore {
@@ -90,6 +91,7 @@ export class RedisSessionStore implements SessionStore {
       absoluteExpiresAt: record.absoluteExpiresAt.toISOString(),
       idleExpiresAt: this.#idleDeadline(record.lastSeenAt).toISOString(),
       userAgentSummary: record.userAgentSummary,
+      activeWorkspaceId: record.activeWorkspaceId,
     };
 
     const ttl = this.#ttlFor(record, record.lastSeenAt);
@@ -119,6 +121,7 @@ export class RedisSessionStore implements SessionStore {
           stored.idleExpiresAt ?? this.#idleDeadline(new Date(stored.lastSeenAt)).toISOString(),
         ),
         userAgentSummary: stored.userAgentSummary,
+        activeWorkspaceId: stored.activeWorkspaceId ?? null,
       };
     } catch {
       return null;
@@ -162,6 +165,7 @@ export class RedisSessionStore implements SessionStore {
       absoluteExpiresAt: slid.absoluteExpiresAt.toISOString(),
       idleExpiresAt: this.#idleDeadline(now).toISOString(),
       userAgentSummary: slid.userAgentSummary,
+      activeWorkspaceId: slid.activeWorkspaceId,
     };
     await this.#redis.set(this.#sessionKey(sessionId), JSON.stringify(stored), 'EX', ttl);
     return slid;
@@ -187,6 +191,47 @@ export class RedisSessionStore implements SessionStore {
     }
 
     return alive.sort((a, b) => b.lastSeenAt.getTime() - a.lastSeenAt.getTime());
+  }
+
+  /**
+   * Rewrite one session with a new active workspace, preserving its TTL.
+   *
+   * The remaining TTL is read and reapplied rather than restarted, so switching
+   * workspace cannot be used to extend a session past its idle window.
+   */
+  async setActiveWorkspace(sessionId: string, workspaceId: string | null): Promise<boolean> {
+    const key = this.#sessionKey(sessionId);
+    const raw = await this.#redis.get(key);
+    if (raw === null) return false;
+
+    let stored: StoredSession;
+    try {
+      stored = JSON.parse(raw) as StoredSession;
+    } catch {
+      return false;
+    }
+
+    const ttl = await this.#redis.ttl(key);
+    if (ttl <= 0) return false;
+
+    await this.#redis.set(
+      key,
+      JSON.stringify({ ...stored, activeWorkspaceId: workspaceId }),
+      'EX',
+      ttl,
+    );
+    return true;
+  }
+
+  async clearActiveWorkspaceEverywhere(userId: string, workspaceId: string): Promise<number> {
+    const sessions = await this.listForUser(userId);
+    let cleared = 0;
+    for (const session of sessions) {
+      if (session.activeWorkspaceId === workspaceId) {
+        if (await this.setActiveWorkspace(session.id, null)) cleared += 1;
+      }
+    }
+    return cleared;
   }
 
   async destroy(sessionId: string): Promise<boolean> {

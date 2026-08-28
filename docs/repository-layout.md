@@ -1,6 +1,6 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 3 (3a + 3b).** All nine workspaces exist. `packages/config`, `packages/contracts`,
+**Status: Stage 4a.** All nine workspaces exist. `packages/config`, `packages/contracts`,
 `packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
 rest remain deliberate shells until the stage that fills them.
 
@@ -132,6 +132,31 @@ dashboard introduces those patterns.
 helpers, throttle isolation) and `tests/` (`auth-journey.spec.ts`,
 `accessibility.spec.ts`). `playwright.config.ts` at the root starts the API and
 web servers itself and expects Mongo, Redis, and Mailpit to be up.
+
+### What `apps/server` gained in Stage 4a
+
+| Path                                   | Contents                                                                                                           |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `src/domain/workspace/capabilities.ts` | The section 11 authorization matrix as a static table, plus the role-change and removal asymmetries                |
+| `src/domain/workspace/timezone.ts`     | IANA validation by `Intl.DateTimeFormat` construction                                                              |
+| `src/domain/workspace/retention.ts`    | The 30-day soft-delete window arithmetic                                                                           |
+| `src/application/workspace/`           | `WorkspaceService`, `MembershipService`, `InvitationService`, the workspace-scoped audit adapter, and narrow ports |
+| `src/http/middleware/workspace.ts`     | `requireWorkspaceContext` and `requireCapability`                                                                  |
+| `src/http/routes/workspaces.ts`        | Onboarding, switcher, current, usage, audit, transfer, delete, recover                                             |
+| `src/http/routes/members.ts`           | Members list, role change, removal, and the invitation routes                                                      |
+
+**Where workspace scope comes from.** Only from the server-side session. No
+route reads a workspace id out of a body or a path, apart from `/switch` and
+`/:workspaceId/recover`, and both verify membership before doing anything.
+Membership is re-checked on every request rather than trusted from the session,
+so a revoked member loses access immediately.
+
+**The one unscoped invitation lookup.** Redeeming an invitation is the single
+flow where the caller has no workspace context - they hold only a link. The
+token hash is globally unique, so it resolves to exactly one workspace, which is
+the same shape as blueprint 9.1's "public widget identifiers resolve to one
+workspace on the server". It is wired in the composition root rather than added
+to the scoped repository, so the exception is visible in one place.
 
 ## 3. What exists at the root today
 
