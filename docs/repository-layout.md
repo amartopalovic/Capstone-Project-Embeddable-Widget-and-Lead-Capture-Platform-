@@ -1,6 +1,6 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 4.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+**Status: Stage 5a.** All nine workspaces exist. `packages/config`, `packages/contracts`,
 `packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
 rest remain deliberate shells until the stage that fills them.
 
@@ -139,6 +139,26 @@ caller, and `GET /members` returns, per member, which roles the caller may assig
 and whether they may remove them — computed by the same `canChangeRole` and
 `canRemoveMember` the mutation routes enforce with. A second copy of the policy
 in the frontend could drift, and the drift would be invisible.
+
+### What `apps/server` gained in Stage 5a
+
+| Path                                       | Contents                                                                                    |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `src/domain/widget/fields.ts`              | Per-type mandatory-field rules and whole-configuration coherence checks                     |
+| `src/domain/widget/domains.ts`             | Exact-host and explicit-wildcard matching, where `*.example.com` never covers `example.com` |
+| `src/domain/widget/page-patterns.ts`       | Safe glob to anchored regex, escaping everything before reintroducing only `*` and `**`     |
+| `src/domain/widget/urls.ts`                | CTA and redirect destination validation by scheme allowlist                                 |
+| `src/domain/widget/publishing.ts`          | Publish readiness, including the at-least-one-allowed-domain rule                           |
+| `src/domain/widget/defaults.ts`            | The starting configuration for each of the three types                                      |
+| `src/domain/widget/snippet.ts`             | Opaque public identifiers and the one-line embed snippet                                    |
+| `src/application/widget/widget-service.ts` | Create, draft, publish, unpublish, soft-delete, recover, list, detail                       |
+| `src/http/routes/widgets.ts`               | The API, guarded by the three existing section 11 widget capabilities                       |
+
+**Publishing keeps one row per revision.** Publishing promotes the draft row in
+place, so the live revision's content is exactly what was reviewed, and the next
+edit allocates the next revision number for a fresh draft. Every write path
+filters on `status: 'draft'`, which is what makes blueprint 9.3's "published
+revisions are immutable" structural rather than a convention.
 
 ### End-to-end tests
 

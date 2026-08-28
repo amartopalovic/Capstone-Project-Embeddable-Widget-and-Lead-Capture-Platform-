@@ -1237,3 +1237,161 @@ pre-existing browser tests all pass, as do the 106 pre-existing integration test
 4. **Capabilities for widgets, contacts, exports, and deliveries are answered but unattached.**
    Stages 5, 8, and 9 must remember to attach `requireCapability`; nothing enforces that they do.
 5. **CI has still never run**, because no remote is configured.
+
+---
+
+## Stage 5a - Widget domain model, drafts, and publishing backend (2026-08-29)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Stage 5a, the first half of blueprint Stage 5. Backend only.
+**Blueprint Stage 5 is NOT complete** and remains unchecked in `docs/stage-checklist.md`: the
+React settings-form builder, its live preview, the embed-snippet surface, and the browser journey
+are 5b.
+
+### What was done
+
+Verified `typescript-lsp`, read the Stage 2 tenancy base and the Stage 4 workspace layer being
+extended, then built:
+
+- `packages/contracts/src/widget.ts`: the three locked types, the seven field types, a closed
+  appearance vocabulary, triggers/CTA/success/cooldown as discriminated unions, targeting, and the
+  request schemas.
+- `packages/database`: `WidgetRecord` and `WidgetRevisionRecord`, two `WorkspaceScopedRepository`
+  subclasses, and migration `005_widget`.
+- `apps/server/src/domain/widget/`: pure rules - field/mandatory validation, host and wildcard
+  matching, safe-glob page matching, CTA/redirect validation, publish readiness, per-type defaults,
+  and public-id/snippet generation.
+- `apps/server/src/application/widget/widget-service.ts`: create, save draft, publish, unpublish,
+  soft-delete, recover, list, detail.
+- `apps/server/src/http/routes/widgets.ts`: the API, wired to the three EXISTING section 11
+  capability rows.
+- `workspace-service.usage()`: `activeWidgets` changed from a hard-coded null to a real count.
+
+### Where AI helped
+
+- Deriving the two bounds the blueprint leaves open instead of inventing them. Blueprint 7.3
+  already says submissions reject "long-text values above 5,000 characters", so pinning the
+  builder's field maximum to the same 5,000 is the only value that cannot produce a form whose own
+  submissions the server would refuse.
+- Noticing that the draft-conflict mechanism was not actually a free judgment call. Blueprint 10.1
+  states it: "Update operations that can conflict use revision/version preconditions and return 409
+  on stale writes" - and Stage 2 had already seeded a `STALE_REVISION` error code mapping to 409
+  that nothing used yet.
+- Spotting that "at most one draft per widget" is implied by 4.5's singular "a draft revision" but
+  is not in 9.2's index list, and that enforcing it with a partial unique index is stronger than
+  trusting each write path.
+- Declining a glob library. Picomatch's own docs show brace expansion, extglobs, negation, and
+  POSIX classes, with `maxExtglobRecursion` defaulting to 0 because quantified patterns are risky.
+  That is a large surface for patterns a tenant supplies, so the matcher escapes everything and
+  reintroduces only `*` and `**` - which a test pins by asserting the compiled regex source.
+
+### Where AI failed or was corrected
+
+- **I modelled the publish state with one field too few.** Unpublishing cleared
+  `publishedRevisionNumber` along with the live pointer, so a widget that had been published and
+  taken down was indistinguishable from one never published, and reported itself as a `draft`. I
+  caught this reading my own lifecycle function rather than from a failing test. Split into
+  `publishedRevisionId` (currently live) and `lastPublishedRevisionNumber`/`lastPublishedAt`
+  (publish history, retained across unpublish).
+- **I wrote a genuinely bad test helper.** A `toObjectId` function that inspected a collection's
+  constructor and fell back to `require()` inside an ESM test - convoluted and wrong. Replaced with
+  a plain `import { ObjectId } from 'mongodb'`.
+- **Three integration tests failed on first run, and two of them were the test being wrong, not
+  the code.** The draft-editing test assumed a draft still existed after publishing; it does not,
+  because publishing promotes the draft and 4.5 says the next edit CREATES one. The trash test
+  advanced the clock 31 days and then got 401, then 404 - both correct: a 31-day jump is past the
+  absolute session lifetime, and a fresh session has no active workspace. Fixed by re-signing in
+  and re-selecting the workspace, rather than shortening the jump and no longer crossing the window
+  the test exists to check.
+- **One failure WAS a real intentional change:** a Stage 4a test asserted
+  `usage.activeWidgets.used` is null. Stage 5a makes that meter real, so the assertion was updated
+  to an honest `0` while keeping the null assertions for the two meters that are still genuinely
+  unmeasured.
+- **The language server served stale buffers again**, twice, reporting errors for code I had
+  already fixed while `tsc` read the same files clean. Same cause and same fix as Stage 4b: it does
+  not re-read a file it has opened. `tsc` was treated as authoritative during editing and the
+  server restarted before the final diagnostics pass.
+
+### Judgment calls
+
+1. **Field maximum length: 5,000 characters**, in one shared constant
+   (`WIDGET_FIELD_MAX_LENGTH`). Derived from blueprint 7.3's submission-side limit rather than
+   chosen, so the builder cannot express a form the submission endpoint would reject. Per-field
+   defaults are much smaller (254 for email, 40 for phone); 5,000 is the ceiling, not the default.
+2. **Draft conflicts: optimistic concurrency on an integer `version`.** Every accepted draft write
+   matches and increments the version inside one atomic `findOneAndUpdate`, so two teammates saving
+   at once cannot both succeed; the loser gets 409 `stale_revision` plus the current version to
+   rebase onto. `expectedVersion` is mandatory in the schema - there is deliberately no
+   "just overwrite" path. A first write to a widget that has no draft yet carries version 0, which
+   is what a client sees when `draft` is null.
+3. **Publishing promotes the draft row in place, once.** One row per revision number, and its
+   content is exactly what was reviewed. The alternative - copying the draft into a new published
+   row - would leave two rows with the same content and make "which revision did the visitor get"
+   ambiguous. Immutability is preserved because every write path filters on `status: 'draft'`.
+4. **A widget's `status` is the soft-deletion lifecycle, not the publish state.** Whether it is
+   servable is `publishedRevisionId !== null`. Overloading one field with both would have made
+   "deleted but previously published" unrepresentable.
+5. **Soft-delete clears the live pointer.** A deleted widget is servable to nobody, and it makes
+   "restoring does not automatically republish" (4.5) fall out of the model rather than needing a
+   rule.
+6. **The 10-widget cap is checked, not indexed.** A count is not expressible as a unique index, so
+   a determined concurrent pair of creates could exceed it by one. That is a visible, self-
+   correcting overage on a demo quota, not a security boundary; a workspace-level lock on every
+   create would cost more than the problem.
+7. **Draft saves are not audited.** Blueprint 9.3 lists role, publish, export, delete, restore,
+   merge, and settings changes. A draft save is autosave-shaped, and recording every one would bury
+   the events that matter. What goes live is audited, at publish.
+8. **Reading widgets uses `workspace.view`.** Section 11 has no "view widgets" row, and this is the
+   same row the workspace-context and members endpoints already use. No capability was invented.
+
+### Verification performed
+
+```
+npm run lint               exit 0
+npm run format:check       All matched files use Prettier code style!
+npm run typecheck          exit 0
+npm run build              exit 0
+npm test                   Test Files 8 passed (8)   Tests 162 passed (162)
+npm run test:integration   Test Files 7 passed (7)   Tests 131 passed (131)
+npm run test:e2e           37 passed (5.2m)          (no regression; unchanged from Stage 4b)
+npm run migrate            applied 4, skipped 1, then applied 0, skipped 5 on a second run
+```
+
+Indexes were read back from the real database rather than assumed; see EVIDENCE Part D-detail.
+
+### Plugin usage this stage
+
+- **`typescript-lsp` - worked.** Verified first with two deliberate type errors, both reported at
+  the right lines, and with `Capability` resolving across the `apps/server` to
+  `packages/contracts` boundary into all 16 union members. Used substantively to confirm
+  `CAPABILITIES` has exactly two references - its declaration and the `Capability` type derivation
+  - which is the direct evidence that this stage added no capability name; to navigate the
+    `WorkspaceScopedRepository` base while writing the two new repositories; and for a final
+    documentSymbol pass over the widget service after a restart. Caveat unchanged from Stage 4b: it
+    does not re-read externally changed files, so it went stale twice and `tsc` was the authority
+    during editing.
+- **`context7` - consulted, and one consultation changed the design.** MongoDB Node driver:
+  `createIndexes` options and partial indexes, though the in-repo Stage 2 precedent
+  (`partialFilterExpression: { status: 'active' }`) was the more authoritative pattern and is what
+  005 follows. Zod: `discriminatedUnion` and `superRefine` in v4, which is why triggers, CTA
+  actions, success outcomes, and cooldowns are unions rather than objects full of optional fields.
+  Picomatch: its options reference and the note that risky quantified extglobs are treated
+  literally by default - which is what decided me against taking a glob dependency at all.
+- **`frontend-design` - available, deliberately not invoked.** There is no React work in this
+  stage, so there was nothing for it to shape. It is required again in 5b.
+
+### Open questions for a human
+
+1. **Wildcard depth.** `*.example.com` admits `eu.app.example.com`, not just one label. The
+   blueprint says "explicit wildcard subdomains" without fixing the depth; single-label-only is the
+   defensible alternative. Documented and unit-tested either way, but worth confirming before
+   customers rely on it.
+2. **The embed snippet's shape is now frozen.** It is printed into customer pages, so changing
+   `/widget/v1/loader.js` or the `data-widget` attribute later breaks every installation. Stage 6
+   must build the loader to match rather than the other way round.
+3. **A widget's `name` is edited through the draft endpoint**, so renaming needs a draft write.
+   That is convenient but slightly odd, since the name is widget-level rather than revision-level.
+4. **Nothing enforces that Stage 6 and 7 actually call the matching functions.** `isHostAllowed`,
+   `isPageTargeted`, and the published-revision lookup exist and are tested, but only the runtime
+   and submission endpoints can make them load-bearing.
+5. **CI has still never run**, because no remote is configured.

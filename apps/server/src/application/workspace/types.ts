@@ -34,6 +34,11 @@ export interface WorkspaceRepositoryPort {
   listRecoverableOwnedBy(ownerUserId: ObjectId, now: Date): Promise<WithIdWorkspace[]>;
 }
 
+/** Only what the usage meter needs; the widget layer owns the rest. */
+export interface WidgetCountPort {
+  countActive(scope: WorkspaceScope): Promise<number>;
+}
+
 export interface MembershipRepositoryPort {
   findById(scope: WorkspaceScope, id: ObjectId): Promise<WithIdMembership | null>;
   findByUser(scope: WorkspaceScope, userId: ObjectId): Promise<WithIdMembership | null>;

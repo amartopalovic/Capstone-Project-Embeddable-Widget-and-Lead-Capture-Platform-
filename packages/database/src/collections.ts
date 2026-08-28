@@ -10,6 +10,8 @@ export const COLLECTIONS = {
   workspaces: 'workspaces',
   memberships: 'memberships',
   invitations: 'invitations',
+  widgets: 'widgets',
+  widgetRevisions: 'widget_revisions',
   auditEvents: 'audit_events',
   outboxEvents: 'outbox_events',
   migrations: 'migrations',

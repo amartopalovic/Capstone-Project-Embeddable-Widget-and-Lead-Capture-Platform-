@@ -2,12 +2,14 @@
 
 One repeatable proof per requirement.
 
-> ## Status at Stage 4: **no acceptance probe is proven.**
+> ## Status at Stage 5a: **no acceptance probe is proven.**
 >
-> Blueprint Stages 3 and 4 are both complete. Stage 4b adds the workspace UI and the browser
-> tests that close Stage 4's exit gate, so B1 is now `PROVEN` end to end rather than at the API
-> level only. **All six acceptance probes remain `NOT YET IMPLEMENTED`**, because no widget or
-> submission code exists; they are Stage 7.
+> Blueprint Stages 3 and 4 are complete. Stage 5a adds the widget backend: B3, B4, and B5 move to
+> `IN PROGRESS` with their API halves proven, and B10's widget meter becomes a real count.
+> **All six acceptance probes remain `NOT YET IMPLEMENTED`**: they require a widget rendered on a
+> real page and a submission arriving through it, and neither the runtime (Stage 6) nor the
+> submission endpoint (Stage 7) exists. Blueprint Stage 5 itself is NOT complete - the builder
+> UI, its live preview, and the browser journey are Stage 5b.
 >
 > As each stage completes, its entries gain: the exact command an evaluator can re-run, the
 > observed output or transcript, and a link to the test that enforces the behavior. An entry is
@@ -133,8 +135,14 @@ real queue behavior in Stage 9.
 - **Requirement:** Exactly three widget types (contact form, email signup, CTA popover) with locked
   mandatory fields, the seven predefined field types, and bounded visual customization. No
   arbitrary CSS or JavaScript.
-- **Status:** `NOT YET IMPLEMENTED` — planned for **Stage 5**.
-- **Evidence:** _none_
+- **Status:** `IN PROGRESS` — the data model, field schema, and validation are `PROVEN` at the API
+  level in Stage 5a. The settings form and live preview are Stage 5b.
+- **What is proven:** the three types are a locked union, not an open string; each type's mandatory
+  fields cannot be removed OR quietly made optional; the CTA popover's email requirement applies
+  only when its built-in lead form is enabled; a field type cannot appear twice; and appearance is
+  a closed vocabulary of hex colours and enums, so no free-form style, class, HTML, or script value
+  is representable anywhere in a configuration.
+- **Evidence:** see Part D-detail, Stage 5a.
 
 ### B4. Display, targeting, and visitor behavior (§4.4)
 
@@ -142,16 +150,28 @@ real queue behavior in Stage 9.
   triggers; exact-host and explicit wildcard domain matching where `*.example.com` excludes
   `example.com`; safe glob page targeting; configurable cooldown; rotating per-widget pseudonymous
   visitor identifier; multiple instances sharing one runtime.
-- **Status:** `NOT YET IMPLEMENTED` — settings in **Stage 5**, runtime behavior in **Stage 6**.
-- **Evidence:** _none_
+- **Status:** `IN PROGRESS` — the settings and their matching rules are `PROVEN` in Stage 5a.
+  Executing them against a real page, and the rotating visitor identifier, are **Stage 6**.
+- **What is proven:** exact-host matching; `*.example.com` admitting `app.example.com` and
+  `eu.app.example.com` but never the apex `example.com`, and never a lookalike such as
+  `evilexample.com`; page include/exclude as safe globs where regular-expression syntax is treated
+  as literal text; exclude beating include; and bounded trigger and cooldown shapes.
+- **Evidence:** see Part D-detail, Stage 5a.
 
 ### B5. Publishing lifecycle (§4.5)
 
 - **Requirement:** Stable widget identity with separately versioned revisions; Members edit drafts
   only; Owner/Admin publish to an immutable live revision; unpublishing immediately blocks config
   use and submissions at the backend; soft delete preserves historical contacts and events.
-- **Status:** `NOT YET IMPLEMENTED` — planned for **Stage 5**.
-- **Evidence:** _none_
+- **Status:** `IN PROGRESS` — the whole lifecycle is `PROVEN` at the API level in Stage 5a. The
+  "blocks submissions" half of unpublishing cannot be proven until a submission endpoint exists
+  (**Stage 7**); this stage owns and persists the state transition it depends on.
+- **What is proven:** a Member edits a draft while the live revision is byte-for-byte unchanged; a
+  verified Owner/Admin publishes; an unverified one is refused with `email_not_verified`; a Member
+  is refused publish and delete; editing a published widget opens a NEW revision rather than
+  rewriting the live one; a stale draft write is refused with 409 instead of overwriting a
+  teammate; and restoring from the 30-day trash deliberately does not republish.
+- **Evidence:** see Part D-detail, Stage 5a.
 
 ### B6. Contacts and submissions (§4.6)
 
@@ -190,9 +210,13 @@ real queue behavior in Stage 9.
 - **Requirement:** Visible meters and per-workspace hard limits of 10 active widgets, 10 users,
   2,000 accepted submissions per workspace month, and 20,000 interaction events per workspace
   month, using workspace-timezone month boundaries.
-- **Status:** `NOT YET IMPLEMENTED` — meters in **Stage 4**, enforcement from **Stage 7**,
-  timezone-correct reset in **Stage 10**.
-- **Evidence:** _none_
+- **Status:** `IN PROGRESS` — the meters exist and two of the four are real. The 10-user limit was
+  enforced in Stage 4a and the 10-active-widget limit in Stage 5a. Submission and interaction-event
+  counting is **Stage 7** and **Stage 10**, and timezone-correct month boundaries are **Stage 10**.
+- **What is proven:** creating an eleventh active widget is refused with `quota_exceeded`, the
+  meter reports a real count, and soft-deleting a widget frees a slot because trash is not active.
+  The two unbuilt meters still report null rather than a fabricated zero.
+- **Evidence:** see Part D-detail, Stage 5a.
 
 ---
 
@@ -841,6 +865,109 @@ someone who has just deleted their only workspace ends up.
 
 ---
 
+## Part D-detail - Stage 5a widget backend evidence
+
+### The Stage 5 exit gate, at the API level
+
+The gate is three claims. Each is a named, re-runnable test in
+`apps/server/tests/widget.integration.test.ts`:
+
+| Claim                                              | Test                                                                       |
+| -------------------------------------------------- | -------------------------------------------------------------------------- |
+| A Member edits a draft without changing live state | `a Member edits a draft without changing live state`                       |
+| A verified Admin publishes                         | `a verified Admin publishes, creating an immutable live revision`          |
+| Another tenant cannot read, modify, or publish it  | `another tenant cannot read, modify, publish, delete, or recover a widget` |
+
+The first asserts the published revision's headline and revision number are unchanged after the
+Member's save, and that the Member's own publish attempt is refused with `forbidden`. The third is
+a sweep rather than a single case: read, list, draft write, publish, unpublish, delete, and recover
+are each attempted by a second tenant and each answers 404, after which the owner's widget is
+re-read and found byte-for-byte unchanged.
+
+```
+npm test
+  Test Files  8 passed (8)
+       Tests  162 passed (162)
+
+npm run test:integration
+  Test Files  7 passed (7)
+       Tests  131 passed (131)
+```
+
+### Blueprint 9.2 constraints, enforced in storage rather than in code
+
+Migration `005_widget` was applied to a real database and the indexes read back:
+
+```
+npm run migrate      applied 4, skipped 1   (005_widget applied)
+npm run migrate      applied 0, skipped 5   (repeatable, per blueprint 9.3)
+
+widgets
+  uniq_public_id                   { publicId: 1 }                                  unique
+  workspace_status                 { workspaceId: 1, status: 1 }
+  status_purge_after               { status: 1, purgeAfter: 1 }
+widget_revisions
+  uniq_workspace_widget_revision   { workspaceId: 1, widgetId: 1, revisionNumber: 1 } unique
+  uniq_widget_draft                { workspaceId: 1, widgetId: 1 }  unique, partial { status: 'draft' }
+  workspace_widget_revision_desc   { workspaceId: 1, widgetId: 1, revisionNumber: -1 }
+```
+
+`uniq_widget_draft` is the one index blueprint 9.2 does not list. It encodes "creates or updates a
+draft revision" (4.5, singular): at most one draft may exist per widget, enforced by the storage
+engine rather than by every write path remembering to check.
+
+### C7 extended: widget routes reuse the existing matrix rows
+
+No capability name was invented for this stage. `CAPABILITIES` still has 16 entries, and the three
+widget rows were already present and unit-tested before any widget route existed:
+
+```
+widget.draft.write  owner allow                  admin allow                  member allow
+widget.publish      owner requires_verified_email admin requires_verified_email member deny
+widget.delete       owner allow                  admin allow                  member deny
+```
+
+Reading falls under `workspace.view`, the same row the workspace-context and members endpoints
+already use; section 11 has no separate "view widgets" row.
+
+### Section 17 rows this stage touches
+
+- **Platform-owned payload schemas.** Every configuration is re-validated server-side against the
+  locked field-type list and the per-type mandatory rules on both draft write AND publish, so a
+  configuration that became invalid after a later change cannot be published around.
+- **No arbitrary HTML/CSS/JS.** Appearance is hex colours plus enums. A test feeds
+  `red; background: url(javascript:alert(1))` into a colour and asserts the schema refuses it.
+- **Validated redirects and CTA destinations.** Only `http:` and `https:` are accepted, by
+  allowlist rather than denylist; `javascript:`, `data:`, `vbscript:`, and `file:` are each
+  asserted rejected, as are embedded credentials such as
+  `https://evil.example.com@bank.example.com/`.
+
+### Safe globs, demonstrated rather than asserted
+
+Blueprint 4.4 requires "safe glob patterns rather than executable regular expressions". The
+translator escapes every metacharacter before reintroducing exactly two wildcards, and a test
+pins the compiled output:
+
+```
+compilePagePattern('/blog/**/*.html')  ->  ^\/blog\/.*\/[^/]*\.html$
+```
+
+Further tests assert that `/a.b` does not match `/axb`, that `/(a|b)` does not match `/a`, and
+that `/x+` does not match `/xxx` - i.e. regex syntax is inert text. No nested quantifier or
+alternation is reachable, so the expression cannot backtrack catastrophically.
+
+### What is still missing
+
+- The React builder, its live preview, the embed-snippet UI, and the browser journey (Stage 5b).
+- The public loader route and framework-free runtime; the snippet's shape and public identifier
+  are real and stable, but nothing serves them yet (Stage 6).
+- The submission endpoint, so the "unpublishing blocks submissions" half of B5 is persisted but
+  not yet demonstrable (Stage 7).
+- Config cache invalidation on publish (blueprint 8.2) - there is no config cache until Stage 6.
+- The scheduled purge of expired widget trash (Stage 11); the 30-day window is enforced on read.
+
+---
+
 ## Change log
 
 | Date       | Stage | Change                                                                                                                                                               |
@@ -857,3 +984,5 @@ someone who has just deleted their only workspace ends up.
 | 2026-08-28 | 4a | B1, C6, and C7 moved to `PROVEN` at the API level; D2 widened onto the new workspace write paths. Evidenced by 32 workspace integration tests against real MongoDB, Redis, and Mailpit, plus 43 unit tests asserting every cell of the section 11 matrix against an independently transcribed copy. Blueprint Stage 4 is NOT complete: the workspace UI and its browser E2E are Stage 4b. All six acceptance probes remain unproven. |
 
 | 2026-08-28 | 4b | Blueprint Stage 4 COMPLETE. B1 moved to `PROVEN` end to end and C7 strengthened: the UI hides controls using capabilities the SERVER derives from the section 11 table, so there is no second copy of the policy. D2 widened onto workspace recovery. Evidenced by 37 browser E2E tests (20 new), 110 integration tests (4 new), and 125 unit tests, with axe reporting zero critical or serious violations on every new page including error and empty states. All six acceptance probes remain unproven. |
+
+| 2026-08-29 | 5a | B3, B4, B5, and B10 moved to `IN PROGRESS` with their API halves proven; `usage().activeWidgets` changed from a hard-coded null to a real count, and the Stage 4a test asserting null was updated to match. Evidenced by 37 new unit tests and 21 new integration tests against real MongoDB, Redis, and Mailpit, plus migration `005_widget` applied and its indexes read back from a real database. No capability name was added: the three widget rows of the section 11 matrix already existed. Blueprint Stage 5 is NOT complete - the builder UI, live preview, and browser E2E are Stage 5b. All six acceptance probes remain unproven. |

@@ -10,6 +10,7 @@ import { createSessionsRouter } from './routes/sessions.js';
 import { createMfaRouter } from './routes/mfa.js';
 import { createWorkspacesRouter } from './routes/workspaces.js';
 import { createInvitationsRouter, createMembersRouter } from './routes/members.js';
+import { createWidgetsRouter } from './routes/widgets.js';
 import { correlationMiddleware } from './middleware/correlation.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { sessionMiddleware, type SessionCookieOptions } from './middleware/session.js';
@@ -105,6 +106,13 @@ export function createApp(options: CreateAppOptions): Express {
   const membersRouter = createMembersRouter(workspaceRouterDeps);
   const invitationsRouter = createInvitationsRouter(workspaceRouterDeps);
 
+  const widgetsRouter = createWidgetsRouter({
+    widgets: deps.widgetService,
+    memberships: deps.membershipService,
+    workspaces: deps.workspaceService,
+    logger: deps.logger,
+  });
+
   const sessionsRouter = createSessionsRouter({
     sessions: deps.sessionService,
     logger: deps.logger,
@@ -126,6 +134,7 @@ export function createApp(options: CreateAppOptions): Express {
   app.use(`${API_PREFIX}/workspaces`, doubleCsrfProtection, workspacesRouter);
   app.use(`${API_PREFIX}/members`, doubleCsrfProtection, membersRouter);
   app.use(`${API_PREFIX}/invitations`, doubleCsrfProtection, invitationsRouter);
+  app.use(`${API_PREFIX}/widgets`, doubleCsrfProtection, widgetsRouter);
 
   app.get(API_PREFIX, (_request, response) => {
     response.status(200).json({ api: API_PREFIX, status: 'ok' });

@@ -796,7 +796,7 @@ describe('account deletion precondition (blueprint 4.1)', () => {
 });
 
 describe('usage meters (blueprint 4.10)', () => {
-  it('counts users for real and reports unbuilt meters as null, not zero', async () => {
+  it('counts users and widgets for real, and reports unbuilt meters as null, not zero', async () => {
     const owner = await verifiedUser('usageowner');
     const member = await verifiedUser('usagemember');
     await onboard(owner, 'Usage');
@@ -807,11 +807,16 @@ describe('usage meters (blueprint 4.10)', () => {
     expect(usage.users.used).toBe(2);
     expect(usage.users.limit).toBe(10);
 
-    // Fabricating a zero would assert "no widgets exist yet", which is a
-    // different claim from "widgets are not built yet".
-    expect(usage.activeWidgets.used).toBeNull();
-    expect(usage.submissionsThisMonth.used).toBeNull();
+    // Stage 5a made this meter real: an honest zero, because widgets now
+    // exist as a feature and this workspace has none.
+    expect(usage.activeWidgets.used).toBe(0);
     expect(usage.activeWidgets.limit).toBe(10);
+
+    // Submissions are still genuinely unmeasured, and null says so. Fabricating
+    // a zero would assert "none have arrived yet", which is a different claim
+    // from "this is not counted yet" (Stage 7).
+    expect(usage.submissionsThisMonth.used).toBeNull();
+    expect(usage.interactionEventsThisMonth.used).toBeNull();
     expect(usage.submissionsThisMonth.limit).toBe(2000);
   }, 240_000);
 });

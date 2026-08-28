@@ -242,6 +242,14 @@ export class TestClient {
     return this.request('GET', path, undefined, headers);
   }
 
+  put(path: string, body?: unknown, headers?: Record<string, string>) {
+    return this.request('PUT', path, body, headers);
+  }
+
+  patch(path: string, body?: unknown, headers?: Record<string, string>) {
+    return this.request('PATCH', path, body, headers);
+  }
+
   delete(path: string, headers?: Record<string, string>) {
     return this.request('DELETE', path, undefined, headers);
   }

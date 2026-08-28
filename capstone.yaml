@@ -2,8 +2,8 @@
 # capstone.yaml - machine-readable evaluation manifest
 # =============================================================================
 #
-# STATUS: Stage 4 complete (workspace onboarding, switcher, RBAC, and invitations, UI
-# included). Install, run, seed,
+# STATUS: Stage 4 complete, plus Stage 5a (widget domain model, drafts, and publishing -
+# backend only). Install, run, seed,
 # migrate, lint, typecheck, build, unit, integration, and browser E2E commands below are REAL
 # and verified. The six acceptance probes and every production URL remain `TBD`.
 #
@@ -28,6 +28,8 @@ project:
   license: MIT
   repository: TBD # filled_in_by: Stage 14
   stage_completed: 4
+  # Blueprint Stage 5 is split into 5a (backend, done) and 5b (builder UI and E2E).
+  sub_stage_completed: 5a
   stages_total: 16
 
 # -----------------------------------------------------------------------------
@@ -53,7 +55,7 @@ commands:
   test:
     command: npm run test
     description: >-
-      Unit tests, no infrastructure required (125 tests as of Stage 4),
+      Unit tests, no infrastructure required (162 tests as of Stage 5a),
       including the complete section 11 authorization matrix. Integration and
       browser E2E are separate commands.
   test_unit:

@@ -13,6 +13,7 @@ import type {
   UserLookupPort,
   WithIdUser,
   WithIdWorkspace,
+  WidgetCountPort,
   WorkspaceAuditPort,
   WorkspaceRepositoryPort,
 } from './types.js';
@@ -47,6 +48,14 @@ export interface WorkspaceServiceDeps {
   readonly workspaces: WorkspaceRepositoryPort;
   readonly memberships: MembershipRepositoryPort;
   readonly users: UserLookupPort;
+  /**
+   * Read-only widget count for the usage meter (blueprint 4.10).
+   *
+   * A one-method port rather than the whole widget repository: the workspace
+   * service has no business reaching into widget lifecycle, and this keeps the
+   * dependency direction honest under blueprint 6.2.
+   */
+  readonly widgets: WidgetCountPort;
   readonly audit: WorkspaceAuditPort;
   readonly clock: Clock;
   readonly logger: Logger;
@@ -294,15 +303,18 @@ export class WorkspaceService {
   /**
    * Usage meters (blueprint 4.10).
    *
-   * Only the user meter is measurable today. The rest report null rather than
-   * zero, because "no widgets exist yet" and "widgets are not built yet" are
-   * different claims and a zero would quietly assert the first.
+   * Users and active widgets are real counts. Submissions and interaction
+   * events still report null rather than zero, because "none have happened
+   * yet" and "this is not counted yet" are different claims and a zero would
+   * quietly assert the first. Stage 5a made the widget meter real; Stages 7
+   * and 10 do the same for the other two.
    */
   async usage(scope: WorkspaceScope): Promise<WorkspaceUsage> {
     const users = await this.#deps.memberships.count(scope);
+    const activeWidgets = await this.#deps.widgets.countActive(scope);
     return {
       users: { used: users, limit: WORKSPACE_LIMITS.users },
-      activeWidgets: { used: null, limit: WORKSPACE_LIMITS.activeWidgets },
+      activeWidgets: { used: activeWidgets, limit: WORKSPACE_LIMITS.activeWidgets },
       submissionsThisMonth: { used: null, limit: WORKSPACE_LIMITS.submissionsPerMonth },
       interactionEventsThisMonth: {
         used: null,

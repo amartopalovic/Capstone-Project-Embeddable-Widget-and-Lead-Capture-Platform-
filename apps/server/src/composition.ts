@@ -5,6 +5,8 @@ import {
   InvitationRepository,
   MembershipRepository,
   UserRepository,
+  WidgetRepository,
+  WidgetRevisionRepository,
   WorkspaceRepository,
   type InvitationRecord,
 } from '@lcp/database';
@@ -14,6 +16,7 @@ import type { ServerEnv } from './config/env.js';
 import { AuthService } from './application/auth/auth-service.js';
 import { SessionService } from './application/auth/session-service.js';
 import { MfaService } from './application/auth/mfa-service.js';
+import { WidgetService } from './application/widget/widget-service.js';
 import { WorkspaceService } from './application/workspace/workspace-service.js';
 import { MembershipService } from './application/workspace/membership-service.js';
 import { InvitationService } from './application/workspace/invitation-service.js';
@@ -54,6 +57,7 @@ export interface AppDependencies {
   readonly sessionService: SessionService;
   readonly mfaService: MfaService;
   readonly mfaChallengeStore: RedisMfaChallengeStore;
+  readonly widgetService: WidgetService;
   readonly workspaceService: WorkspaceService;
   readonly membershipService: MembershipService;
   readonly invitationService: InvitationService;
@@ -189,6 +193,8 @@ export function buildDependencies(
     logger,
   });
 
+  const widgetRepository = new WidgetRepository(db);
+  const widgetRevisionRepository = new WidgetRevisionRepository(db);
   const workspaceRepository = new WorkspaceRepository(db);
   const membershipRepository = new MembershipRepository(db);
   const invitationRepository = new InvitationRepository(db);
@@ -198,9 +204,22 @@ export function buildDependencies(
     workspaces: workspaceRepository,
     memberships: membershipRepository,
     users: userRepository,
+    widgets: widgetRepository,
     audit: workspaceAudit,
     clock,
     logger,
+  });
+
+  const widgetService = new WidgetService({
+    widgets: widgetRepository,
+    revisions: widgetRevisionRepository,
+    audit: workspaceAudit,
+    clock,
+    logger,
+    // The snippet points at the same origin that serves the loader Stage 6
+    // builds, so a customer pastes one line and nothing has to be reconfigured
+    // when that route arrives.
+    publicBaseUrl: env.appBaseUrl,
   });
 
   const membershipService = new MembershipService({
@@ -236,6 +255,7 @@ export function buildDependencies(
 
   return {
     logger,
+    widgetService,
     authService,
     sessionService,
     mfaService,

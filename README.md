@@ -1,12 +1,15 @@
 # Embeddable Widget & Lead-Capture Platform
 
-> **Project status: Stage 4 of 16 complete.**
+> **Project status: Stage 4 of 16 complete, plus Stage 5a — the widget backend.**
 > Authentication and the multi-workspace user model both work end to end through a real
 > accessible interface: onboarding, the workspace switcher, the full role matrix, invitations,
 > ownership transfer, and workspace delete/recover. Proven by 125 unit, 110 integration, and 37
 > browser end-to-end tests, the last of which include `axe` WCAG 2.2 AA scans on every page.
-> There are still no widgets, submissions, contacts, or analytics. Every command, link, and
-> proof marked _planned_ or _TBD_ below does not work today.
+> On top of that, widgets now exist at the API level: the three widget types, field schemas,
+> targeting rules, draft/publish revisions, and the embed snippet, proven by a further 37 unit
+> and 21 integration tests. There is **no widget builder UI yet** (Stage 5b) and no public
+> runtime, submissions, contacts, or analytics. Every command, link, and proof marked _planned_
+> or _TBD_ below does not work today.
 
 ---
 
@@ -237,19 +240,19 @@ later stages extend it rather than invent it.
 
 Run these on the host after `npm ci`:
 
-| Command                    | What it does                                                                                                   | Status    |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------- | --------- |
-| `npm run lint`             | ESLint across every workspace (25 files today)                                                                 | Real      |
-| `npm run format:check`     | Prettier formatting check                                                                                      | Real      |
-| `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                                   | Real      |
-| `npm run test`             | Unit tests, no infrastructure needed (125 tests, incl. the full role matrix)                                   | Real      |
-| `npm run test:integration` | Tenancy, migrations, auth, and the workspace/RBAC backend against real MongoDB, Redis, and Mailpit (110 tests) | Real      |
-| `npm run test:e2e`         | Browser journeys plus axe accessibility checks, driven through the real UI (37 tests)                          | Real      |
-| `npm run migrate`          | Apply committed migrations and indexes; repeatable                                                             | Real      |
-| `npm run build`            | Production build of every workspace                                                                            | Real      |
-| BullMQ queue tests         | Background job integration                                                                                     | _Stage 9_ |
-| Widget E2E journeys        | Cross-origin widget rendering and submission                                                                   | _Stage 6_ |
-| Acceptance probes          | The six mandatory probes                                                                                       | _Stage 7_ |
+| Command                    | What it does                                                                                                | Status    |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------- | --------- |
+| `npm run lint`             | ESLint across every workspace (25 files today)                                                              | Real      |
+| `npm run format:check`     | Prettier formatting check                                                                                   | Real      |
+| `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                                | Real      |
+| `npm run test`             | Unit tests, no infrastructure needed (162 tests, incl. the role matrix and widget rules)                    | Real      |
+| `npm run test:integration` | Tenancy, migrations, auth, workspace/RBAC, and widgets against real MongoDB, Redis, and Mailpit (131 tests) | Real      |
+| `npm run test:e2e`         | Browser journeys plus axe accessibility checks, driven through the real UI (37 tests)                       | Real      |
+| `npm run migrate`          | Apply committed migrations and indexes; repeatable                                                          | Real      |
+| `npm run build`            | Production build of every workspace                                                                         | Real      |
+| BullMQ queue tests         | Background job integration                                                                                  | _Stage 9_ |
+| Widget E2E journeys        | Cross-origin widget rendering and submission                                                                | _Stage 6_ |
+| Acceptance probes          | The six mandatory probes                                                                                    | _Stage 7_ |
 
 `npm run test:integration` and `npm run test:e2e` need MongoDB, Redis, and Mailpit
 running. Start them with `docker compose up -d --wait mongo redis mailpit`, or the full
@@ -304,7 +307,15 @@ reflects that this repository is only at Stage 0.
 - Everything listed in §4 above is out of scope.
 - The repository is organized as an npm-workspaces monorepo — see §3.
 
-### 7.2 Stage 4 limitations (temporary)
+### 7.2 Stage 5a limitations (temporary)
+
+- **There is no widget builder UI.** Widget types, field schemas, appearance, targeting,
+  drafts, publishing, and the embed snippet all exist as API only. The settings form, its
+  live preview, and the browser journey are Stage 5b — which is why blueprint Stage 5 is
+  still unchecked in the stage checklist.
+- Nothing serves a widget to a visitor yet. The public loader, the framework-free runtime,
+  and Shadow DOM rendering are Stage 6; this stage owns only the data they will render.
+- Targeting, triggers, and cooldown are stored and validated, not executed.
 
 - **There is no dashboard chrome.** The workspace pages sit in a deliberately minimal shell
   — a switcher, four links, and an account link. The real product navigation is Stage 12.

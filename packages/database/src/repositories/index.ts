@@ -6,3 +6,5 @@ export * from './membership-repository.js';
 export * from './invitation-repository.js';
 export * from './audit-event-repository.js';
 export * from './outbox-repository.js';
+export * from './widget-repository.js';
+export * from './widget-revision-repository.js';

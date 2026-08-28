@@ -14,3 +14,4 @@ export * from './concurrency.js';
 export * from './logging.js';
 export * from './auth.js';
 export * from './workspace.js';
+export * from './widget.js';

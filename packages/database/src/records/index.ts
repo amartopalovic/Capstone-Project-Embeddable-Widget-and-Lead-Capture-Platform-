@@ -213,3 +213,90 @@ export interface OutboxEventRecord extends WorkspaceOwned, Timestamped {
   readonly idempotencyKey: string;
   readonly lastError: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Widget and WidgetRevision (blueprint 9.2, added in Stage 5a)
+// ---------------------------------------------------------------------------
+
+/**
+ * A widget's stable identity and lifecycle (blueprint 4.5).
+ *
+ * Identity is separate from configuration on purpose: the embed snippet on a
+ * customer's page names `publicId` and never changes, while the configuration
+ * it renders moves forward one immutable revision at a time.
+ *
+ * `status` is the soft-deletion lifecycle shared with every other tenant
+ * record; whether the widget is SERVABLE is a different question, answered by
+ * `publishedRevisionId`.
+ */
+export interface WidgetRecord extends WorkspaceOwned, Timestamped {
+  readonly _id: ObjectId;
+  /**
+   * Opaque public identifier, unique across the platform.
+   *
+   * Deliberately not the Mongo `_id`: blueprint 10.1 requires public widget
+   * APIs to use "opaque public widget IDs", and an ObjectId leaks a creation
+   * timestamp and is guessable in sequence.
+   */
+  readonly publicId: string;
+  readonly type: string;
+  readonly name: string;
+  readonly status: RecordStatus;
+  readonly deletedAt: Date | null;
+  /** 30 days after soft deletion (blueprint 9.5 widget trash). */
+  readonly purgeAfter: Date | null;
+
+  /**
+   * The revision currently served, or null.
+   *
+   * Null covers three cases that behave identically to a visitor: never
+   * published, explicitly unpublished, and soft-deleted. Unpublishing clears
+   * this rather than deleting the revision, so history survives.
+   */
+  readonly publishedRevisionId: ObjectId | null;
+
+  /**
+   * The most recent publish, retained even after unpublishing.
+   *
+   * Kept separate from `publishedRevisionId` because the two answer different
+   * questions. The pointer answers "is this being served right now"; these
+   * answer "has this ever been live", which is what distinguishes a widget that
+   * was taken down from one that was never published - a distinction a visitor
+   * cannot see but a creator very much can.
+   */
+  readonly lastPublishedRevisionNumber: number | null;
+  readonly lastPublishedAt: Date | null;
+
+  /** Monotonic allocator for revision numbers; never decreases. */
+  readonly lastRevisionNumber: number;
+}
+
+export const REVISION_STATUSES = ['draft', 'published'] as const;
+export type RevisionStatus = (typeof REVISION_STATUSES)[number];
+
+/**
+ * One configuration snapshot (blueprint 9.2, 9.3).
+ *
+ * A `published` revision is IMMUTABLE - blueprint 9.3 states it outright.
+ * Publishing therefore promotes the draft in place exactly once and every
+ * later edit starts a new draft; nothing ever rewrites a published row.
+ */
+export interface WidgetRevisionRecord extends WorkspaceOwned, Timestamped {
+  readonly _id: ObjectId;
+  readonly widgetId: ObjectId;
+  /** Unique per workspace + widget. */
+  readonly revisionNumber: number;
+  readonly status: RevisionStatus;
+  /** The whole validated settings snapshot, shaped by `widgetConfigSchema`. */
+  readonly config: Readonly<Record<string, unknown>>;
+  /**
+   * Optimistic-concurrency token for the DRAFT (blueprint 10.1).
+   *
+   * Every accepted draft write increments it, and a write carrying a stale
+   * value is refused with 409 rather than silently overwriting a teammate.
+   */
+  readonly version: number;
+  readonly publishedAt: Date | null;
+  readonly publishedByUserId: ObjectId | null;
+  readonly createdByUserId: ObjectId;
+}

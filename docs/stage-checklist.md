@@ -3,7 +3,7 @@
 The project is implemented in 16 bounded stages (blueprint §19). Exactly one stage is requested per
 implementation prompt, and work stops when that stage's exit gate is green.
 
-**Progress: 5 of 16 stages complete.**
+**Progress: 5 of 16 stages complete, plus Stage 5a of 5.**
 
 ## Stage execution rules (blueprint §19)
 
@@ -87,10 +87,28 @@ test results, remaining limitations, and confirmation of the exit gate.
     - Closed one gap left by 4a: a soft-deleted workspace was undiscoverable, so recovery had no
       reachable entry point. Added `GET /workspaces/recoverable`.
 
-- [ ] **Stage 5 — Widget domain model, builder, drafts, and publishing**
+- [ ] **Stage 5 — Widget domain model, builder, drafts, and publishing** _(split into 5a and 5b; 5a done)_
   - **Goal:** Let teams configure the three widget types safely.
   - **Exit gate:** A Member edits a draft without changing live state; a verified Admin publishes;
     another tenant cannot read, modify, or publish it.
+
+  - **This stage stays unchecked until 5b lands.** The gate is met at the API level, but the
+    builder UI, its live preview, the embed-snippet surface, and the browser journey are 5b.
+  - [x] **Stage 5a — Widget domain model, persistence, publishing lifecycle, and API** _(2026-08-29)_
+    - `Widget` and `WidgetRevision` records with a platform-unique opaque public id, workspace +
+      status indexing, 30-day widget trash, revision numbers unique per workspace + widget, and a
+      partial unique index allowing at most one draft per widget.
+    - The three locked widget types, the seven predefined field types with per-type mandatory-field
+      rules, and a closed appearance vocabulary with no free-form CSS, HTML, or script anywhere.
+    - Pure, independently unit-tested domain rules for host/wildcard matching, safe-glob page
+      include/exclude matching, and CTA/redirect destination validation.
+    - Draft/publish lifecycle with optimistic concurrency (409 `stale_revision` on a stale write),
+      immutable published revisions, unpublish, soft-delete and recovery, and the embed snippet.
+    - The 10-active-widget cap, and `usage().activeWidgets` changed from a hard-coded null to a
+      real count.
+    - Proven by 37 unit tests and 21 integration tests against real MongoDB, Redis, and Mailpit.
+      No React builder, no live preview, no browser E2E.
+  - [ ] **Stage 5b — React settings-form builder, live preview, embed-snippet UI, and browser E2E**
 
 - [ ] **Stage 6 — Cached public loader and framework-free widget runtime**
   - **Goal:** Render published widgets correctly on an origin the platform does not control.
