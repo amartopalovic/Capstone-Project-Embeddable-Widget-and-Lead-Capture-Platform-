@@ -19,6 +19,9 @@ export const COLLECTIONS = {
   abuseEvents: 'abuse_events',
   auditEvents: 'audit_events',
   outboxEvents: 'outbox_events',
+  deliveries: 'deliveries',
+  webhookEndpoints: 'webhook_endpoints',
+  notificationRecipients: 'notification_recipients',
   migrations: 'migrations',
 } as const;
 

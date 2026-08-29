@@ -119,6 +119,10 @@ export class WidgetService {
       lastPublishedRevisionNumber: null,
       lastPublishedAt: null,
       lastRevisionNumber: 1,
+      // Stage 9 delivery settings: a new widget has no custom copy and does
+      // not confirm to visitors until somebody turns it on.
+      notificationTemplate: null,
+      confirmationEnabled: false,
       createdAt: now,
       updatedAt: now,
     });

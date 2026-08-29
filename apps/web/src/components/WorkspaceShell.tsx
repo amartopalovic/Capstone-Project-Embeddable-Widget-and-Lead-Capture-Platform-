@@ -131,6 +131,14 @@ function WorkspaceBar({
           <ShellLink to="/workspace/widgets">Widgets</ShellLink>
           {/* Every role may view contacts, so this link is never conditional. */}
           <ShellLink to="/workspace/contacts">Inbox</ShellLink>
+          {/*
+           * `delivery.view` is `limited` for a Member rather than denied, so
+           * the link is shown to everyone and the page itself omits the
+           * management controls the server did not grant.
+           */}
+          {capabilities.includes('delivery.view') && (
+            <ShellLink to="/workspace/delivery">Delivery</ShellLink>
+          )}
           <ShellLink to="/workspace/members">Members</ShellLink>
           {/* Hidden entirely, not disabled: a Member has no audit log to read. */}
           {capabilities.includes('audit.view') && (

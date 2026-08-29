@@ -13,3 +13,5 @@ export * from './contact-activity-repository.js';
 export * from './submission-event-repository.js';
 export * from './consent-event-repository.js';
 export * from './abuse-event-repository.js';
+export * from './delivery-repository.js';
+export * from './webhook-endpoint-repository.js';

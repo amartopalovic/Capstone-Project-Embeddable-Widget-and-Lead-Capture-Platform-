@@ -4,10 +4,14 @@ import { createLogger, type Logger } from '@lcp/contracts';
 import {
   ContactActivityRepository,
   ContactRepository,
+  DeliveryRepository,
   InvitationRepository,
   MembershipRepository,
+  NotificationRecipientRepository,
+  OutboxRepository,
   SubmissionEventRepository,
   UserRepository,
+  WebhookEndpointRepository,
   WidgetRepository,
   WidgetRevisionRepository,
   workspaceScope,
@@ -26,7 +30,16 @@ import { WidgetService } from './application/widget/widget-service.js';
 import { PublicWidgetService } from './application/widget/public-widget-service.js';
 import { SubmissionService } from './application/submission/submission-service.js';
 import { ContactService } from './application/contact/contact-service.js';
+import { DeliveryService } from './application/delivery/delivery-service.js';
+import { DeliveryAdminService } from './application/delivery/delivery-admin-service.js';
+import { DeliveryWorkers } from './application/delivery/delivery-worker.js';
+import { OutboxReconciler } from './application/delivery/outbox-reconciler.js';
+import { QueueRegistry } from './infrastructure/queue/queues.js';
+import { HttpWebhookClient } from './infrastructure/webhook/http-webhook-client.js';
 import { RedisEventHub } from './infrastructure/redis/event-hub.js';
+import type { WebhookClient } from './ports/webhook-client.js';
+import type { Resolver } from './domain/delivery/ssrf.js';
+import { lookup as dnsLookup } from 'node:dns/promises';
 import {
   IpApiGeoProvider,
   IpapiCoGeoProvider,
@@ -77,6 +90,11 @@ export interface AppDependencies {
   readonly publicWidgetService: PublicWidgetService;
   readonly submissionService: SubmissionService;
   readonly contactService: ContactService;
+  readonly deliveryService: DeliveryService;
+  readonly deliveryAdminService: DeliveryAdminService;
+  readonly deliveryWorkers: DeliveryWorkers;
+  readonly outboxReconciler: OutboxReconciler;
+  readonly queues: QueueRegistry;
   readonly eventHub: RedisEventHub;
   readonly workspaceService: WorkspaceService;
   readonly membershipService: MembershipService;
@@ -91,6 +109,12 @@ export interface AppDependencies {
 
 export interface CompositionOverrides {
   readonly clock?: Clock;
+  /** Substituted by the deterministic webhook tests in blueprint 18.4. */
+  readonly webhookClient?: WebhookClient;
+  /** Substituted by the SSRF tests, which state what a hostname resolves to. */
+  readonly dnsResolver?: Resolver;
+  /** Left false in tests, which drive the queue by hand for determinism. */
+  readonly startWorkers?: boolean;
   /** Substituted by the deterministic provider tests in blueprint 18.4. */
   readonly geoProviders?: readonly GeoProvider[];
   readonly logger?: Logger;
@@ -292,6 +316,102 @@ export function buildDependencies(
    */
   const eventHub = new RedisEventHub(redis, redis.duplicate(), keys, logger);
 
+  const deliveryRepository = new DeliveryRepository(db);
+  const outboxRepository = new OutboxRepository(db);
+  const recipientRepository = new NotificationRecipientRepository(db);
+  const webhookRepository = new WebhookEndpointRepository(db);
+
+  /**
+   * BullMQ needs its OWN Redis connection.
+   *
+   * A blocking worker connection must have `maxRetriesPerRequest: null`, which
+   * BullMQ enforces; the application client sets a finite value so an ordinary
+   * command fails fast rather than hanging a request. The two requirements are
+   * incompatible, so they get separate connections rather than a compromise
+   * that is wrong for both.
+   */
+  const queueConnection = redis.duplicate({ maxRetriesPerRequest: null });
+  const queues = new QueueRegistry(queueConnection, keys, logger);
+
+  const resolver: Resolver =
+    overrides.dnsResolver ??
+    (async (hostname: string) => {
+      const results = await dnsLookup(hostname, { all: true });
+      return results.map((entry) => entry.address);
+    });
+
+  const webhookClient =
+    overrides.webhookClient ??
+    new HttpWebhookClient({
+      // Blueprint 12.4: HTTPS only in production. Development and the test
+      // suite may target a local http receiver, which is what makes the
+      // delivery tests possible without a certificate.
+      requireHttps: env.nodeEnv === 'production',
+      resolver,
+    });
+
+  const deliveryService = new DeliveryService({
+    db,
+    deliveries: deliveryRepository,
+    outbox: outboxRepository,
+    recipients: recipientRepository,
+    webhooks: webhookRepository,
+    email: emailSender,
+    webhookClient,
+    cipher,
+    clock,
+    logger,
+    appBaseUrl: env.appBaseUrl,
+  });
+
+  const deliveryAdminService = new DeliveryAdminService({
+    db,
+    deliveries: deliveryRepository,
+    webhooks: webhookRepository,
+    recipients: recipientRepository,
+    users: userRepository,
+    budget: emailBudget,
+    email: emailSender,
+    cipher,
+    audit: workspaceAudit,
+    clock,
+    logger,
+    appBaseUrl: env.appBaseUrl,
+    requireHttps: env.nodeEnv === 'production',
+    resolver,
+  });
+
+  const deliveryWorkers = new DeliveryWorkers({
+    registry: queues,
+    deliveries: deliveryService,
+    logger,
+  });
+
+  const outboxReconciler = new OutboxReconciler({
+    db,
+    outbox: outboxRepository,
+    deliveries: deliveryService,
+    enqueue: async (workspaceId, deliveryId, type) => {
+      await deliveryWorkers.enqueue(
+        { workspaceId, deliveryId, type: type as never },
+        `${workspaceId}:${deliveryId}`,
+      );
+    },
+    clock,
+    logger,
+  });
+
+  /**
+   * Start the in-process worker (blueprint 12.1).
+   *
+   * Off by default in tests, which drive the queue by hand so a delivery
+   * outcome is a stated fact rather than a race with a background worker.
+   */
+  if (overrides.startWorkers === true) {
+    deliveryWorkers.start(outboxReconciler);
+    void deliveryWorkers.scheduleReconciliation();
+  }
+
   const submissionService = new SubmissionService({
     db,
     findWidgetByPublicId: async (publicId: string): Promise<WithId<WidgetRecord> | null> =>
@@ -310,6 +430,9 @@ export function buildDependencies(
     geoProviders,
     ipHmacSecret: env.ipHmacSecret,
     events: eventHub,
+    dispatchOutbox: async (workspaceId, outboxEventId) => {
+      await outboxReconciler.dispatchNow(workspaceId, outboxEventId);
+    },
     clock,
     logger,
   });
@@ -361,6 +484,11 @@ export function buildDependencies(
     publicWidgetService,
     submissionService,
     contactService,
+    deliveryService,
+    deliveryAdminService,
+    deliveryWorkers,
+    outboxReconciler,
+    queues,
     eventHub,
     authService,
     sessionService,

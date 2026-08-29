@@ -2145,3 +2145,151 @@ npm run test:e2e           88 tests passed (16 new)
    to say which ones earn their place. They are behind a disclosure, so they cost nothing until
    opened, but a real product would cut most of them.
 6. **CI has still never run**, because no remote is configured.
+
+---
+
+## Stage 9 - Reliable email, webhooks, and delivery operations (2026-08-29)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Blueprint Stage 9, complete.
+
+### What was done
+
+- `packages/database`: `Delivery`, `WebhookEndpoint`, and `NotificationRecipient` records with their
+  repositories, delivery settings on the Widget record, and migration `008_delivery`.
+- `packages/contracts`: the delivery health, webhook, recipient, and template contracts.
+- `apps/server/src/domain/delivery/`: retry classification and backoff, idempotency keys, template
+  allowlisting, SSRF destination validation, and HMAC signing - all pure.
+- `apps/server/src/infrastructure/queue/`: four BullMQ queue families and a worker factory.
+- `apps/server/src/infrastructure/webhook/`: the SSRF-safe HTTP client.
+- `apps/server/src/application/delivery/`: the delivery engine, the admin/settings service, the
+  outbox reconciler, and the worker's outcome translation.
+- `apps/web/src/pages/DeliveryPage.tsx`: the workspace delivery health view.
+
+### Key decisions
+
+1. **The queue moves work; Mongo holds the truth.** A `Delivery` document records what was promised,
+   every attempt, and what may be replayed. BullMQ is the mechanism that moves it along. Putting the
+   record in Redis would have been less code and quietly wrong: a queue is a work list, and flushing
+   it must not erase the fact that a notification was owed.
+2. **Four queues, not one with a `type` field.** A webhook talks to an arbitrary internet host and
+   wants low concurrency and a long timeout; email talks to one provider under a daily budget. One
+   queue would let a slow receiver stall the notification emails queued behind it.
+3. **Permanent failures throw `UnrecoverableError`.** BullMQ documents it as moving a job straight to
+   the failed set regardless of `attempts`, which is exactly blueprint 12.2's "only transient
+   failures retry" expressed at the queue boundary rather than defended by a counter.
+4. **A budget deferral is not a failure and does not consume an attempt.** Blueprint 5.3 says excess
+   non-critical mail "remains queued until the next provider allowance window". Treating it as a
+   failure would spend the five-attempt budget on a policy decision and dead-letter mail that was
+   never broken.
+5. **`failed` and `dead_letter` are separate states.** A permanent rejection was final on attempt
+   one; a dead letter exhausted five transient attempts and might succeed now. Only the second is
+   replayable, and collapsing them would make the replay button meaningless on half the rows it
+   appeared on.
+6. **SSRF is checked before EVERY request, not only at save.** 12.4 says destinations are blocked,
+   not that they are blocked once, and a hostname that resolved publicly last week can resolve to
+   169.254.169.254 today. Every resolved address is checked rather than the first, and IPv4-mapped
+   IPv6 is decomposed - `::ffff:127.0.0.1` is IPv6 syntactically and loopback in effect.
+7. **Redirects are disabled rather than revalidated.** 12.4 allows either. Disabling has no bypass:
+   a public URL cannot bounce the request to an internal one.
+8. **The signature covers `timestamp.body`.** A signature over the body alone is replayable forever;
+   binding the timestamp is what lets a receiver reject an old capture, and it is the convention
+   Stripe and GitHub both settled on for the same reason.
+9. **Rotation sends BOTH signatures for 24 hours.** Without an overlap, rotating means a guaranteed
+   dropped payload for every receiver not watching at that instant.
+10. **An external recipient must confirm their address.** A workspace member already proved theirs to
+    join. Any other address gets a hashed expiring token, because otherwise the settings form is a
+    way to point somebody else's leads at any address an attacker typed.
+11. **Reconciliation is a sweep, not a listener.** A listener has to be told about the failure, and
+    the failure case is precisely the one where telling anything is unreliable.
+
+### Where AI failed or was corrected
+
+- **The replay was broken, and only the replay.** I recovered the webhook endpoint id by parsing it
+  out of the idempotency key - which works for an original delivery (`hook:<submission>:<endpoint>`)
+  and silently breaks for a replay, whose key has a different shape. The replay failed with "unknown
+  endpoint" instead of retrying, so the one feature the operator presses a button for was the one
+  that did not work. The endpoint id is now stored on the record. Deriving a foreign key by string
+  surgery was the mistake; the key format changing underneath it was inevitable.
+- **Two Stage 7 tests broke, correctly.** They asserted the outbox row stays `pending`, which was
+  true only while nothing consumed it. Stage 9 is that consumer. I updated the assertions to the new
+  truth - the row is written in the same commit and now settles - rather than weakening them, and
+  said so in the test.
+- **BullMQ 6 changed the repeatable-job API underneath me.** `add(..., { repeat })` is gone in favour
+  of `upsertJobScheduler`. Caught by `tsc`, not by reading; worth noting that the upsert is also the
+  behaviour I wanted, since restarting the process replaces the schedule rather than adding a second.
+- **I wrote a circular dependency into the composition root** - the reconciler needs the workers'
+  `enqueue`, and the sweep worker needs the reconciler - and reached for a cast to paper over it.
+  That was wrong twice: the cast set a property the class never read, so the sweep would have thrown
+  at runtime. Fixed by inverting it: the reconciler is a parameter to `start()`, so neither object
+  is ever half-built.
+- **My own port allowlist failed my own test.** The local webhook receiver bound to an ephemeral
+  port, which the SSRF check refuses - the allowlist working exactly as designed, against me. The
+  receiver now binds 8080. Worth keeping: a security control that is inconvenient in a test is
+  usually inconvenient in production too, and that is the moment to decide deliberately rather than
+  to widen it.
+
+### Verification performed
+
+```
+npm run lint               exit 0
+npm run format:check       All matched files use Prettier code style!
+npm run typecheck          exit 0
+npm run build              exit 0
+npm test                   Test Files 13 passed (13)   Tests 291 passed (291)
+npm run test:integration   Test Files 11 passed (11)   Tests 240 passed (240)
+npm run migrate            applied 1, skipped 7
+```
+
+Browser E2E is not required by this stage's gate, but the delivery link changed the workspace
+navigation, so the full suite was re-run and two accessibility tests were added for the new page.
+
+### The E2E database gap, closed
+
+Stage 8b recorded that `leadcapture_e2e` had never had migrations applied - 20 duplicate membership
+pairs from earlier runs blocked migration 001, and MongoDB's implicit collection creation had been
+hiding it. I asked before touching it, because dropping a database is not mine to decide. With
+explicit authorization the database was dropped and re-migrated: **applied 7, skipped 0**. That
+environment now matches production index-for-index, including the unique constraints it had been
+running without.
+
+### Plugin usage this stage
+
+- **`context7` - three consultations, all load-bearing.** BullMQ's own source and docs established
+  three things I would otherwise have got wrong: `UnrecoverableError` is the documented way to stop
+  retrying a permanent failure; `backoff: { type: 'exponential', jitter }` is native, so the queue
+  and the reconciler share two constants instead of two hand-rolled schedules; and **BullMQ has no
+  built-in dead-letter queue** - a job that exhausts its attempts simply lands in the failed set and
+  emits `retries-exhausted`. That last point is why the dead-letter state is a field on the Delivery
+  record rather than a queue I assumed existed. Node's DNS and fetch docs confirmed
+  `lookup(host, { all: true })` for checking every resolved address and that `redirect: 'manual'`
+  returns the real response under undici, so a 3xx can be inspected and refused.
+- **`frontend-design` - used substantively for the delivery health view.** Its "structure is
+  information" principle produced the page's signature: five attempts is a genuinely finite,
+  countable budget, which is the one place in this product where a numbered sequence is the content
+  rather than decoration, so it is drawn as five slots - filled for spent, struck through for the
+  attempts a permanent rejection means will never be spent. Its restraint prompt is what stopped me
+  adding a second filled chip: `converted` in the contact inbox is the only filled chip in the app,
+  and a dead letter is already distinguished three ways without borrowing that. The budget meter is
+  segmented rather than a single bar because the allowance has structure - 100 of the 300 are
+  reserved for auth mail - and one bar would have misrepresented the policy.
+- **`typescript-lsp` - worked.** Used for navigation across the new delivery modules and for a clean
+  diagnostics pass; document symbols matched disk exactly on the final check.
+
+### Open questions for a human
+
+1. **The operator alert only writes a log.** `delivery.dead_letter_alert` is a structured error
+   record with the actor-safe fields; a pager or email integration attaches at that one call site.
+2. **The reconciliation sweep needs the worker running.** In production it starts in-process per
+   blueprint 12.1. The tests deliberately do not start it, so nothing in CI proves the schedule
+   itself fires - only that the sweep does the right thing when called.
+3. **SSRF validation is check-then-connect.** A DNS entry that changes between the two is not
+   caught. Closing it properly means pinning the connection to the validated address, which Node's
+   fetch does not expose. The port allowlist limits what a won race could reach, and the limitation
+   is stated in the code rather than hidden.
+4. **Brevo has never been exercised for real.** Every email in every test goes to Mailpit. The
+   adapter's failure classification is unit-tested, but no message has been sent through the actual
+   provider, and the free tier's 300/day is a real constraint a busy demo would hit.
+5. **Nothing purges delivery rows early.** The 90-day TTL index handles retention, but a workspace
+   deleted tomorrow leaves its delivery history until the TTL catches up (Stage 11).
+6. **CI has still never run**, because no remote is configured.

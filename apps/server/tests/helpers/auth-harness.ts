@@ -11,6 +11,8 @@ import { HealthService } from '../../src/application/health-service.js';
 import type { ServerEnv } from '../../src/config/env.js';
 import type { Clock } from '../../src/ports/clock.js';
 import type { GeoProvider } from '../../src/ports/geo-provider.js';
+import type { WebhookClient } from '../../src/ports/webhook-client.js';
+import type { Resolver } from '../../src/domain/delivery/ssrf.js';
 import { MailpitEmailSender } from '../../src/infrastructure/email/mailpit-sender.js';
 
 /**
@@ -81,6 +83,14 @@ export interface HarnessOptions {
    * outcomes it waits for the internet to produce.
    */
   readonly geoProviders?: readonly GeoProvider[];
+  /**
+   * A scripted webhook client, so blueprint 18.4's outcomes - success,
+   * timeout, 429/5xx, 4xx - are stated by the test rather than produced by a
+   * real receiver that might be having a good day.
+   */
+  readonly webhookClient?: WebhookClient;
+  /** States what a hostname resolves to, for the SSRF tests. */
+  readonly dnsResolver?: Resolver;
 }
 
 export async function createAuthHarness(options: HarnessOptions = {}): Promise<AuthHarness> {
@@ -146,6 +156,15 @@ export async function createAuthHarness(options: HarnessOptions = {}): Promise<A
     logger,
     emailSender,
     ...(options.geoProviders === undefined ? {} : { geoProviders: options.geoProviders }),
+    ...(options.webhookClient === undefined ? {} : { webhookClient: options.webhookClient }),
+    ...(options.dnsResolver === undefined ? {} : { dnsResolver: options.dnsResolver }),
+    /**
+     * Workers stay OFF. The delivery tests drive the queue by hand - calling
+     * the reconciler and the attempt directly - so an outcome is a stated fact
+     * rather than a race against a background poller. The worker's own
+     * translation of outcomes is covered by its unit tests.
+     */
+    startWorkers: false,
   });
   const healthService = new HealthService([], env.release);
   const app = createApp({ env, healthService, deps });
@@ -172,6 +191,9 @@ export async function createAuthHarness(options: HarnessOptions = {}): Promise<A
     },
     async teardown(): Promise<void> {
       await new Promise<void>((resolve) => server.close(() => resolve()));
+      // A leaked queue connection keeps the process alive after the run.
+      await deps.queues.close();
+      await deps.eventHub.close();
       emailSender.close();
       // Remove only this harness's keys, never the whole database.
       const keys = await redis.keys(`${keyPrefix}:*`);

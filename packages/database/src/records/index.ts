@@ -269,6 +269,30 @@ export interface WidgetRecord extends WorkspaceOwned, Timestamped {
 
   /** Monotonic allocator for revision numbers; never decreases. */
   readonly lastRevisionNumber: number;
+
+  /**
+   * Delivery settings (blueprint 12.3), added in Stage 9.
+   *
+   * Deliberately on the Widget rather than in the published WidgetRevision
+   * config. A revision is an immutable snapshot of what a VISITOR sees;
+   * changing who gets emailed about a submission is an operational decision
+   * that must not require republishing the widget, and must not appear in the
+   * public config endpoint at all.
+   *
+   * Null means "never configured", which the service reads as the built-in
+   * default template - distinct from a customer having deliberately blanked it.
+   */
+  readonly notificationTemplate: NotificationTemplate | null;
+  /** Whether a visitor gets a confirmation email (blueprint 12.1). */
+  readonly confirmationEnabled: boolean;
+}
+
+/** Customer-controlled email copy, within the 12.3 allowlist. */
+export interface NotificationTemplate {
+  readonly subject: string;
+  readonly body: string;
+  readonly replyTo: string | null;
+  readonly brandName: string | null;
 }
 
 export const REVISION_STATUSES = ['draft', 'published'] as const;
@@ -512,6 +536,170 @@ export interface ConsentEventRecord extends WorkspaceOwned {
   readonly text: string;
   readonly widgetRevisionNumber: number;
   readonly occurredAt: Date;
+}
+
+// ---------------------------------------------------------------------------
+// Delivery - Stage 9 (blueprint 9.2, 12.2)
+// ---------------------------------------------------------------------------
+
+/** The side-effect families this stage owns (blueprint 12.1). */
+export const DELIVERY_TYPES = [
+  'workspace_notification',
+  'visitor_confirmation',
+  'webhook',
+] as const;
+export type DeliveryType = (typeof DELIVERY_TYPES)[number];
+
+/**
+ * The states blueprint 12.2 requires the dashboard to distinguish.
+ *
+ * `failed` and `dead_letter` are deliberately separate. A PERMANENT failure -
+ * a rejected recipient, a 4xx from a webhook - is final on its first attempt
+ * and was never going to succeed; a DEAD_LETTER is a transient failure that
+ * exhausted its five attempts and might yet succeed if replayed. Collapsing
+ * them would make the replay button meaningless on half the rows it appears on.
+ */
+export const DELIVERY_STATUSES = [
+  'queued',
+  'delayed',
+  'retrying',
+  'delivered',
+  'failed',
+  'dead_letter',
+] as const;
+export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
+
+export const DELIVERY_OUTCOMES = [
+  'delivered',
+  'transient_failure',
+  'permanent_failure',
+  'deferred',
+] as const;
+export type DeliveryOutcome = (typeof DELIVERY_OUTCOMES)[number];
+
+/** One attempt, kept so an operator can see what actually happened. */
+export interface DeliveryAttempt {
+  readonly attempt: number;
+  readonly at: Date;
+  readonly outcome: DeliveryOutcome;
+  /** Safe, short detail. Never a recipient address, secret, or lead value. */
+  readonly detail: string;
+  readonly statusCode: number | null;
+}
+
+/**
+ * One promised side effect and its history (blueprint 9.2, 12.2).
+ *
+ * This is the operator-facing record. The BullMQ job is the mechanism that
+ * moves it along; the truth about what was promised, what has been tried, and
+ * what may be replayed lives here in Mongo, because a queue is a work list and
+ * not an audit trail - flushing Redis must not erase the record that a
+ * notification was owed.
+ */
+export interface DeliveryRecord extends WorkspaceOwned, Timestamped {
+  readonly _id: ObjectId;
+  readonly type: DeliveryType;
+  readonly status: DeliveryStatus;
+
+  /** The durable promise this delivery discharges (blueprint 12.2). */
+  readonly outboxEventId: ObjectId | null;
+  readonly contactId: ObjectId | null;
+  readonly submissionEventId: ObjectId | null;
+  readonly widgetId: ObjectId | null;
+  /**
+   * Which endpoint a webhook delivery targets.
+   *
+   * Stored rather than parsed back out of the idempotency key. An earlier
+   * revision derived it from the key, which worked for an original delivery
+   * and broke silently for a REPLAY - whose key has a different shape - so the
+   * replay failed with "unknown endpoint" instead of retrying.
+   */
+  readonly webhookEndpointId: ObjectId | null;
+
+  /**
+   * Stable per-workspace key. Unique, so a replayed job or a reconciled outbox
+   * row cannot become a second logical notification (blueprint 12.2).
+   */
+  readonly idempotencyKey: string;
+
+  /**
+   * Who or what this was for, in a form safe to show and to log: an email
+   * address masked to `a***@example.com`, or a webhook's host. The full
+   * recipient stays on the widget's recipient list and the endpoint record.
+   */
+  readonly target: string;
+
+  readonly attempts: number;
+  readonly maxAttempts: number;
+  readonly nextAttemptAt: Date | null;
+  readonly deliveredAt: Date | null;
+  readonly lastError: string | null;
+  readonly history: readonly DeliveryAttempt[];
+
+  /**
+   * Set when an operator alert has been raised for this dead letter, so the
+   * alert fires once on the NEW failure rather than on every sweep that
+   * notices the row (blueprint 12.2).
+   */
+  readonly alertedAt: Date | null;
+
+  /** Which delivery this one replays, when an operator pressed the button. */
+  readonly replayOfId: ObjectId | null;
+
+  /** 90-day retention (blueprint 9.5), enforced by a TTL index. */
+  readonly expiresAt: Date;
+}
+
+/**
+ * A configured webhook destination (blueprint 9.2, 12.4).
+ *
+ * The signing secret is stored encrypted with the same AES-256-GCM cipher that
+ * protects TOTP seeds - blueprint 12.4 groups them explicitly - so a database
+ * dump does not hand over the ability to forge signed payloads.
+ */
+export interface WebhookEndpointRecord extends WorkspaceOwned, Timestamped {
+  readonly _id: ObjectId;
+  /** Null means every widget in the workspace. */
+  readonly widgetId: ObjectId | null;
+  readonly url: string;
+  readonly enabled: boolean;
+
+  readonly secret: EncryptedValue;
+  readonly secretVersion: number;
+
+  /**
+   * The previous secret, still accepted during a rotation overlap so a
+   * receiver can migrate without dropping a payload (blueprint 12.4). Both
+   * signatures are sent while this is live; it is cleared once it retires.
+   */
+  readonly previousSecret: EncryptedValue | null;
+  readonly previousSecretRetiresAt: Date | null;
+  readonly lastRotatedAt: Date | null;
+}
+
+export const RECIPIENT_KINDS = ['workspace_user', 'external'] as const;
+export type RecipientKind = (typeof RECIPIENT_KINDS)[number];
+
+/**
+ * Who gets told about a submission (blueprint 12.3).
+ *
+ * Two kinds, and the distinction is a security one rather than bookkeeping. A
+ * `workspace_user` is already a verified member of this tenant, so their
+ * address needs no further proof. An `external` address is one somebody typed
+ * into a settings form, and sending to it unverified would turn the product
+ * into an open relay pointed at any address an attacker chose - so it carries
+ * its own hashed, expiring confirmation token, exactly like an invitation.
+ */
+export interface NotificationRecipientRecord extends WorkspaceOwned, Timestamped {
+  readonly _id: ObjectId;
+  readonly widgetId: ObjectId;
+  readonly email: string;
+  readonly normalizedEmail: string;
+  readonly kind: RecipientKind;
+  /** Set for `workspace_user`, so a removed member's address stops resolving. */
+  readonly userId: ObjectId | null;
+  readonly verifiedAt: Date | null;
+  readonly verification: PendingToken | null;
 }
 
 export const ABUSE_EVENT_TYPES = ['honeypot', 'timing', 'rate_limit', 'quota'] as const;

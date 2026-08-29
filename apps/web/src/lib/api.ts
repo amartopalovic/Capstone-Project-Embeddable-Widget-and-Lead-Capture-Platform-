@@ -8,7 +8,10 @@ import {
   type ContactDetail,
   type ContactPage,
   type ContactSummary,
+  type DeliveryHealth,
   type InvitableRole,
+  type NotificationSettings,
+  type WebhookEndpointSummary,
   type InvitationSummary,
   type MemberSummary,
   type RecoverableWorkspaceSummary,
@@ -354,4 +357,60 @@ export const contactApi = {
    * and gets the Content-Disposition filename for free.
    */
   exportUrl: (query: string) => `${BASE}/contacts/export${query}`,
+};
+
+// ---------------------------------------------------------------------------
+// Delivery endpoints (Stage 9 API)
+// ---------------------------------------------------------------------------
+
+/**
+ * Typed calls for delivery operations.
+ *
+ * As everywhere else in this client, none of these decides anything. Whether a
+ * delivery may be replayed, whether a webhook URL is safe, and whether this
+ * caller may manage endpoints are all answered by the server.
+ */
+export const deliveryApi = {
+  health: (query: string) => api.get<DeliveryHealth>(`/deliveries${query}`),
+
+  replay: (deliveryId: string) =>
+    api.post<{ deliveryId: string; status: string }>(`/deliveries/${deliveryId}/replay`),
+
+  webhooks: () => api.get<{ endpoints: WebhookEndpointSummary[] }>('/deliveries/webhooks'),
+
+  /**
+   * Create an endpoint.
+   *
+   * The response carries the signing secret in PLAINTEXT, exactly once. There
+   * is no endpoint that reveals it again, so the caller must show it now.
+   */
+  createWebhook: (url: string, widgetId: string | null) =>
+    api.post<{ endpoint: WebhookEndpointSummary; secret: string; notice: string }>(
+      '/deliveries/webhooks',
+      { url, widgetId },
+    ),
+
+  rotateWebhook: (endpointId: string) =>
+    api.post<{ endpoint: WebhookEndpointSummary; secret: string; notice: string }>(
+      `/deliveries/webhooks/${endpointId}/rotate`,
+    ),
+
+  setWebhookEnabled: (endpointId: string, enabled: boolean) =>
+    api.patch<{ status: string }>(`/deliveries/webhooks/${endpointId}`, { enabled }),
+
+  deleteWebhook: (endpointId: string) => api.delete<void>(`/deliveries/webhooks/${endpointId}`),
+
+  notificationSettings: (widgetId: string) =>
+    api.get<NotificationSettings>(`/deliveries/widgets/${widgetId}/notifications`),
+
+  updateNotificationSettings: (
+    widgetId: string,
+    input: { template?: unknown; confirmationEnabled?: boolean },
+  ) => api.put<{ status: string }>(`/deliveries/widgets/${widgetId}/notifications`, input),
+
+  addRecipient: (widgetId: string, email: string) =>
+    api.post<{ recipient: unknown }>(`/deliveries/widgets/${widgetId}/recipients`, { email }),
+
+  removeRecipient: (recipientId: string) =>
+    api.delete<void>(`/deliveries/recipients/${recipientId}`),
 };

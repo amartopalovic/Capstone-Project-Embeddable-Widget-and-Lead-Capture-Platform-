@@ -3,7 +3,7 @@
 The project is implemented in 16 bounded stages (blueprint §19). Exactly one stage is requested per
 implementation prompt, and work stops when that stage's exit gate is green.
 
-**Progress: 9 of 16 stages complete.**
+**Progress: 10 of 16 stages complete.**
 
 ## Stage execution rules (blueprint §19)
 
@@ -187,7 +187,19 @@ test results, remaining limitations, and confirmation of the exit gate.
     - 16 new browser tests, including 6 axe scans (WCAG 2.2 AA) over the empty, no-results,
       conflict, and trash states, and a keyboard-only pass.
 
-- [ ] **Stage 9 — Reliable email, webhooks, and delivery operations**
+- [x] **Stage 9 — Reliable email, webhooks, and delivery operations** _(2026-08-29)_
+  - BullMQ queue families for the four side effects this stage owns, with the outbox reconciler
+    that recovers work whose enqueue never happened.
+  - Transient-only retry: five attempts with exponential backoff and jitter, a permanent failure
+    stopped on its first attempt by `UnrecoverableError`, a dead-letter state, an operator alert
+    that fires once per new failure, and Owner/Admin manual replay.
+  - Per-widget recipients with separate verification for external addresses, and controlled email
+    templates whose variables are allowlisted and whose HTML is refused.
+  - SSRF-safe webhooks: every resolved address checked, redirects disabled, ports restricted,
+    HMAC-SHA256 signing over `timestamp.body`, and a 24-hour dual-secret rotation overlap.
+  - The workspace delivery health view, with the Brevo daily allowance shown as the structured
+    budget it actually is.
+  - **No new capability names**; `capabilities.ts` is unchanged.
   - **Goal:** Complete failure-safe side effects without weakening the submission path.
   - **Exit gate:** Forced provider failures never fail a submission; retry classification,
     idempotency, dead-letter, and replay tests pass.

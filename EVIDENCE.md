@@ -1465,6 +1465,113 @@ understating the project. Both are now filled in with their real commands and co
 
 ---
 
+## Part D-detail - Stage 9 delivery evidence
+
+Stage 9 gives the outbox rows Stage 7 has been writing since March a consumer. Everything here is
+strictly downstream of an already-committed submission.
+
+### The two gate claims, each with named tests
+
+```
+npm test                    Test Files 13 passed (13)   Tests 291 passed (291)
+npm run test:integration    Test Files 11 passed (11)   Tests 240 passed (240)
+```
+
+Fifty-three of the unit tests and thirty-one of the integration tests are new.
+
+| Gate | Test                                                                 | What it proves                                                                                                                                                                                                                                                                   |
+| ---- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `GATE 1: forced provider failures never fail a submission` (3 tests) | Five forced webhook failures in turn - 500, timeout, 400, blocked destination, connection reset - each against a real submission. Every one returns **202** and leaves a complete Contact and SubmissionEvent. Plus an email-provider failure and a broken enqueue, same result. |
+| 2    | `GATE 2: retry classification` (4 tests)                             | A 400 fails permanently on attempt 1 and is never retried; a 429 retries; a 503 retries five times then dead-letters with five `transient_failure` history entries; a timeout is transient and a blocked destination is permanent.                                               |
+| 2    | `GATE 2: idempotency` (3 tests)                                      | Re-running reconciliation twice creates no second delivery; two recipients of one submission are two distinct deliveries; an unverified external address is never sent to.                                                                                                       |
+| 2    | `GATE 2: dead-letter and replay` (3 tests)                           | A dead letter is offered a replay, the replay succeeds when the receiver returns; a permanently failed row is refused a replay with **409** by the server, not merely hidden by the UI; the operator alert fires once per new dead letter.                                       |
+
+### Provider matrix (blueprint 18.4)
+
+Stated, not waited for. The webhook client is a port, so each outcome is scripted:
+
+| Outcome                   | Classification | Result                                                         |
+| ------------------------- | -------------- | -------------------------------------------------------------- |
+| success 200               | -              | delivered on attempt 1                                         |
+| 4xx (400)                 | permanent      | `failed`, 1 attempt, never retried                             |
+| 429                       | **transient**  | retried - the one 4xx that means "not now" rather than "never" |
+| 5xx (503)                 | transient      | 5 attempts, then `dead_letter`                                 |
+| timeout                   | transient      | retried                                                        |
+| blocked by SSRF check     | permanent      | `failed`, 1 attempt                                            |
+| Brevo budget exhausted    | **neither**    | `delayed` until the next UTC window, `attempts` unchanged      |
+| Redis enqueue unavailable | -              | submission still 202, outbox row survives for reconciliation   |
+
+The budget row is the subtle one. Blueprint 5.3 says excess non-critical mail "remains queued until
+the next provider allowance window", so a deferral is not a failure and must not consume one of the
+five attempts - a test asserts `attempts` is still 0 after a deferral.
+
+### Migration 008, applied and read back
+
+```
+npm run migrate     applied 1, skipped 7   (008_delivery)
+
+deliveries
+  workspace_type_status         { workspaceId, type, status, createdAt }
+  workspace_created             { workspaceId, createdAt, _id }
+  workspace_contact             { workspaceId, contactId, createdAt }
+  uniq_workspace_idempotency_key{ workspaceId, idempotencyKey }   unique
+  ttl_expires_at                { expiresAt }                     ttl 0s (90-day field)
+webhook_endpoints
+  workspace_widget              { workspaceId, widgetId }
+  workspace_enabled             { workspaceId, enabled }
+notification_recipients
+  uniq_widget_recipient         { workspaceId, widgetId, normalizedEmail }  unique
+outbox_events (added by 008)
+  status_next_attempt           { status, nextAttemptAt }
+  uniq_workspace_outbox_key     { workspaceId, idempotencyKey }   unique
+```
+
+Read back from the real database, `outbox_events` also carries a GLOBAL `uniq_idempotency_key` from
+Stage 2. That makes the per-workspace one 008 adds redundant - the global constraint is strictly
+stronger. It is recorded here rather than quietly dropped because the redundancy is real: keys are
+`submission:<ObjectId>` and ObjectIds are globally unique, so neither index can fire before the
+other, and removing an index from a shipped migration is a worse trade than carrying a spare.
+
+`uniq_workspace_idempotency_key` on deliveries is what makes blueprint 12.2's "retries do not send
+duplicate logical notifications" true even after a Redis flush. BullMQ deduplicates by job id inside
+Redis, but Redis is a cache, and the reconciler deliberately re-enqueues work it believes was lost.
+
+### Webhook security (blueprint 12.4)
+
+- **SSRF**: every resolved address is checked, not just the first; IPv4-mapped IPv6
+  (`::ffff:127.0.0.1`) is decomposed and re-checked; ports are restricted to 80/443/8080/8443 so a
+  URL cannot probe an internal service; credentials in the URL are refused rather than stripped.
+  Validated at save time AND immediately before every request, because DNS changes.
+- **Redirects are disabled**, not revalidated. 12.4 permits either; disabling has no bypass, and a
+  test confirms a 302 pointing at `169.254.169.254` is reported as an error rather than followed.
+- **Signing**: HMAC-SHA256 over `timestamp.body`, not the body alone - a signature over the body is
+  replayable forever. During a 24-hour rotation overlap BOTH signatures are sent, and a test
+  verifies a real captured request against the old secret and the new one.
+- **At rest**: the secret is AES-256-GCM encrypted with the existing master key, revealed exactly
+  once, and a test asserts the plaintext appears neither in the stored document nor in any list
+  response.
+
+### No new capability names
+
+`apps/server/src/domain/workspace/capabilities.ts` and the `Capability` union are **unchanged** -
+`git diff` on both is empty. The delivery surface uses `delivery.view` (which the matrix already
+marks `limited` for a Member) and `settings.delivery.write`.
+
+### What is still missing
+
+- The remaining queue families from 12.1 - marketing opt-in, analytics aggregation, retention and
+  purge, hourly sandbox reset - belong to Stages 10-12 and are absent rather than stubbed.
+- The operator alert writes a structured `delivery.dead_letter_alert` log. A pager or email
+  integration attaches at that call site; nothing external is notified today.
+- Double opt-in is not the confirmation email this stage sends. Blueprint 12.1's "visitor
+  confirmation email" is implemented; the opt-in state machine and unsubscribe are Stage 11.
+- The reconciliation sweep runs every two minutes as a BullMQ job scheduler. It is registered only
+  when workers are started in-process, which the tests deliberately do not do.
+- Delivery rows expire after 90 days by TTL index, so the retention promise needs no sweep - but
+  nothing yet purges the widget/contact trash those rows may reference (Stage 11).
+
+---
+
 ## Change log
 
 | Date       | Stage | Change                                                                                                                                                               |
@@ -1491,3 +1598,4 @@ understating the project. Both are now filled in with their real commands and co
 | 2026-08-29 | 7 | Blueprint Stage 7 COMPLETE. **All six acceptance probes (A1-A6) moved to `PROVEN`**, each with its own named integration test and a re-runnable command. A1's dashboard half and A5's real queue behaviour are noted in place as Stage 8 and Stage 9 work. Evidenced by 21 new unit tests and 25 new integration tests against real MongoDB, Redis, and Mailpit, plus migration `006_submissions` applied and its indexes read back. Geo providers are exercised deterministically through a port; the real services are never called by the suite. |
 | 2026-08-29 | 8a | Blueprint Stage 8, sub-stage 8a. Contact inbox BACKEND: search/filter/cursor-paginated list, detail and timeline, workflow writes, canonical edits under optimistic concurrency, merge, bulk actions, 30-day trash, streaming filtered export, and the authenticated workspace-scoped SSE stream. Evidenced by 34 new unit tests and 38 new integration tests against real MongoDB, Redis, and Mailpit, plus migration `007_contact_inbox` applied, re-run as a no-op, and its indexes read back. **No new capability names and no matrix edits**; the section 11 table is unchanged. Stage 8 itself stays OPEN pending 8b (inbox UI, timeline, bulk-action UI, browser E2E). |
 | 2026-08-29 | 8b | Blueprint **Stage 8 COMPLETE**. Contact inbox UI: search, the full filter set behind a disclosure, keyset pagination, deterministic sort, bulk selection with a capability-driven action bar, inline merge, canonical editing with a designed conflict state, the lead timeline, the trash, streaming export, and live arrival over SSE. Evidenced by 16 new browser tests (88 total), including 6 axe scans covering the empty, no-results, conflict, and trash states plus a keyboard-only pass. The browser found a real defect review missed: export was hidden inside the collapsed filter panel. |
+| 2026-08-29 | 9 | Blueprint **Stage 9 COMPLETE**. BullMQ queue families, outbox reconciliation, five-attempt exponential backoff with jitter, transient-only retry, dead-letter and manual replay, per-widget verified recipients, controlled email templates, SSRF-safe HMAC-signed webhooks with 24-hour rotation overlap, and the workspace delivery health view. Evidenced by 53 new unit tests and 31 new integration tests, including the full 18.4 provider matrix. **No new capability names**; the section 11 table is unchanged. The E2E database was reset with the user's explicit authorization, closing the migration gap Stage 8b recorded: `applied 7, skipped 0`. |

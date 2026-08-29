@@ -98,6 +98,15 @@ export interface SubmissionServiceDeps {
    * the same rule blueprint 12.2 states for the queue.
    */
   readonly events: EventPublisher;
+  /**
+   * Side-effect dispatch (blueprint 12.2), added in Stage 9.
+   *
+   * Called strictly AFTER the commit and awaited only for ordering. It never
+   * throws: the outbox row is already durable, so a dispatch failure is
+   * recovered by reconciliation rather than surfaced to a visitor whose
+   * submission was already accepted.
+   */
+  readonly dispatchOutbox: (workspaceId: ObjectId, outboxEventId: ObjectId) => Promise<void>;
   readonly clock: Clock;
   readonly logger: Logger;
 }
@@ -237,6 +246,17 @@ export class SubmissionService {
       },
       now,
     );
+
+    /**
+     * Side effects, strictly after the commit (blueprint 12.2, 7.3 step 10).
+     *
+     * The outbox row is already durable, so this is an OPTIMISATION - it keeps
+     * the promise now instead of waiting for the next reconciliation sweep. It
+     * cannot fail the submission: `dispatchOutbox` swallows its own errors, and
+     * the row stays pending for the sweep either way. This ordering is what
+     * makes "forced provider failures never fail a submission" structural.
+     */
+    await this.#deps.dispatchOutbox(scope.workspaceId, committed.outboxId);
 
     return { kind: 'accepted', outcome: published.config.success };
   }
@@ -410,9 +430,10 @@ export class SubmissionService {
      * The idempotency key is derived from the submission id, so a replayed
      * outbox row cannot become a second notification.
      */
+    const outboxId = new ObjectId();
     await db.collection<OutboxEventRecord>(COLLECTIONS.outboxEvents).insertOne(
       {
-        _id: new ObjectId(),
+        _id: outboxId,
         workspaceId: scope.workspaceId,
         type: 'submission.received',
         payload: {
@@ -431,7 +452,7 @@ export class SubmissionService {
       options,
     );
 
-    return { contactId, submissionId, contactCreated: existing === null };
+    return { contactId, submissionId, outboxId, contactCreated: existing === null };
   }
 
   /** Minimal evidence only (blueprint 7.4): never a captured field value. */
@@ -491,6 +512,7 @@ export class SubmissionService {
 interface CommitOutcome {
   readonly contactId: ObjectId;
   readonly submissionId: ObjectId;
+  readonly outboxId: ObjectId;
   /** True when this submission created the Contact rather than updating one. */
   readonly contactCreated: boolean;
 }

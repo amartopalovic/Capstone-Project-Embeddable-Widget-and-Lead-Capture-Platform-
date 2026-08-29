@@ -13,6 +13,7 @@ import { createInvitationsRouter, createMembersRouter } from './routes/members.j
 import { createWidgetsRouter } from './routes/widgets.js';
 import { createContactsRouter } from './routes/contacts.js';
 import { createEventsRouter } from './routes/events.js';
+import { createDeliveriesRouter } from './routes/deliveries.js';
 import { PUBLIC_WIDGET_PREFIX, createPublicWidgetRouter } from './routes/public-widget.js';
 import { correlationMiddleware } from './middleware/correlation.js';
 import { errorHandler } from './middleware/error-handler.js';
@@ -131,6 +132,15 @@ export function createApp(options: CreateAppOptions): Express {
     logger: deps.logger,
   });
 
+  const deliveriesRouter = createDeliveriesRouter({
+    admin: deps.deliveryAdminService,
+    deliveries: deps.deliveryService,
+    workers: deps.deliveryWorkers,
+    memberships: deps.membershipService,
+    workspaces: deps.workspaceService,
+    logger: deps.logger,
+  });
+
   const eventsRouter = createEventsRouter({
     hub: deps.eventHub,
     memberships: deps.membershipService,
@@ -161,6 +171,7 @@ export function createApp(options: CreateAppOptions): Express {
   app.use(`${API_PREFIX}/invitations`, doubleCsrfProtection, invitationsRouter);
   app.use(`${API_PREFIX}/widgets`, doubleCsrfProtection, widgetsRouter);
   app.use(`${API_PREFIX}/contacts`, doubleCsrfProtection, contactsRouter);
+  app.use(`${API_PREFIX}/deliveries`, doubleCsrfProtection, deliveriesRouter);
 
   /**
    * The SSE stream is authenticated but NOT behind the CSRF guard.

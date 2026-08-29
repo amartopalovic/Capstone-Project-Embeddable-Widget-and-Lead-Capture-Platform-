@@ -1,6 +1,6 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 8.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+**Status: Stage 9.** All nine workspaces exist. `packages/config`, `packages/contracts`,
 `packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
 rest remain deliberate shells until the stage that fills them.
 
@@ -266,6 +266,28 @@ rather than disabled.
 **Arrivals queue rather than inject.** A row that inserts itself into a list somebody is reading
 moves what they were about to click and changes what their selection covers, so an arrival
 increments a count in a polite live region and appears when the button is pressed.
+
+### What `apps/server` gained in Stage 9
+
+| Path                                 | Contents                                                            |
+| ------------------------------------ | ------------------------------------------------------------------- |
+| `src/domain/delivery/retry.ts`       | Transient-vs-permanent classification, and backoff with jitter      |
+| `src/domain/delivery/ssrf.ts`        | What a webhook may not be pointed at, and why                       |
+| `src/domain/delivery/signing.ts`     | HMAC-SHA256 over `timestamp.body`, and the rotation overlap         |
+| `src/domain/delivery/templates.ts`   | The variable allowlist; unknown placeholders resolve to nothing     |
+| `src/domain/delivery/keys.ts`        | Idempotency keys: stable across retries, distinct across recipients |
+| `src/infrastructure/queue/queues.ts` | The four BullMQ families this stage owns                            |
+| `src/infrastructure/webhook/`        | The SSRF-safe client: validate, no redirects, hard timeout          |
+| `src/application/delivery/`          | The engine, the settings service, and the outbox reconciler         |
+
+**The submission is never at risk.** Stage 7 commits the Contact, the SubmissionEvent, and the
+durable OutboxEvent in one transaction and answers 202. Everything in this stage runs after that and
+swallows its own failures, which is why "forced provider failures never fail a submission" is
+structural rather than carefully maintained.
+
+**`failed` and `dead_letter` are different states**, and the difference is what the replay button
+depends on: a permanent rejection was final on its first attempt, a dead letter exhausted five
+transient attempts and might succeed now.
 
 ### End-to-end tests
 

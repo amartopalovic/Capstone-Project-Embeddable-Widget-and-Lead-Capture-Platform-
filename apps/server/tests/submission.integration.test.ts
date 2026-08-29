@@ -220,7 +220,14 @@ describe('PROBE 1: valid second-origin submission', () => {
       .collection(COLLECTIONS.outboxEvents)
       .findOne({ idempotencyKey: `submission:${String(event?.['_id'])}` });
     expect(outbox).not.toBeNull();
-    expect(outbox?.['status']).toBe('pending');
+    /**
+     * Stage 9 gave this row a consumer, so it no longer sits at `pending`.
+     * What Stage 7 guarantees is unchanged and is what is asserted: the row
+     * exists, written in the same commit as the submission. This widget has no
+     * recipients and no webhooks, so the promise is vacuous and settles
+     * immediately rather than being lost.
+     */
+    expect(outbox?.['status']).toBe('sent');
   });
 
   it('attaches a repeat submission to the same contact rather than duplicating it', async () => {
@@ -466,7 +473,8 @@ describe('PROBE 5: side-effect failure', () => {
       .findOne({ idempotencyKey: `submission:${String(event?.['_id'])}` });
 
     expect(event).not.toBeNull();
-    expect(outbox?.['status']).toBe('pending');
+    // Settled by Stage 9's dispatch; see the note above.
+    expect(outbox?.['status']).toBe('sent');
     expect(outbox?.['attempts']).toBe(0);
 
     /**
