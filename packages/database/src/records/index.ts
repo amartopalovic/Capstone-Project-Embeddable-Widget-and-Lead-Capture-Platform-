@@ -353,9 +353,84 @@ export interface ContactRecord extends WorkspaceOwned, Timestamped {
    */
   readonly version: number;
 
-  readonly recordStatus: RecordStatus;
+  /**
+   * Contacts have a third lifecycle state that other records do not.
+   *
+   * Blueprint 9.3 requires merge to "retire the duplicate", which is not the
+   * same thing as putting it in the 30-day trash: a merged duplicate must never
+   * appear in a recovery list, because recovering it would resurrect a record
+   * whose events now belong to the survivor. Keeping it distinct is what lets
+   * the trash view mean exactly one thing.
+   */
+  readonly recordStatus: ContactRecordStatus;
   readonly deletedAt: Date | null;
   readonly purgeAfter: Date | null;
+
+  /** The surviving contact, when this one was retired by a merge (9.3). */
+  readonly mergedIntoContactId: ObjectId | null;
+}
+
+/**
+ * Contact-only lifecycle (blueprint 9.3, 9.5).
+ *
+ * `merged` is deliberately outside the shared RecordStatus: no other record
+ * merges, and widening the shared type would offer every collection a state it
+ * has no meaning for.
+ */
+export const CONTACT_RECORD_STATUSES = ['active', 'deleted', 'merged'] as const;
+export type ContactRecordStatus = (typeof CONTACT_RECORD_STATUSES)[number];
+
+/**
+ * What may be recorded about a Contact (blueprint 9.2: "Status, assignment,
+ * tags, notes, merge, and actor history").
+ *
+ * The list is closed so an entry cannot be written with an ad-hoc type that no
+ * timeline knows how to render.
+ */
+export const CONTACT_ACTIVITY_TYPES = [
+  'status_changed',
+  'assignee_changed',
+  'tags_changed',
+  'note_added',
+  'canonical_edited',
+  'merged_from',
+  'merged_into',
+  'deleted',
+  'recovered',
+] as const;
+export type ContactActivityType = (typeof CONTACT_ACTIVITY_TYPES)[number];
+
+/**
+ * One entry in a Contact's collaboration history (blueprint 9.2, 9.3).
+ *
+ * Every entry carries the actor and the request correlation ID, because
+ * blueprint 9.3 requires that "every role, publish, export, delete, restore,
+ * merge, and settings change records the actor and request correlation ID" -
+ * and an inbox where a teammate's status change cannot be traced back to them
+ * is not a collaborative inbox.
+ *
+ * Notes live here rather than as a field on the Contact. Blueprint 4.6 says
+ * notes belong to the Contact rather than to a submission, which this satisfies
+ * while also giving each note its own author and timestamp; a single string
+ * field on the record could not say who wrote what, or when.
+ *
+ * Entries are append-only, like the submission events beside them.
+ */
+export interface ContactActivityRecord extends WorkspaceOwned {
+  readonly _id: ObjectId;
+  readonly contactId: ObjectId;
+  readonly type: ContactActivityType;
+  /** Null only for a system-originated entry. */
+  readonly actorUserId: ObjectId | null;
+  readonly correlationId: string;
+  readonly occurredAt: Date;
+  /** Free text, present only on `note_added`. */
+  readonly note: string | null;
+  /**
+   * Safe structural detail: the previous and next status, the tag names, the
+   * merged contact id. Never a captured submission value.
+   */
+  readonly metadata: Readonly<Record<string, unknown>>;
 }
 
 /** Approximate location, if a provider answered (blueprint 9.4). */

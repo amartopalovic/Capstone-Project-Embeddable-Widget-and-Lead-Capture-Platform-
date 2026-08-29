@@ -1294,6 +1294,86 @@ workspace, not globally, because one person contacting two customers is two sepa
 
 ---
 
+## Part D-detail - Stage 8a contact inbox backend evidence
+
+Stage 8 is split. **8a is the API, persistence, and SSE stream; there is no UI in it**, so the exit
+gate is stated at the API level and browser proof belongs to 8b.
+
+### The three gate claims, each with a named test
+
+```
+npm test                    Test Files 12 passed (12)   Tests 238 passed (238)
+npm run test:integration    Test Files 10 passed (10)   Tests 209 passed (209)
+```
+
+Thirty-four of the unit tests and thirty-eight of the integration tests are new. The integration
+file names its gates directly, so a reader can find them rather than trust a summary:
+
+| Gate | Test                                                           | What it proves                                                                                                                                                                                                                                                    |
+| ---- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `GATE 1: role-aware access` (6 tests)                          | Every role may set status, assignee, tags, and notes; a Member is refused a canonical edit, a merge, an export, the trash, a soft-delete, and a recovery; an Admin is allowed all of them; an unauthenticated caller gets 401 everywhere including the SSE stream |
+| 2    | `GATE 2: export matches the active filter` (5 tests)           | `?status=qualified` exports exactly the two rows the same filter lists and neither of the two it excludes; the JSON format agrees; the header is an allowlist, not a record dump; a formula is neutralised; the audit entry names actor, format, and row count    |
+| 3    | `GATE 3: live contact.created is workspace-isolated` (3 tests) | A submission delivers `contact.created` to its own workspace stream and the other tenant's stream sees nothing; a repeat submission raises `contact.updated` instead; a removed member cannot open a stream at all                                                |
+
+### Migration 007, applied and read back
+
+```
+npm run migrate     applied 1, skipped 6   (007_contact_inbox)
+npm run migrate     applied 0, skipped 7   (repeatable, per blueprint 9.3)
+
+contact_activities
+  workspace_contact_date        { workspaceId, contactId, occurredAt }
+contacts (added by 007)
+  workspace_status_date_id      { workspaceId, recordStatus, lastSubmissionAt, _id }
+  workspace_created             { workspaceId, recordStatus, createdAt, _id }
+  workspace_email_sort          { workspaceId, recordStatus, normalizedEmail, _id }
+  workspace_merged_into         { workspaceId, mergedIntoContactId }
+submission_events (added by 007)
+  workspace_page_url            { workspaceId, source.pageUrl }
+  workspace_city                { workspaceId, geo.city }
+```
+
+The four-part contact keys are the ones worth explaining. Migration 006 indexed
+`{ workspaceId, lastSubmissionAt }`, which is not the shape the inbox actually queries: every list
+also filters `recordStatus` and sorts with `_id` as a tiebreaker. MongoDB's documentation states
+plainly that `$sort` is not a stable sort and that a unique field must be included for deterministic
+order - and that tiebreaker is also what lets a keyset cursor resume from an exact position, so one
+index serves both.
+
+### No new capability names, no matrix edits
+
+`apps/server/src/domain/workspace/capabilities.ts` is **unchanged in this stage** - `git diff` on it
+is empty. The five contact capabilities were transcribed in Stage 4 and asserted cell by cell in
+`tests/rbac.test.ts` before any route existed to use them; Stage 8a attaches to them.
+
+The bulk endpoint is the one place a second role table would have been tempting, because blueprint
+4.7 states the Owner/Admin-vs-Member split in prose. It maps each action to a capability instead and
+asks the same `can()`; `typescript-lsp` go-to-definition on that call resolves to
+`domain/workspace/capabilities.ts:115`, not to a local copy.
+
+### Tenancy on the new paths (blueprint 9.1)
+
+A cross-tenant test exists per path, not one representative case: read, list, workflow write, note,
+canonical edit, merge, soft-delete, recover, bulk, export, activity history, and SSE. The bulk case
+is the one that says something the others cannot - the request is well-formed and the caller may
+bulk-edit in their OWN workspace, so it returns 200 with `changed: 0`, which proves the scope is
+applied to the write and not only to the read.
+
+### What is still missing
+
+- The inbox UI, the timeline UI, bulk-action controls, and export controls (8b), along with this
+  stage's browser E2E.
+- Real queue processing: `contact.created` reaches the stream, but nothing consumes the outbox row
+  the submission wrote, so no email or webhook is sent (Stage 9).
+- The reconnect replay buffer is process-local and holds 50 events. It closes the sub-second gap of
+  an ordinary reconnect; it is not durable history, and a client away longer refetches the list.
+- Only contact events are published. Submission, usage, and delivery events are named in the
+  contract so Stages 9 and 10 attach to a stream that already knows them, but nothing raises them.
+- Permanent purge of trashed contacts after 30 days is scheduled by `purgeAfter` but not yet swept
+  (Stage 11).
+
+---
+
 ## Change log
 
 | Date       | Stage | Change                                                                                                                                                               |
@@ -1318,3 +1398,4 @@ workspace, not globally, because one person contacting two customers is two sepa
 | 2026-08-29 | 6 | Blueprint Stage 6 COMPLETE. D3, D5, and D6 moved to `PROVEN` and D4 to `IN PROGRESS`; B4's runtime half is now executed rather than stored. Evidenced by 15 new browser tests against the real second origin, 15 new integration tests for the public endpoint, and 21 new unit tests for trigger, cooldown, and identity decisions. Bundle sizes measured and tracked: runtime 13,613 B raw / 5,439 B gzip, loader 734 B / 434 B gzip, with no framework or validation library in the public bundle. All six acceptance probes remain unproven; every one needs the Stage 7 submission endpoint. |
 
 | 2026-08-29 | 7 | Blueprint Stage 7 COMPLETE. **All six acceptance probes (A1-A6) moved to `PROVEN`**, each with its own named integration test and a re-runnable command. A1's dashboard half and A5's real queue behaviour are noted in place as Stage 8 and Stage 9 work. Evidenced by 21 new unit tests and 25 new integration tests against real MongoDB, Redis, and Mailpit, plus migration `006_submissions` applied and its indexes read back. Geo providers are exercised deterministically through a port; the real services are never called by the suite. |
+| 2026-08-29 | 8a | Blueprint Stage 8, sub-stage 8a. Contact inbox BACKEND: search/filter/cursor-paginated list, detail and timeline, workflow writes, canonical edits under optimistic concurrency, merge, bulk actions, 30-day trash, streaming filtered export, and the authenticated workspace-scoped SSE stream. Evidenced by 34 new unit tests and 38 new integration tests against real MongoDB, Redis, and Mailpit, plus migration `007_contact_inbox` applied, re-run as a no-op, and its indexes read back. **No new capability names and no matrix edits**; the section 11 table is unchanged. Stage 8 itself stays OPEN pending 8b (inbox UI, timeline, bulk-action UI, browser E2E). |

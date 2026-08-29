@@ -13,6 +13,7 @@ export const COLLECTIONS = {
   widgets: 'widgets',
   widgetRevisions: 'widget_revisions',
   contacts: 'contacts',
+  contactActivities: 'contact_activities',
   submissionEvents: 'submission_events',
   consentEvents: 'consent_events',
   abuseEvents: 'abuse_events',

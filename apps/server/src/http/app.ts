@@ -11,6 +11,8 @@ import { createMfaRouter } from './routes/mfa.js';
 import { createWorkspacesRouter } from './routes/workspaces.js';
 import { createInvitationsRouter, createMembersRouter } from './routes/members.js';
 import { createWidgetsRouter } from './routes/widgets.js';
+import { createContactsRouter } from './routes/contacts.js';
+import { createEventsRouter } from './routes/events.js';
 import { PUBLIC_WIDGET_PREFIX, createPublicWidgetRouter } from './routes/public-widget.js';
 import { correlationMiddleware } from './middleware/correlation.js';
 import { errorHandler } from './middleware/error-handler.js';
@@ -122,6 +124,20 @@ export function createApp(options: CreateAppOptions): Express {
     logger: deps.logger,
   });
 
+  const contactsRouter = createContactsRouter({
+    contacts: deps.contactService,
+    memberships: deps.membershipService,
+    workspaces: deps.workspaceService,
+    logger: deps.logger,
+  });
+
+  const eventsRouter = createEventsRouter({
+    hub: deps.eventHub,
+    memberships: deps.membershipService,
+    workspaces: deps.workspaceService,
+    logger: deps.logger,
+  });
+
   const sessionsRouter = createSessionsRouter({
     sessions: deps.sessionService,
     logger: deps.logger,
@@ -144,6 +160,18 @@ export function createApp(options: CreateAppOptions): Express {
   app.use(`${API_PREFIX}/members`, doubleCsrfProtection, membersRouter);
   app.use(`${API_PREFIX}/invitations`, doubleCsrfProtection, invitationsRouter);
   app.use(`${API_PREFIX}/widgets`, doubleCsrfProtection, widgetsRouter);
+  app.use(`${API_PREFIX}/contacts`, doubleCsrfProtection, contactsRouter);
+
+  /**
+   * The SSE stream is authenticated but NOT behind the CSRF guard.
+   *
+   * It is a GET that changes nothing, which is precisely the shape CSRF
+   * protection exempts - and EventSource cannot set a custom header, so a token
+   * requirement would make the stream unopenable from a browser rather than
+   * safer. What protects it is the session and the workspace membership check,
+   * which run on connect and again on every heartbeat.
+   */
+  app.use(`${API_PREFIX}/events`, eventsRouter);
 
   /**
    * The public widget surface, mounted outside the versioned API and outside

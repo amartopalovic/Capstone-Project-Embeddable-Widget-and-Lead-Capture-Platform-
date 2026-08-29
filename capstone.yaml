@@ -27,6 +27,7 @@ project:
   authoritative_reference: Embeddable_Widget_Lead_Capture_Blueprint.md
   license: MIT
   repository: TBD # filled_in_by: Stage 14
+  # 8a (inbox backend) is complete; Stage 8 closes with 8b's UI and browser E2E.
   stage_completed: 7
   stages_total: 16
 
@@ -53,7 +54,7 @@ commands:
   test:
     command: npm run test
     description: >-
-      Unit tests, no infrastructure required (204 tests as of Stage 7),
+      Unit tests, no infrastructure required (238 tests as of Stage 8a),
       including the complete section 11 authorization matrix. Integration and
       browser E2E are separate commands.
   test_unit:

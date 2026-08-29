@@ -9,6 +9,7 @@ export * from './outbox-repository.js';
 export * from './widget-repository.js';
 export * from './widget-revision-repository.js';
 export * from './contact-repository.js';
+export * from './contact-activity-repository.js';
 export * from './submission-event-repository.js';
 export * from './consent-event-repository.js';
 export * from './abuse-event-repository.js';

@@ -24,6 +24,7 @@ import {
 } from '@lcp/contracts';
 import type { Clock } from '../../ports/clock.js';
 import type { GeoProvider } from '../../ports/geo-provider.js';
+import type { EventPublisher } from '../../ports/event-publisher.js';
 import { classifySubmission, type AbuseReason } from '../../domain/submission/heuristics.js';
 import { ipPseudonym } from '../../domain/submission/ip-pseudonym.js';
 import { monthStartInZone, submissionQuota } from '../../domain/submission/quota.js';
@@ -89,6 +90,14 @@ export interface SubmissionServiceDeps {
   ) => Promise<{ config: WidgetConfig; revisionNumber: number } | null>;
   readonly geoProviders: readonly GeoProvider[];
   readonly ipHmacSecret: string;
+  /**
+   * Live dashboard fan-out (blueprint 13.1), added in Stage 8a.
+   *
+   * A port, and one that never throws: the announcement happens strictly AFTER
+   * the commit, so a fan-out failure cannot reverse an accepted submission -
+   * the same rule blueprint 12.2 states for the queue.
+   */
+  readonly events: EventPublisher;
   readonly clock: Clock;
   readonly logger: Logger;
 }
@@ -188,7 +197,7 @@ export class SubmissionService {
 
     // --- step 9: one commit --------------------------------------------------
 
-    await this.#commit({
+    const committed = await this.#commit({
       scope,
       widget,
       config: published.config,
@@ -199,6 +208,35 @@ export class SubmissionService {
       pseudonym,
       now,
     });
+
+    // --- step 10: side effects, strictly after the commit --------------------
+
+    /**
+     * Announce the lead to the workspace's live dashboards (blueprint 13.1).
+     *
+     * After the commit, and unable to fail it: the publisher swallows its own
+     * errors, and nothing here is awaited for its result beyond ordering. A
+     * dashboard that misses the announcement still sees the contact on its next
+     * load, because the durable record was written before this line ran.
+     *
+     * Only a NEW contact raises `contact.created`. A repeat submission from an
+     * address already in the inbox updated an existing row, and telling the UI
+     * a contact was created would make it insert a duplicate.
+     */
+    await this.#deps.events.publish(
+      scope.workspaceId.toHexString(),
+      committed.contactCreated ? 'contact.created' : 'contact.updated',
+      {
+        contactId: committed.contactId.toHexString(),
+        submissionEventId: committed.submissionId.toHexString(),
+        widgetId: widget._id.toHexString(),
+        // Structural detail only. The submitted values are never broadcast:
+        // an SSE frame is not the place to re-publish a lead's PII to every
+        // open browser tab, and the client fetches what it needs by id.
+        email: null,
+      },
+      now,
+    );
 
     return { kind: 'accepted', outcome: published.config.success };
   }
@@ -213,20 +251,22 @@ export class SubmissionService {
    * standalone server falls back to sequential writes in the same order, which
    * is the best available answer rather than a silent lie about atomicity.
    */
-  async #commit(input: CommitInput): Promise<void> {
+  async #commit(input: CommitInput): Promise<CommitOutcome> {
     const session = this.#deps.db.client.startSession();
     try {
+      let outcome: CommitOutcome | null = null;
       await session.withTransaction(async () => {
-        await this.#writeAll(input, session);
+        outcome = await this.#writeAll(input, session);
       });
+      if (outcome === null) throw new Error('Commit produced no outcome');
+      return outcome;
     } catch (error) {
       if (isTransactionUnsupported(error)) {
         this.#deps.logger.warn('submission.no_transaction', {
           result: 'degraded',
           reason: 'deployment does not support transactions; writing sequentially',
         });
-        await this.#writeAll(input, null);
-        return;
+        return this.#writeAll(input, null);
       }
       throw error;
     } finally {
@@ -234,7 +274,7 @@ export class SubmissionService {
     }
   }
 
-  async #writeAll(input: CommitInput, session: ClientSession | null): Promise<void> {
+  async #writeAll(input: CommitInput, session: ClientSession | null): Promise<CommitOutcome> {
     const db = this.#deps.db;
     const options = session === null ? {} : { session };
     const { scope, widget, config, revisionNumber, payload, origin, geo, pseudonym, now } = input;
@@ -272,6 +312,7 @@ export class SubmissionService {
           recordStatus: 'active',
           deletedAt: null,
           purgeAfter: null,
+          mergedIntoContactId: null,
           createdAt: now,
           updatedAt: now,
         },
@@ -389,6 +430,8 @@ export class SubmissionService {
       },
       options,
     );
+
+    return { contactId, submissionId, contactCreated: existing === null };
   }
 
   /** Minimal evidence only (blueprint 7.4): never a captured field value. */
@@ -443,6 +486,13 @@ export class SubmissionService {
       });
     }
   }
+}
+
+interface CommitOutcome {
+  readonly contactId: ObjectId;
+  readonly submissionId: ObjectId;
+  /** True when this submission created the Contact rather than updating one. */
+  readonly contactCreated: boolean;
 }
 
 interface CommitInput {

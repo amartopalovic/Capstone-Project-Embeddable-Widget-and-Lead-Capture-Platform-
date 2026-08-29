@@ -2,8 +2,11 @@ import type { Db } from 'mongodb';
 import type Redis from 'ioredis';
 import { createLogger, type Logger } from '@lcp/contracts';
 import {
+  ContactActivityRepository,
+  ContactRepository,
   InvitationRepository,
   MembershipRepository,
+  SubmissionEventRepository,
   UserRepository,
   WidgetRepository,
   WidgetRevisionRepository,
@@ -22,6 +25,8 @@ import { MfaService } from './application/auth/mfa-service.js';
 import { WidgetService } from './application/widget/widget-service.js';
 import { PublicWidgetService } from './application/widget/public-widget-service.js';
 import { SubmissionService } from './application/submission/submission-service.js';
+import { ContactService } from './application/contact/contact-service.js';
+import { RedisEventHub } from './infrastructure/redis/event-hub.js';
 import {
   IpApiGeoProvider,
   IpapiCoGeoProvider,
@@ -71,6 +76,8 @@ export interface AppDependencies {
   readonly widgetService: WidgetService;
   readonly publicWidgetService: PublicWidgetService;
   readonly submissionService: SubmissionService;
+  readonly contactService: ContactService;
+  readonly eventHub: RedisEventHub;
   readonly workspaceService: WorkspaceService;
   readonly membershipService: MembershipService;
   readonly invitationService: InvitationService;
@@ -275,6 +282,16 @@ export function buildDependencies(
       ? [new IpApiGeoProvider(env.geoTimeoutMs), new IpapiCoGeoProvider(env.geoTimeoutMs)]
       : [new NullGeoProvider()]);
 
+  /**
+   * SSE fan-out (blueprint 13.1).
+   *
+   * The subscriber is a DUPLICATE connection, not the shared client: ioredis
+   * documents that a client entering subscriber mode accepts only subscription
+   * commands, so sharing one would break sessions, rate limits, and idempotency
+   * the moment the first dashboard connected.
+   */
+  const eventHub = new RedisEventHub(redis, redis.duplicate(), keys, logger);
+
   const submissionService = new SubmissionService({
     db,
     findWidgetByPublicId: async (publicId: string): Promise<WithId<WidgetRecord> | null> =>
@@ -292,6 +309,17 @@ export function buildDependencies(
     },
     geoProviders,
     ipHmacSecret: env.ipHmacSecret,
+    events: eventHub,
+    clock,
+    logger,
+  });
+
+  const contactService = new ContactService({
+    db,
+    contacts: new ContactRepository(db),
+    activities: new ContactActivityRepository(db),
+    submissions: new SubmissionEventRepository(db),
+    audit: workspaceAudit,
     clock,
     logger,
   });
@@ -332,6 +360,8 @@ export function buildDependencies(
     widgetService,
     publicWidgetService,
     submissionService,
+    contactService,
+    eventHub,
     authService,
     sessionService,
     mfaService,

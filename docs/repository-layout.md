@@ -1,6 +1,6 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 7.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+**Status: Stage 8a.** All nine workspaces exist. `packages/config`, `packages/contracts`,
 `packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
 rest remain deliberate shells until the stage that fills them.
 
@@ -225,6 +225,29 @@ rather than a pseudonym.
 accident. Blueprint 7.4 enumerates what may be stored and says why the list is
 short: proving protection without turning rejected spam into a shadow lead
 database.
+
+### What `apps/server` gained in Stage 8a
+
+| Path                                         | Contents                                                                 |
+| -------------------------------------------- | ------------------------------------------------------------------------ |
+| `src/domain/contact/search.ts`               | Turning an inbox filter into the two queries it actually needs           |
+| `src/domain/contact/cursor.ts`               | Keyset pagination: the position, the sort, and the resume comparison     |
+| `src/domain/contact/bulk.ts`                 | Bulk actions mapped to section 11 capabilities - not a second role table |
+| `src/domain/contact/merge.ts`                | What survives a merge, and why a merge can only ever fill a gap          |
+| `src/application/contact/contact-service.ts` | List, detail, workflow, canonical edits, merge, bulk, trash, export      |
+| `src/application/contact/export.ts`          | Streaming CSV and JSON writers over an allowlist of columns              |
+| `src/infrastructure/redis/event-hub.ts`      | Redis pub/sub fan-out on a dedicated subscriber connection               |
+| `src/http/routes/contacts.ts`                | The inbox API                                                            |
+| `src/http/routes/events.ts`                  | The authenticated workspace-scoped SSE stream                            |
+
+**The filter spans two collections on purpose.** Status, assignee, and tags live on the Contact;
+widget, domain, page URL, geo, and the captured values live on the immutable SubmissionEvent
+(blueprint 4.6). A dimension filter narrows the result and a search term widens it, so the two are
+combined differently rather than both intersected.
+
+**One copy of the policy.** The Owner/Admin-vs-Member bulk split comes from the section 11 matrix
+through `can()`, not from a table written for the inbox. `capabilities.ts` is unchanged in this
+stage.
 
 ### End-to-end tests
 

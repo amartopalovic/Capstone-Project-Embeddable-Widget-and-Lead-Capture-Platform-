@@ -6,3 +6,4 @@ export { migration003Mfa } from './003-mfa.js';
 export { migration004Workspace } from './004-workspace.js';
 export { migration005Widget } from './005-widget.js';
 export { migration006Submissions } from './006-submissions.js';
+export { migration007ContactInbox } from './007-contact-inbox.js';

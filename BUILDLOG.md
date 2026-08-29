@@ -1834,3 +1834,159 @@ were left untouched.
 5. **Consent is recorded as opt-in evidence only.** Double opt-in confirmation and withdrawal are
    Stage 11; the record type already has the event types for them.
 6. **CI has still never run**, because no remote is configured.
+
+---
+
+## Stage 8a - Contact inbox backend: search, lifecycle, merge, export, SSE (2026-08-29)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Blueprint Stage 8, sub-stage 8a of 2. API, persistence, and the SSE stream
+only. No UI - 8b brings the inbox screens, the timeline, bulk-action controls, and browser E2E.
+
+### What was done
+
+- `packages/database`: the `ContactActivity` record and repository, a `merged` lifecycle state and
+  `mergedIntoContactId` on `Contact`, and migration `007_contact_inbox`.
+- `packages/contracts`: the inbox filter, list query, workflow/canonical/merge/bulk/export schemas,
+  the response shapes, and the workspace SSE event contract.
+- `apps/server/src/domain/contact/`: search planning, keyset cursor arithmetic, bulk permission
+  resolution, and merge planning - all pure.
+- `apps/server/src/application/contact/`: the inbox service and the streaming CSV/JSON writers.
+- `apps/server/src/infrastructure/redis/event-hub.ts`: Redis pub/sub fan-out on a dedicated
+  subscriber connection.
+- `apps/server/src/http/routes/contacts.ts` and `events.ts`: fourteen endpoints and one SSE stream.
+
+### Key decisions
+
+1. **Concurrency guards the record's `version`, not an edit-only counter.** One mechanism then
+   prevents two different overwrites: a teammate's concurrent edit bumps the version, and so does a
+   later SUBMISSION, because the Stage 7 upsert increments it. So an edit composed against values a
+   submission has since refreshed is refused rather than silently winning. The check is part of the
+   update FILTER (`findOneAndUpdate` on `{_id, workspaceId, version}`), not a read followed by a
+   write, because those two leave exactly the gap this exists to close. The complementary half -
+   a submission never overwriting an EDITED value - stays `manuallyEditedFields` from Stage 7.
+   Concurrency protects the human from the machine at write time; the field list protects the
+   human's decision permanently.
+2. **Workflow writes are deliberately NOT version-guarded.** Blueprint 9.3 puts optimistic
+   concurrency on "Contact canonical values". Status, assignee, and tags are what every role edits
+   all day, and making two teammates tagging the same lead a 409 would be a worse inbox while
+   protecting nothing. The version still increments, so a canonical edit that raced a workflow
+   change is still caught.
+3. **Cursor shape: base64url of `{v, id}`, compared as a two-clause keyset.** Offset pagination is
+   refused for a reason specific to this product: the inbox is sorted by last submission and new
+   leads arrive while someone is reading it, so `skip` re-shows a row on page 2 that page 1 already
+   showed. The `_id` tiebreaker is doing two jobs - MongoDB's documentation is explicit that `$sort`
+   is not stable and needs a unique field for deterministic order, and that same field is what lets
+   the cursor resume from an exact position inside a group of equal timestamps. The token carries no
+   workspace id; it is opaque to clients, not an authorization input.
+4. **SSE fan-out is Redis pub/sub, on a duplicated connection.** Pub/sub rather than streams because
+   SSE is a live feed and a subscriber that was not connected has no claim on an event it missed;
+   streams would add durable retention nothing consumes and a consumer-group lifecycle per browser
+   tab. The separate connection is a requirement, not tidiness: ioredis documents that a client
+   entering subscriber mode accepts only subscription commands, so sharing the application client
+   would have broken sessions, rate limits, and idempotency the moment the first dashboard
+   connected. Publishing through Redis rather than an in-process emitter means the Stage 9 worker
+   can already reach every dashboard without anything here changing.
+5. **Search is a substring regex, not a text index.** A text index matches whole words with
+   stemming, so "acme" would not find "acmecorp.com" and "smit" would not find "Smith" - both of
+   which are what someone typing into a search box expects. The term is escaped so it cannot act as
+   a pattern, and every query is bounded to one tenant.
+6. **The filter spans two collections, so it is resolved in two steps.** Status, assignee, and tags
+   live on the Contact; widget, domain, page URL, geo, and the captured values live on the immutable
+   event. Event-side dimensions resolve to contact ids first. The two combine differently and the
+   difference matters: a dimension filter NARROWS (intersect), a search term WIDENS (union), because
+   a contact matches if their name matches OR one of their submitted values does.
+7. **A merge only ever fills a gap.** The survivor is named by the caller, per 9.3; what is decided
+   mechanically is per field, and the rule is that a merge can add information and never destroy it.
+   If both have a phone number, the survivor's stays and the duplicate's is still visible in the
+   events being re-linked.
+8. **A merged duplicate is `merged`, not trashed.** Recovering it from the 30-day trash would
+   resurrect a contact whose events now belong to someone else, so it is kept out of the inbox and
+   the recovery list alike. `merged` is a contact-only state rather than a widening of the shared
+   `RecordStatus`, since no other record merges.
+9. **Notes are activity entries, not a field on the Contact.** Blueprint 4.6 says notes belong to
+   the Contact rather than to a submission, which this satisfies while also giving each note an
+   author and a timestamp - a single string field could not say who wrote what.
+10. **The export is an allowlist of columns and is streamed.** Never a record dump: the record
+    carries a version counter, a purge schedule, and a merge pointer that no export should publish,
+    and enumerating what goes out means a field added later is not silently handed to every past
+    consumer. It shares the list's query builder, which is what makes "matches your active filter"
+    structural rather than a promise.
+
+### Where AI failed or was corrected
+
+- **The status filter rejected every real request.** `?status=qualified` returned 400, because the
+  schema accepted only an array and Express parses a parameter that appears once as a STRING. Two
+  integration tests caught it. The schema now accepts both forms and normalises to an array. Worth
+  keeping: the shape a query string actually arrives in is not the shape the TypeScript type
+  suggests.
+- **The CSV formula guard could be stripped by the reader.** A value starting with `=` was prefixed
+  with a tab but left unquoted, and several CSV parsers strip leading whitespace - which would have
+  removed the guard and handed the formula straight back to the spreadsheet. Guarded values are now
+  always quoted.
+- **A NUL byte ended up in the service source.** A tag-set comparison had been written as
+  `next.join(sep) !== previous.sort().join(sep)` with a literal NUL as the separator, which made
+  `grep` treat the whole file as binary. Replaced with an element-wise comparison that needs no
+  separator at all - which is also more correct, since any separator character can appear inside a
+  tag and make two different sets compare equal.
+- **`http/app.ts` was moved to `infrastructure/app.ts` outside of my edits**, breaking every route
+  import and `src/index.ts`. Caught by `typecheck` immediately after a clean run, so the cause was
+  narrow. Moved back; the Stage 8a edits in it were intact.
+- **My SSE test parser counted the protocol preamble as an event.** The stream opens with
+  `retry: 3000`, which has no `data:` line; a test waiting for "any frame" therefore finished before
+  the real event arrived, and reported the wrong reason. The parser now ignores frames without data.
+- **`typescript-lsp` went stale again**, reporting line numbers from before an edit and omitting a
+  function that had just been added. Same workaround as previous stages: kill the language-server
+  process, let it respawn, re-run. `tsc` stayed the authority while editing.
+
+### Verification performed
+
+```
+npm run lint               exit 0
+npm run format:check       All matched files use Prettier code style!
+npm run typecheck          exit 0
+npm run build              exit 0
+npm test                   Test Files 12 passed (12)   Tests 238 passed (238)
+npm run test:integration   Test Files 10 passed (10)   Tests 209 passed (209)
+npm run migrate            applied 1, skipped 6, then applied 0, skipped 7 on a second run
+```
+
+Migration 007's indexes were read back from the real database rather than assumed; see EVIDENCE
+Part D-detail. No browser E2E was required this sub-stage - there is no UI in it - and the existing
+72 browser tests were left untouched.
+
+### Plugin usage this stage
+
+- **`typescript-lsp` - worked.** Used for navigation across the new service and, more usefully, to
+  verify a claim rather than assert it: go-to-definition on the `can()` call in the bulk-permission
+  module resolves to `domain/workspace/capabilities.ts:115`, proving the Owner/Admin-vs-Member
+  split comes from the section 11 matrix and not from a second table written for bulk. It went
+  stale once (above) and was restarted for a clean final pass.
+- **`context7` - consulted three times, all load-bearing.** ioredis's documentation established that
+  a connection entering subscriber mode accepts only subscription commands, which is why the event
+  hub takes a duplicated connection rather than the shared client - a detail that would have
+  surfaced as sessions breaking under load rather than as an obvious error. MongoDB's documentation
+  confirmed that `$sort` is not a stable sort and that a unique field must be included for
+  deterministic ordering, which is the justification for the four-part indexes in migration 007.
+  Node's stream documentation confirmed that `pipeline` applies backpressure and propagates errors
+  when the source is an async generator, which is how the export avoids buffering.
+- **`frontend-design` - available, deliberately not invoked.** There is no UI in this sub-stage.
+
+### Open questions for a human
+
+1. **Nothing consumes the outbox still.** A lead now arrives live on the dashboard stream, but no
+   email or webhook is sent (Stage 9).
+2. **The reconnect replay buffer is process-local**, holding 50 events per workspace. Correct for
+   one web process, which is what version 1 deploys; a second process would need the buffer moved
+   into Redis, at which point a stream is the better structure than pub/sub.
+3. **Membership revocation is enforced within one heartbeat** (25 seconds) rather than instantly.
+   A revocation channel would close that window; it costs a second subscription per workspace and
+   the exposure is bounded and small, so it is deliberately deferred.
+4. **Search resolves at most 5,000 matching events per query.** Ample at portfolio scale, and the
+   cap is what keeps a broad search from becoming an unbounded id list, but a large workspace would
+   want the search moved into an aggregation rather than a two-step resolve.
+5. **Trashed contacts are marked with `purgeAfter` but never swept.** The 30-day promise is
+   recorded; executing it is Stage 11's retention automation.
+6. **The widget's form still posts nowhere.** Wiring the Stage 6 runtime's typed seam to the Stage 7
+   endpoint belongs with 8b, where the resulting lead is visible in the inbox.
+7. **CI has still never run**, because no remote is configured.

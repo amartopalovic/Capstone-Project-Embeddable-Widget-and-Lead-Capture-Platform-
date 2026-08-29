@@ -160,6 +160,21 @@ test results, remaining limitations, and confirmation of the exit gate.
   - **Goal:** Turn accepted submissions into a usable collaborative lead workspace.
   - **Exit gate:** Role-aware E2E journeys pass; export matches active filters; live arrival is
     workspace-isolated.
+  - [x] **8a — Inbox backend: search, lifecycle, merge, export, SSE** _(2026-08-29)_
+    - Search across names, emails, and captured submission values; filters for status, date,
+      widget, domain, page URL, assignee, tag, country, and city; deterministic sorting and
+      keyset cursor pagination.
+    - Canonical edits under optimistic concurrency, so neither a teammate nor a later submission
+      can silently overwrite one; merge that re-links events, activities, and consent evidence and
+      retires the duplicate with an audit trail.
+    - Bulk actions resolved through the section 11 matrix rather than a second role table, 30-day
+      contact trash with recovery, and a streaming CSV/JSON export that matches the caller's active
+      filter exactly.
+    - One authenticated workspace-scoped SSE stream over Redis pub/sub, with heartbeats,
+      server-set reconnect backoff, a last-event cursor, and membership rechecked at connect and
+      on every heartbeat.
+    - **No new capability names and no matrix edits**; `capabilities.ts` is unchanged.
+  - [ ] **8b — Inbox UI, timeline, bulk actions, and browser E2E** _(not started)_
 
 - [ ] **Stage 9 — Reliable email, webhooks, and delivery operations**
   - **Goal:** Complete failure-safe side effects without weakening the submission path.
