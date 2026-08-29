@@ -50,6 +50,7 @@ import type { EmailSender } from '../../ports/email-sender.js';
 import type { WebhookClient } from '../../ports/webhook-client.js';
 import type { SecretCipher } from '../../ports/secret-cipher.js';
 import type { Clock } from '../../ports/clock.js';
+import type { EventPublisher } from '../../ports/event-publisher.js';
 
 /**
  * The side-effect engine (blueprint 12.1-12.4).
@@ -85,6 +86,14 @@ export interface DeliveryServiceDeps {
   readonly clock: Clock;
   readonly logger: Logger;
   readonly appBaseUrl: string;
+  /**
+   * Live dashboard fan-out (blueprint 13.1), added in Stage 10a.
+   *
+   * A port that never throws: a delivery's outcome is already durable in Mongo
+   * before this is called, so a fan-out failure must not turn a recorded
+   * attempt into a thrown one.
+   */
+  readonly events: EventPublisher;
 }
 
 export type DeliveryExecution =
@@ -283,6 +292,7 @@ export class DeliveryService {
         { attempt: attemptNumber, at: now, outcome: 'delivered', detail: 'ok', statusCode: null },
         { status: 'delivered', nextAttemptAt: null, deliveredAt: now, lastError: null },
       );
+      await this.#announce(scope, delivery, 'delivered', attemptNumber, now);
       await this.#settleOutbox(scope, delivery);
       return;
     }
@@ -312,6 +322,7 @@ export class DeliveryService {
           lastError: execution.reason,
         },
       );
+      await this.#announce(scope, delivery, 'delayed', delivery.attempts, now);
       return;
     }
 
@@ -333,6 +344,8 @@ export class DeliveryService {
       lastError: execution.detail,
     });
 
+    await this.#announce(scope, delivery, status, attemptNumber, now);
+
     if (!retrying) {
       this.#deps.logger.warn('delivery.terminal', {
         result: 'server_error',
@@ -345,6 +358,35 @@ export class DeliveryService {
       });
       await this.#settleOutbox(scope, delivery);
     }
+  }
+
+  /**
+   * Tell the workspace's open dashboards that a delivery moved
+   * (blueprint 13.1: "delivery status changed").
+   *
+   * Structural detail only - the id, the kind, the state, and the attempt
+   * count. The masked target is deliberately left out: an SSE frame reaches
+   * every open tab in the workspace, and a recipient address does not need to
+   * be broadcast to be useful there. The dashboard fetches what it needs by id.
+   */
+  async #announce(
+    scope: WorkspaceScope,
+    delivery: WithId<DeliveryRecord>,
+    status: DeliveryStatus,
+    attempts: number,
+    now: Date,
+  ): Promise<void> {
+    await this.#deps.events.publish(
+      scope.workspaceId.toHexString(),
+      'delivery.status_changed',
+      {
+        deliveryId: delivery._id.toHexString(),
+        type: delivery.type,
+        status,
+        attempts,
+      },
+      now,
+    );
   }
 
   /**

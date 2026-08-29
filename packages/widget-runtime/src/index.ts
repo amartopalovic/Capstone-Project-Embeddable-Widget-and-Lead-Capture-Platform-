@@ -55,6 +55,9 @@ export class WidgetRegistry {
       const instance = new WidgetInstance({
         response,
         anchor: document.querySelector(`script[data-widget="${CSS.escape(entry.publicId)}"]`),
+        // Funnel events go back to the origin the config came from, so a
+        // self-hosted deployment needs no second base URL to configure.
+        apiBase: entry.apiBase,
       });
 
       if (instance.start()) this.#instances.set(entry.publicId, instance);

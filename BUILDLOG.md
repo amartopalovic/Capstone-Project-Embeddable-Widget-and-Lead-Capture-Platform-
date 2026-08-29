@@ -2293,3 +2293,158 @@ running without.
 5. **Nothing purges delivery rows early.** The 90-day TTL index handles retention, but a workspace
    deleted tomorrow leaves its delivery history until the TTL catches up (Stage 11).
 6. **CI has still never run**, because no remote is configured.
+
+---
+
+## Stage 10a - Interaction-event ingestion, aggregation, and live-update backend (2026-08-29)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Blueprint Stage 10, sub-stage 10a of 2. Backend only - no dashboards, which
+are 10b. Stage 10 stays open on the checklist.
+
+### What was done
+
+- `packages/database`: `InteractionEvent` and `DailyAnalytics` records with their repositories, and
+  migration `009_analytics`.
+- `packages/contracts`: the event batch schema, the aggregate DTOs 10b will consume, and the two new
+  SSE payload shapes.
+- `apps/server/src/domain/analytics/`: the five funnel formulas and the rotating visitor pseudonym -
+  both pure.
+- `apps/server/src/application/analytics/`: ingestion, aggregation, and the retention sweep.
+- `POST /widget/v1/events/:publicId` with CORS preflight, on the Stage 7 hardening pattern.
+- `packages/widget-runtime`: funnel instrumentation at the five lifecycle points.
+- `usage.changed` and `delivery.status_changed` added to the Stage 8a hub, completing 13.1.
+- Both monthly meters, which had reported `null` since Stage 4a, now count for real.
+
+### Key decisions
+
+1. **Expiry is a sweep with a precondition, not a TTL index.** Blueprint 9.2 describes the raw
+   events as having "automatic expiry after 90 days", which reads like a TTL. 4.9 is more specific:
+   they are "removed after daily aggregates are produced". A TTL deletes on a clock alone and cannot
+   check that, so a week of failed aggregation would become a week of destroyed data. The sweep
+   aggregates first, confirms the aggregate exists, and refuses the day otherwise. This is the one
+   place I read two blueprint sections as being in tension and followed the more specific one.
+2. **Aggregation recomputes and upserts rather than incrementing.** A retried BullMQ job and an
+   operator re-running a day are both ordinary; an increment-based aggregator would corrupt a
+   workspace's history on either. Recompute-and-upsert onto the unique key makes running it three
+   times produce the same numbers, which a test asserts directly.
+3. **`localDay` is stored at write time, not derived at aggregation time.** A workspace in Auckland
+   and one in Los Angeles disagree about which day an instant falls in, and recomputing that during
+   a sweep would mean re-reading every workspace's timezone for every event. Fixing it at ingest
+   also means a workspace that later changes its timezone does not silently rewrite its own history.
+4. **A zero denominator is `null`, never `0`.** A rate of 0 asserts "people saw it and nobody
+   acted"; a day with no impressions supports no such claim. Returning 0 would make an untouched
+   widget look like a failing one and drag any average that included it downward. 10b has to render
+   "no data" because the type gives it no choice.
+5. **Ranges sum counts before dividing, never average rates.** Averaging four days of percentages
+   gives a quiet Sunday with one impression the same weight as a Monday with a thousand. A test
+   contrasts the two answers - 0.55 against 0.10 for the same data - so the reason is on record.
+6. **The visitor pseudonym is domain-separated AND per widget.** Both pseudonyms derive from the
+   same secret and the same address; without a distinct subkey label they would be identical
+   strings, and joining the analytics and abuse collections would reunite "who browsed" with "who
+   was rate limited". The widget id goes inside the HMAC so one visitor does not carry a single
+   identifier across every customer's site - blueprint 21 asks for that by name.
+7. **The server timestamps every event.** `observedAt` from the client is advisory and unused. A
+   client clock would let a caller backdate events into a day that has already been aggregated and
+   expired, which is both a correctness hole and a way to write rows the sweep has already passed.
+8. **The endpoint answers a uniform 202.** Unknown widget, unpublished widget, disallowed Origin,
+   over quota, and throttled all look identical. A widget has nothing useful to do with the
+   difference, and distinguishing them would make a public id a widget-enumeration oracle. A
+   malformed BATCH is the one exception and returns 400, because that is a caller's bug rather than
+   a limit and a silent 202 would hide it from whoever has to fix it.
+9. **`usage.changed` fires per submission but only per hundred interaction events.** 2,000 a month
+   is a bounded number somebody watching their quota wants to see move; 20,000 is not, and
+   broadcasting each one would spend Redis commands and browser wake-ups on a number changing by
+   one. The boundary check costs nothing because both figures are already in hand.
+10. **Open-eligibility is read from the published config, not the widget type.** An inline form is
+    permanently visible and has no open action, so its impressions must stay out of the open-rate
+    denominator - but a contact form in `modal` mode genuinely opens. Inferring from type alone
+    would have reported every modal form's open rate as "no data".
+
+### Where AI failed or was corrected
+
+- **I nearly shipped a TTL index.** My first migration had `expireAfterSeconds` on
+  `interaction_events`, straight from 9.2's wording, which would have deleted raw events on a
+  schedule with no regard for whether they had been aggregated. Caught while writing the retention
+  test, when the assertion I wanted to make - "the aggregate survives" - turned out to be
+  unprovable, because nothing guaranteed the aggregate existed first.
+- **The MutableClock trap, again.** The expiry test aged events by `Date.now() - 91 days` while the
+  service computes its cutoff from the injected clock, which sits a day behind the wall clock. The
+  two landed hours either side of the boundary and the sweep correctly deleted nothing - a test
+  failing for a reason unrelated to the rule it was checking. Stage 7 hit this exact shape. The test
+  now measures from `harness.clock`.
+- **A weak test I rewrote rather than kept.** My first attempt at the retention precondition tried
+  to force aggregation to fail and ended up asserting a tautology. Aggregation cannot really fail
+  for a day that has rows, so the honest test is the ORDER: a day reaching the cutoff with no
+  aggregate must come out of the sweep with one carrying the right counts, which proves the raw
+  events were read before they were removed.
+- **My own arithmetic.** I asserted 9 raw events for four batches that contain 8.
+- **A name collision in a dependency bag.** `events` was already the interaction-event repository
+  when I added the SSE publisher under the same name; `tsc` caught it, but the fix was to rename
+  rather than to nest, because two very different things called the same name in one object is how a
+  wrong wiring survives review.
+- **Two tests broke, correctly, and both for the same reason.** A Stage 4a integration test and a
+  Stage 5b browser test each asserted that the monthly meters report "not counted yet" - the honest
+  answer while the data behind them did not exist. Stage 10a measures them, so zero is now the
+  truthful answer for an empty workspace. Both were updated to the new truth rather than weakened.
+  The browser one also surfaced dead copy: the dashboard still carried "Counted once submissions
+  exist" as its placeholder, which had gone from honest to false the moment the meter became real,
+  so the fallback text was corrected too.
+
+### Verification performed
+
+```
+npm run lint               exit 0
+npm run format:check       All matched files use Prettier code style!
+npm run typecheck          exit 0
+npm run build              exit 0
+npm test                   Test Files 14 passed (14)   Tests 317 passed (317)
+npm run test:integration   Test Files 12 passed (12)   Tests 260 passed (260)
+npm run migrate            applied 1, skipped 8
+```
+
+**The E2E database needed migrating too, and I forgot.** `npm run migrate` targets the development
+database; `leadcapture_e2e` is a separate one, and it was still at 007 while the code assumed 009. A
+browser run failed once at widget publish with a server-side `MongoServerError`, the E2E database
+turned out to be two migrations behind, and the test passed after applying them
+(`applied 2, skipped 7`). I could not reproduce the failure afterwards, so I cannot state with
+certainty that the missing indexes caused it - only that the gap was real, that it is now closed,
+and that a stale test database is exactly the kind of thing that produces an unreproducible failure.
+Stage 8b found the same environment behind in a different way; the pattern is that a new migration
+needs applying to BOTH databases, and nothing currently enforces that.
+
+The widget runtime changed, so the browser suite was re-run even though this sub-stage's gate does
+not require it. The runtime bundle grew from 13.6 KB to 15.1 KB raw (5.5 KB to 6.0 KB gzipped),
+still inside the 20 KB / 8 KB budgets blueprint 8.3 sets.
+
+### Plugin usage this stage
+
+- **`typescript-lsp` - worked.** Used for navigation across the new analytics modules and for a
+  clean diagnostics pass; document symbols matched disk exactly on the final check. No staleness
+  this time.
+- **`context7` - not consulted.** The stage brief said to use it for BullMQ or Redis API questions
+  "if they arise". None did: Stage 9 had already established `upsertJobScheduler` as the current
+  scheduling API and the pub/sub subscriber-connection rule, and this stage reused both patterns
+  unchanged rather than meeting anything new.
+- **`frontend-design` - confirmed available, deliberately not invoked.** There is no UI in this
+  sub-stage. It was used substantively in Stages 8b and 9, so its availability is not in question;
+  inventing a UI change to justify calling it is exactly what the brief said not to do.
+
+### Open questions for a human
+
+1. **Geo slices are empty for interaction events.** The country and city dimensions are computed and
+   indexed, but the ingest path calls no geo provider: 20,000 events a month per workspace would
+   exhaust ip-api's free tier on telemetry alone. Those slices are populated from submissions today,
+   which is the smaller and more valuable set.
+2. **`status conversion` has no inputs yet.** The formula is implemented and unit-tested; computing
+   the cohort from Contact status is 10b's work when it renders the metric.
+3. **The `submission` funnel event fires at the runtime's form seam**, which still does not post a
+   real submission. It records the visitor reaching the stage rather than an accepted lead, and the
+   two will only agree once that seam is wired.
+4. **Nothing proves the hourly schedule fires.** The sweep is a BullMQ job scheduler registered when
+   workers start in-process; the tests call it directly for determinism.
+5. **The distinct-visitor count is per day, per slice.** Rolling a week's `visitors` into a single
+   figure would double-count somebody who returned - the aggregate keeps a count rather than the
+   pseudonyms, deliberately, so a weekly unique-visitor number is not derivable and should not be
+   presented as one in 10b.
+6. **CI has still never run**, because no remote is configured.

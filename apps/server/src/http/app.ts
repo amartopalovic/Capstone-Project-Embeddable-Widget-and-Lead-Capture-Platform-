@@ -113,6 +113,8 @@ export function createApp(options: CreateAppOptions): Express {
   const publicWidgetRouter = createPublicWidgetRouter({
     widgets: deps.publicWidgetService,
     submissions: deps.submissionService,
+    analytics: deps.analyticsService,
+    ipHmacSecret: env.ipHmacSecret,
     limiter: deps.rateLimiter,
     logger: deps.logger,
     publicBaseUrl: env.appBaseUrl,

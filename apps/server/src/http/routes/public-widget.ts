@@ -5,8 +5,10 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import {
   ERROR_CODES,
+  EVENT_MAX_BODY_BYTES,
   SUBMISSION_MAX_BODY_BYTES,
   createErrorPayload,
+  interactionBatchSchema,
   submissionPayloadSchema,
   validate,
   type Logger,
@@ -15,7 +17,12 @@ import express from 'express';
 import type { PublicWidgetService } from '../../application/widget/public-widget-service.js';
 import type { SubmissionService } from '../../application/submission/submission-service.js';
 import type { RateLimiter } from '../../ports/rate-limiter.js';
-import { SUBMISSION_RATE_RULES } from '../../infrastructure/redis/rate-limiter.js';
+import {
+  INTERACTION_RATE_RULES,
+  SUBMISSION_RATE_RULES,
+} from '../../infrastructure/redis/rate-limiter.js';
+import type { AnalyticsService } from '../../application/analytics/analytics-service.js';
+import { visitorPseudonym } from '../../domain/analytics/visitor-pseudonym.js';
 
 /**
  * The public widget surface: loader, runtime, and config (blueprint 7.2, 8.2).
@@ -82,6 +89,9 @@ export function loadRuntimeAsset(): RuntimeAsset | null {
 export interface PublicWidgetRouterDeps {
   readonly widgets: PublicWidgetService;
   readonly submissions: SubmissionService;
+  readonly analytics: AnalyticsService;
+  /** Shared with the submission path; the visitor pseudonym is derived here. */
+  readonly ipHmacSecret: string;
   readonly limiter: RateLimiter;
   readonly logger: Logger;
   /** Absolute origin the loader points at, e.g. https://app.example.com. */
@@ -90,7 +100,7 @@ export interface PublicWidgetRouterDeps {
 
 export function createPublicWidgetRouter(deps: PublicWidgetRouterDeps): Router {
   const router = Router();
-  const { widgets, submissions, limiter, logger, publicBaseUrl } = deps;
+  const { widgets, submissions, analytics, limiter, logger, publicBaseUrl } = deps;
 
   const runtime = loadRuntimeAsset();
   if (runtime === null) {
@@ -360,6 +370,119 @@ export function createPublicWidgetRouter(deps: PublicWidgetRouterDeps): Router {
             fail(ERROR_CODES.QUOTA_EXCEEDED, 'This form is temporarily unavailable', 429);
             return;
         }
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  // -------------------------------------------------------------- events
+
+  router.options('/events/:publicId', (request, response) => {
+    const origin = request.get('origin');
+    response.set('Vary', 'Origin');
+    if (origin !== undefined) response.set('Access-Control-Allow-Origin', origin);
+    response.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    response.set('Access-Control-Allow-Headers', 'content-type');
+    response.set('Access-Control-Max-Age', '600');
+    response.status(204).end();
+  });
+
+  /**
+   * The public interaction-event endpoint (blueprint 13.2 step 1).
+   *
+   * Same hardening discipline as the submission path, because it has the same
+   * exposure: unauthenticated, cross-origin, and reachable by anyone who can
+   * read a public widget id. Origin allowlist, published-state check, body
+   * limit, schema, rate limits, and workspace quota - in that order, so the
+   * cheapest refusal happens first.
+   *
+   * The answer is uniform and always 202. A widget has nothing useful to do
+   * with the difference between "stored", "over quota", and "throttled", and
+   * telling a caller which of their events were counted is a free measurement
+   * of our own limits. It also means a browser never sees an error for
+   * telemetry, which would put a red line in a customer's console for something
+   * that is not their problem.
+   */
+  router.post(
+    '/events/:publicId',
+    express.json({ limit: EVENT_MAX_BODY_BYTES }),
+    async (request, response, next) => {
+      const origin = request.get('origin');
+      const publicId = String(request.params.publicId ?? '');
+      response.set('Vary', 'Origin');
+
+      /** One writer for the answer, so the paths cannot drift apart. */
+      const ack = (accepted: number): void => {
+        if (origin !== undefined) response.set('Access-Control-Allow-Origin', origin);
+        response.status(202).json({ status: 'received', accepted });
+      };
+
+      try {
+        const parsed = validate(interactionBatchSchema, request.body);
+        if (!parsed.ok) {
+          // A malformed batch is the one case worth answering distinctly: it is
+          // a bug in a caller rather than a limit, and a silent 202 would hide
+          // it from whoever has to fix it.
+          if (origin !== undefined) response.set('Access-Control-Allow-Origin', origin);
+          response
+            .status(400)
+            .json(
+              createErrorPayload(
+                ERROR_CODES.VALIDATION_FAILED,
+                'Check the submitted events',
+                request.correlationId,
+                parsed.errors as never,
+              ),
+            );
+          return;
+        }
+
+        const resolved = await widgets.resolveForPublic(publicId, origin);
+        if (resolved.kind !== 'ok') {
+          // Not found, unpublished, or a disallowed Origin all answer the same
+          // way: a public id is not an authorization, and distinguishing them
+          // would turn this endpoint into a widget-enumeration oracle.
+          ack(0);
+          return;
+        }
+
+        /**
+         * The raw address is used transiently to derive the pseudonym and then
+         * discarded (blueprint 9.4). The rate limiter keys on the pseudonym
+         * rather than the address, so nothing downstream ever needs the IP.
+         */
+        const ip = request.ip ?? 'unknown';
+        const pseudonym = visitorPseudonym(deps.ipHmacSecret, ip, publicId, new Date());
+
+        for (const rule of [
+          {
+            rule: INTERACTION_RATE_RULES.perVisitorWidgetMinute,
+            id: `${publicId}:${pseudonym.value}`,
+          },
+          { rule: INTERACTION_RATE_RULES.perWidgetMinute, id: publicId },
+        ]) {
+          const decision = await limiter.consume(rule.rule, rule.id);
+          if (!decision.allowed) {
+            ack(0);
+            return;
+          }
+        }
+
+        const outcome = await analytics.ingest({
+          widget: resolved.widget,
+          workspace: resolved.workspace,
+          origin: origin ?? '',
+          ip,
+          events: parsed.data.events,
+          // Geo enrichment is a submission-path concern: it costs a provider
+          // call per request, and 20,000 events a month per workspace would
+          // exhaust a free tier on telemetry alone. Country/city slices come
+          // from the events that carry geo through their submission.
+          geo: null,
+        });
+
+        ack(outcome.kind === 'accepted' ? outcome.stored : 0);
       } catch (error) {
         next(error);
       }

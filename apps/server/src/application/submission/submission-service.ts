@@ -258,6 +258,20 @@ export class SubmissionService {
      */
     await this.#deps.dispatchOutbox(scope.workspaceId, committed.outboxId);
 
+    /**
+     * The submissions meter moved (blueprint 13.1, 4.10).
+     *
+     * Announced per accepted submission rather than per hundred, unlike the
+     * interaction meter: 2,000 a month is a bounded, low-frequency number, and
+     * a workspace watching its quota wants to see it move.
+     */
+    await this.#deps.events.publish(
+      scope.workspaceId.toHexString(),
+      'usage.changed',
+      { meter: 'submissions', submissionsThisMonth: quota.used + 1, limit: quota.limit },
+      now,
+    );
+
     return { kind: 'accepted', outcome: published.config.success };
   }
 

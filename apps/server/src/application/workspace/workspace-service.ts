@@ -18,6 +18,7 @@ import type {
   WorkspaceRepositoryPort,
 } from './types.js';
 import type { Clock } from '../../ports/clock.js';
+import { monthStartInZone } from '../../domain/submission/quota.js';
 import { isValidTimezone } from '../../domain/workspace/timezone.js';
 import { purgeDeadline } from '../../domain/workspace/retention.js';
 
@@ -44,6 +45,11 @@ export type RecoverOutcome =
   | { readonly kind: 'not_found' }
   | { readonly kind: 'window_expired' };
 
+/** Counts a workspace's records since an instant, for a monthly meter. */
+export interface MonthlyCountPort {
+  countSince(scope: WorkspaceScope, since: Date): Promise<number>;
+}
+
 export interface WorkspaceServiceDeps {
   readonly workspaces: WorkspaceRepositoryPort;
   readonly memberships: MembershipRepositoryPort;
@@ -56,6 +62,15 @@ export interface WorkspaceServiceDeps {
    * dependency direction honest under blueprint 6.2.
    */
   readonly widgets: WidgetCountPort;
+  /**
+   * The two monthly meters (blueprint 4.10), added in Stage 10a.
+   *
+   * Narrow ports rather than the repositories themselves: this service needs
+   * exactly one method from each, and depending on the whole repository would
+   * let a later change reach into submissions from the workspace service.
+   */
+  readonly submissionEvents: MonthlyCountPort;
+  readonly interactionEvents: MonthlyCountPort;
   readonly audit: WorkspaceAuditPort;
   readonly clock: Clock;
   readonly logger: Logger;
@@ -309,15 +324,37 @@ export class WorkspaceService {
    * quietly assert the first. Stage 5a made the widget meter real; Stages 7
    * and 10 do the same for the other two.
    */
+  /**
+   * The four usage meters (blueprint 4.10).
+   *
+   * The two monthly meters were `null` - "not measured yet" - until the data
+   * they count existed. Stage 10a fills them in, and the boundary they count
+   * from is the WORKSPACE's month, not UTC and not the server's: 4.10 says
+   * "Monthly boundaries use the workspace timezone", so a workspace in Auckland
+   * resets roughly half a day before one in UTC would.
+   *
+   * `monthStartInZone` is the same function the submission and interaction
+   * quotas enforce with, so what the meter shows and what the gate refuses can
+   * never disagree about when the month turned.
+   */
   async usage(scope: WorkspaceScope): Promise<WorkspaceUsage> {
-    const users = await this.#deps.memberships.count(scope);
-    const activeWidgets = await this.#deps.widgets.countActive(scope);
+    const workspace = await this.#deps.workspaces.findInScope(scope);
+    const timezone = workspace?.timezone ?? 'UTC';
+    const monthStart = monthStartInZone(this.#deps.clock.now(), timezone);
+
+    const [users, activeWidgets, submissions, interactions] = await Promise.all([
+      this.#deps.memberships.count(scope),
+      this.#deps.widgets.countActive(scope),
+      this.#deps.submissionEvents.countSince(scope, monthStart),
+      this.#deps.interactionEvents.countSince(scope, monthStart),
+    ]);
+
     return {
       users: { used: users, limit: WORKSPACE_LIMITS.users },
       activeWidgets: { used: activeWidgets, limit: WORKSPACE_LIMITS.activeWidgets },
-      submissionsThisMonth: { used: null, limit: WORKSPACE_LIMITS.submissionsPerMonth },
+      submissionsThisMonth: { used: submissions, limit: WORKSPACE_LIMITS.submissionsPerMonth },
       interactionEventsThisMonth: {
-        used: null,
+        used: interactions,
         limit: WORKSPACE_LIMITS.interactionEventsPerMonth,
       },
     };

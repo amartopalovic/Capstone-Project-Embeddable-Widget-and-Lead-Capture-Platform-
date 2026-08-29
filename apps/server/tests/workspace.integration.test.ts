@@ -812,12 +812,19 @@ describe('usage meters (blueprint 4.10)', () => {
     expect(usage.activeWidgets.used).toBe(0);
     expect(usage.activeWidgets.limit).toBe(10);
 
-    // Submissions are still genuinely unmeasured, and null says so. Fabricating
-    // a zero would assert "none have arrived yet", which is a different claim
-    // from "this is not counted yet" (Stage 7).
-    expect(usage.submissionsThisMonth.used).toBeNull();
-    expect(usage.interactionEventsThisMonth.used).toBeNull();
+    /**
+     * Both monthly meters became REAL in Stage 10a.
+     *
+     * They reported `null` - "not counted yet" - while the data behind them did
+     * not exist, which was a different and more honest claim than a fabricated
+     * zero. Now that submissions and interaction events are both counted
+     * against the workspace's own month boundary, zero is the truthful answer
+     * for a workspace that has had neither.
+     */
+    expect(usage.submissionsThisMonth.used).toBe(0);
+    expect(usage.interactionEventsThisMonth.used).toBe(0);
     expect(usage.submissionsThisMonth.limit).toBe(2000);
+    expect(usage.interactionEventsThisMonth.limit).toBe(20_000);
   }, 240_000);
 });
 

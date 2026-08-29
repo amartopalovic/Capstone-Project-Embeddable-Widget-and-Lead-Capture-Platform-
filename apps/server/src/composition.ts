@@ -4,7 +4,9 @@ import { createLogger, type Logger } from '@lcp/contracts';
 import {
   ContactActivityRepository,
   ContactRepository,
+  DailyAnalyticsRepository,
   DeliveryRepository,
+  InteractionEventRepository,
   InvitationRepository,
   MembershipRepository,
   NotificationRecipientRepository,
@@ -30,6 +32,7 @@ import { WidgetService } from './application/widget/widget-service.js';
 import { PublicWidgetService } from './application/widget/public-widget-service.js';
 import { SubmissionService } from './application/submission/submission-service.js';
 import { ContactService } from './application/contact/contact-service.js';
+import { AnalyticsService } from './application/analytics/analytics-service.js';
 import { DeliveryService } from './application/delivery/delivery-service.js';
 import { DeliveryAdminService } from './application/delivery/delivery-admin-service.js';
 import { DeliveryWorkers } from './application/delivery/delivery-worker.js';
@@ -90,6 +93,7 @@ export interface AppDependencies {
   readonly publicWidgetService: PublicWidgetService;
   readonly submissionService: SubmissionService;
   readonly contactService: ContactService;
+  readonly analyticsService: AnalyticsService;
   readonly deliveryService: DeliveryService;
   readonly deliveryAdminService: DeliveryAdminService;
   readonly deliveryWorkers: DeliveryWorkers;
@@ -251,6 +255,8 @@ export function buildDependencies(
     memberships: membershipRepository,
     users: userRepository,
     widgets: widgetRepository,
+    submissionEvents: new SubmissionEventRepository(db),
+    interactionEvents: new InteractionEventRepository(db),
     audit: workspaceAudit,
     clock,
     logger,
@@ -316,6 +322,18 @@ export function buildDependencies(
    */
   const eventHub = new RedisEventHub(redis, redis.duplicate(), keys, logger);
 
+  const analyticsService = new AnalyticsService({
+    db,
+    events: new InteractionEventRepository(db),
+    daily: new DailyAnalyticsRepository(db),
+    // The same master secret the submission path uses; the visitor pseudonym
+    // is domain-separated from the IP pseudonym by its own subkey label.
+    ipHmacSecret: env.ipHmacSecret,
+    publisher: eventHub,
+    clock,
+    logger,
+  });
+
   const deliveryRepository = new DeliveryRepository(db);
   const outboxRepository = new OutboxRepository(db);
   const recipientRepository = new NotificationRecipientRepository(db);
@@ -362,6 +380,7 @@ export function buildDependencies(
     clock,
     logger,
     appBaseUrl: env.appBaseUrl,
+    events: eventHub,
   });
 
   const deliveryAdminService = new DeliveryAdminService({
@@ -384,6 +403,7 @@ export function buildDependencies(
   const deliveryWorkers = new DeliveryWorkers({
     registry: queues,
     deliveries: deliveryService,
+    analytics: analyticsService,
     logger,
   });
 
@@ -410,6 +430,7 @@ export function buildDependencies(
   if (overrides.startWorkers === true) {
     deliveryWorkers.start(outboxReconciler);
     void deliveryWorkers.scheduleReconciliation();
+    void deliveryWorkers.scheduleAnalytics();
   }
 
   const submissionService = new SubmissionService({
@@ -484,6 +505,7 @@ export function buildDependencies(
     publicWidgetService,
     submissionService,
     contactService,
+    analyticsService,
     deliveryService,
     deliveryAdminService,
     deliveryWorkers,

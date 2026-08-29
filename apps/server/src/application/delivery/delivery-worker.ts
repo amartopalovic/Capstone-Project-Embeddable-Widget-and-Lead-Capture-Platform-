@@ -44,6 +44,21 @@ export interface DeliveryWorkerDeps {
   readonly registry: QueueRegistry;
   readonly deliveries: DeliveryService;
   readonly logger: Logger;
+  /**
+   * The analytics sweep (blueprint 13.2 steps 3 and 5), added in Stage 10a.
+   *
+   * Runs on the same worker registry rather than its own process: blueprint
+   * 12.1 puts every queue family in the web process, and a second scheduler
+   * would be a second thing to deploy for one recurring job.
+   */
+  readonly analytics: {
+    aggregatePending(limit?: number): Promise<{ days: number; slices: number }>;
+    expireRawEvents(limit?: number): Promise<{
+      daysDeleted: number;
+      eventsDeleted: number;
+      skipped: number;
+    }>;
+  };
 }
 
 export class DeliveryWorkers {
@@ -110,6 +125,31 @@ export class DeliveryWorkers {
     this.#deps.registry.work(QUEUE_NAMES.outboxReconciliation, async () => {
       await reconciler.reconcile();
     });
+
+    /**
+     * Aggregation first, then expiry, in one job at concurrency 1.
+     *
+     * The order is the safety property: expiry refuses to delete a day it
+     * cannot aggregate, and running aggregation immediately before it means a
+     * day that just crossed the 90-day line is rolled up in the same pass that
+     * would retire it. Two separate jobs could interleave the other way round.
+     */
+    this.#deps.registry.work(
+      QUEUE_NAMES.analyticsAggregation,
+      async () => {
+        const aggregated = await this.#deps.analytics.aggregatePending();
+        const expired = await this.#deps.analytics.expireRawEvents();
+        this.#deps.logger.info('analytics.sweep', {
+          result: 'success',
+          days: aggregated.days,
+          slices: aggregated.slices,
+          daysDeleted: expired.daysDeleted,
+          eventsDeleted: expired.eventsDeleted,
+          skipped: expired.skipped,
+        });
+      },
+      1,
+    );
   }
 
   /**
@@ -156,6 +196,33 @@ export class DeliveryWorkers {
    * frequent enough that a lost enqueue is invisible to a customer and rare
    * enough to stay well inside Upstash's command budget.
    */
+  /**
+   * Schedule the analytics sweep.
+   *
+   * Hourly rather than every two minutes: aggregates are daily counters, and
+   * recomputing them more often than that spends Upstash commands to arrive at
+   * the same numbers. Blueprint 21 names Upstash command consumption as a real
+   * risk on the free tier.
+   */
+  async scheduleAnalytics(everyMs = 3_600_000): Promise<void> {
+    try {
+      const queue = this.#deps.registry.queue(QUEUE_NAMES.analyticsAggregation);
+      await queue.upsertJobScheduler(
+        'analytics-sweep',
+        { every: everyMs },
+        {
+          name: 'sweep',
+          opts: { removeOnComplete: { count: 20 }, removeOnFail: { count: 50 } },
+        },
+      );
+    } catch (error) {
+      this.#deps.logger.warn('analytics.schedule_failed', {
+        result: 'degraded',
+        reason: error instanceof Error ? error.message.slice(0, 160) : 'unknown',
+      });
+    }
+  }
+
   async scheduleReconciliation(everyMs = 120_000): Promise<void> {
     try {
       const queue = this.#deps.registry.queue(QUEUE_NAMES.outboxReconciliation);

@@ -69,19 +69,19 @@ export function WorkspaceHomePage(): React.JSX.Element {
               label="Active widgets"
               used={usage.activeWidgets.used}
               limit={usage.activeWidgets.limit}
-              pending="Counted once widgets exist"
+              pending="Not counted yet"
             />
             <Meter
               label="Submissions this month"
               used={usage.submissionsThisMonth.used}
               limit={usage.submissionsThisMonth.limit}
-              pending="Counted once submissions exist"
+              pending="Not counted yet"
             />
             <Meter
               label="Interaction events this month"
               used={usage.interactionEventsThisMonth.used}
               limit={usage.interactionEventsThisMonth.limit}
-              pending="Counted once analytics exist"
+              pending="Not counted yet"
             />
           </div>
         )}

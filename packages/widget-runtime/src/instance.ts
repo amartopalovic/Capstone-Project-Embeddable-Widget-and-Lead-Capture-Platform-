@@ -4,6 +4,7 @@ import { buildStyles } from './styles.js';
 import { collectFocusable, renderWidget } from './render.js';
 import { isSuppressed, markSeen, visitorId } from './cooldown.js';
 import { wireTriggers } from './triggers.js';
+import { WidgetAnalytics } from './analytics.js';
 
 /**
  * One widget instance: its Shadow root, its state, and its cleanup
@@ -27,6 +28,8 @@ export interface InstanceOptions {
   readonly response: PublicWidgetResponse;
   /** The script tag this widget was declared by, for inline placement. */
   readonly anchor: Element | null;
+  /** Where funnel events are posted. Same origin the config came from. */
+  readonly apiBase: string;
 }
 
 type Mode = 'inline' | 'modal' | 'floating';
@@ -50,11 +53,16 @@ export class WidgetInstance {
   #previousFocus: Element | null = null;
   #unwireTriggers: (() => void) | null = null;
   #keydown: ((event: KeyboardEvent) => void) | null = null;
+  readonly #analytics: WidgetAnalytics;
 
   constructor(options: InstanceOptions) {
     this.#response = options.response;
     this.#mode = modeFor(options.response);
     this.#anchor = options.anchor;
+    this.#analytics = new WidgetAnalytics({
+      publicId: options.response.publicId,
+      apiBase: options.apiBase,
+    });
   }
 
   get publicId(): string {
@@ -89,6 +97,15 @@ export class WidgetInstance {
 
     // Establishes the pseudonymous identifier on first sight (blueprint 4.4).
     visitorId(this.publicId);
+
+    /**
+     * The impression, recorded once targeting and cooldown have both said yes.
+     *
+     * Deliberately here rather than at the top of `start`: a widget suppressed
+     * by cooldown or excluded by a page rule was never shown, and counting it
+     * would put impressions in the denominator that no visitor ever saw.
+     */
+    this.#analytics.record('impression');
 
     if (this.#mode === 'inline') {
       this.open(false);
@@ -126,6 +143,12 @@ export class WidgetInstance {
   open(force: boolean): void {
     if (this.#open && !force) return;
     this.#open = true;
+    /**
+     * Only a widget that CAN be closed can meaningfully be opened. An inline
+     * form calls `open` once as part of mounting, and counting that as an open
+     * would report every inline widget at a 100% open rate.
+     */
+    if (this.#mode !== 'inline') this.#analytics.record('open');
 
     const host = document.createElement('div');
     host.setAttribute('data-lcp-widget', this.publicId);
@@ -155,11 +178,16 @@ export class WidgetInstance {
         /**
          * The submission seam.
          *
-         * Stage 7 owns the public submission endpoint. Until it exists the form
-         * renders and validates in the browser but posts nowhere - a typed
-         * place for that stage to attach, not a partial implementation of it.
+         * Stage 7 owns the public submission endpoint and it is real and
+         * tested; wiring the visitor's keystrokes to it is still outstanding.
+         * The funnel event is recorded here regardless, because "the visitor
+         * completed the form" is a stage they reached whether or not this
+         * runtime is the thing that posts it.
          */
+        this.#analytics.record('submission');
       },
+      onFormStart: () => this.#analytics.record('form_start'),
+      onCtaClick: () => this.#analytics.record('cta_click'),
     });
 
     if (this.#mode === 'inline') {
@@ -222,6 +250,9 @@ export class WidgetInstance {
     this.close();
     this.#unwireTriggers?.();
     this.#unwireTriggers = null;
+    // Flushes anything still queued, so a widget removed by the host page does
+    // not take its unsent funnel events with it.
+    this.#analytics.dispose();
   }
 
   #bindKeyboard(focusable: () => HTMLElement[]): void {

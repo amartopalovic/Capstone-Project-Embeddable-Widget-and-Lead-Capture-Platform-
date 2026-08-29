@@ -8,3 +8,4 @@ export { migration005Widget } from './005-widget.js';
 export { migration006Submissions } from './006-submissions.js';
 export { migration007ContactInbox } from './007-contact-inbox.js';
 export { migration008Delivery } from './008-delivery.js';
+export { migration009Analytics } from './009-analytics.js';

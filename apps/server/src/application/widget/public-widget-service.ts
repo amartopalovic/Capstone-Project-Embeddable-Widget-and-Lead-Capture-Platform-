@@ -35,6 +35,23 @@ export type PublicConfigOutcome =
   | { readonly kind: 'origin_not_allowed' }
   | { readonly kind: 'quota_blocked' };
 
+/**
+ * A resolved public widget, for callers that need the records themselves.
+ *
+ * The failure cases mirror `PublicConfigOutcome` exactly, and for the same
+ * reason: a public id must not become a way to probe which widgets exist.
+ */
+export type PublicResolution =
+  | {
+      readonly kind: 'ok';
+      readonly widget: WithId<WidgetRecord>;
+      readonly workspace: WithId<WorkspaceRecord>;
+      readonly config: WidgetConfig;
+      readonly revisionNumber: number;
+    }
+  | { readonly kind: 'not_found' }
+  | { readonly kind: 'origin_not_allowed' };
+
 /** Look a widget up by its public identifier, across all tenants. */
 export type PublicWidgetLookup = (publicId: string) => Promise<WithId<WidgetRecord> | null>;
 
@@ -67,6 +84,39 @@ export class PublicWidgetService {
 
   constructor(deps: PublicWidgetServiceDeps) {
     this.#deps = deps;
+  }
+
+  /**
+   * Resolve a public id to a live widget, its workspace, and its published
+   * config - applying every check `config` applies.
+   *
+   * Extracted so the analytics endpoint runs the SAME gate as the config
+   * endpoint rather than a second copy that could drift: unknown, deleted,
+   * unpublished, deleted-workspace, and disallowed-Origin all behave
+   * identically for both. The difference is only what the caller gets back.
+   */
+  async resolveForPublic(publicId: string, origin: string | undefined): Promise<PublicResolution> {
+    const { findByPublicId, findWorkspace, revisions } = this.#deps;
+
+    const widget = await findByPublicId(publicId);
+    if (widget === null || widget.status !== 'active') return { kind: 'not_found' };
+    if (widget.publishedRevisionId === null) return { kind: 'not_found' };
+
+    const workspace = await findWorkspace(widget);
+    if (workspace === null || workspace.status !== 'active') return { kind: 'not_found' };
+
+    const revision = await revisions.findById(
+      workspaceScope(widget.workspaceId),
+      widget.publishedRevisionId,
+    );
+    if (revision === null || revision.status !== 'published') return { kind: 'not_found' };
+
+    const config = revision.config as unknown as WidgetConfig;
+    if (origin === undefined || !isOriginAllowed(config.targeting.allowedDomains, origin)) {
+      return { kind: 'origin_not_allowed' };
+    }
+
+    return { kind: 'ok', widget, workspace, config, revisionNumber: revision.revisionNumber };
   }
 
   async config(publicId: string, origin: string | undefined): Promise<PublicConfigOutcome> {

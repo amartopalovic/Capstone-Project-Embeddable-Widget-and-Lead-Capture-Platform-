@@ -539,6 +539,116 @@ export interface ConsentEventRecord extends WorkspaceOwned {
 }
 
 // ---------------------------------------------------------------------------
+// Analytics - Stage 10a (blueprint 4.9, 9.2, 13.2)
+// ---------------------------------------------------------------------------
+
+/** The five funnel events the runtime records (blueprint 4.9). */
+export const INTERACTION_EVENT_TYPES = [
+  'impression',
+  'open',
+  'cta_click',
+  'form_start',
+  'submission',
+] as const;
+export type InteractionEventType = (typeof INTERACTION_EVENT_TYPES)[number];
+
+/**
+ * One raw funnel event (blueprint 9.2, 13.2 step 2).
+ *
+ * "Raw events are stored with widget, source, time, and rotating pseudonymous
+ * visitor ID." Note what is NOT here: no IP, no user agent, no cookie, no
+ * device fingerprint. Blueprint 9.4 allows a rotating pseudonym precisely so
+ * short-term funnel analysis is possible without building an indefinite visitor
+ * identity, and the record has no field for anything stronger.
+ *
+ * These expire at 90 days, but NOT by TTL index - see migration 009. A TTL
+ * deletes on a clock alone, and 13.2 step 5 requires the aggregate to exist
+ * first.
+ */
+export interface InteractionEventRecord extends WorkspaceOwned {
+  readonly _id: ObjectId;
+  readonly widgetId: ObjectId;
+  readonly type: InteractionEventType;
+
+  /**
+   * The rotating pseudonym, derived exactly like the submission path's
+   * (blueprint 9.4). It is what makes "how many DISTINCT visitors" answerable
+   * within a month and unanswerable across months, which is the point.
+   */
+  readonly visitorPseudonym: string;
+  readonly visitorPseudonymPeriod: string;
+
+  readonly source: SubmissionSource;
+  readonly geo: GeoSnapshot | null;
+  readonly occurredAt: Date;
+
+  /**
+   * The day this event belongs to, in the WORKSPACE's timezone, as
+   * `YYYY-MM-DD`.
+   *
+   * Stored rather than derived at aggregation time. A workspace in Auckland and
+   * one in Los Angeles disagree about which day a given instant falls in, and
+   * recomputing that during a sweep would mean re-reading every workspace's
+   * timezone for every event. Fixing it at write time also means a workspace
+   * that later changes its timezone does not silently rewrite its own history.
+   */
+  readonly localDay: string;
+}
+
+/** How a daily aggregate is sliced (blueprint 9.2: "workspace/widget/day/dimensions"). */
+export const ANALYTICS_DIMENSIONS = ['total', 'domain', 'page', 'country', 'city'] as const;
+export type AnalyticsDimension = (typeof ANALYTICS_DIMENSIONS)[number];
+
+/**
+ * Durable daily counters (blueprint 9.2, 13.2 step 3).
+ *
+ * One document per workspace, day, widget, and dimension slice. The `total`
+ * dimension carries the widget's day as a whole; the others carry one row per
+ * distinct domain, page, country, or city, which is what makes 4.9's "country
+ * and city breakdown" and "top allowed domains and page URLs" answerable
+ * without keeping the raw events that produced them.
+ *
+ * These outlive the raw events deliberately: 4.9 retains raw interaction data
+ * for 90 days and keeps the aggregates, so a workspace's history survives while
+ * the visitor-level detail does not.
+ */
+export interface DailyAnalyticsRecord extends WorkspaceOwned {
+  readonly _id: ObjectId;
+  /** `YYYY-MM-DD` in the workspace's timezone. */
+  readonly day: string;
+  readonly widgetId: ObjectId;
+  readonly dimension: AnalyticsDimension;
+  /** Null only for the `total` dimension. */
+  readonly dimensionValue: string | null;
+
+  readonly impressions: number;
+  readonly opens: number;
+  readonly ctaClicks: number;
+  readonly formStarts: number;
+  readonly submissions: number;
+  /**
+   * Distinct pseudonyms seen that day in this slice.
+   *
+   * A count, not a list - keeping the pseudonyms would let the aggregate
+   * outlive the 90-day raw retention it is supposed to replace.
+   */
+  readonly visitors: number;
+
+  /**
+   * Whether the widget could be OPENED at all.
+   *
+   * Blueprint 13.2 says "open rate = opens / eligible impressions", and the
+   * qualifier matters: an inline widget is always visible and has no open
+   * action, so counting its impressions in the denominator would drag every
+   * workspace's open rate toward zero for a reason that is not about
+   * performance.
+   */
+  readonly openEligible: boolean;
+
+  readonly computedAt: Date;
+}
+
+// ---------------------------------------------------------------------------
 // Delivery - Stage 9 (blueprint 9.2, 12.2)
 // ---------------------------------------------------------------------------
 

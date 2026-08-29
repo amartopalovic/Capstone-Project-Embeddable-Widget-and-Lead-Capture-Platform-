@@ -367,9 +367,7 @@ test.describe('cross-tenant isolation - EXIT GATE', () => {
 });
 
 test.describe('usage meters', () => {
-  test('the widget meter counts real widgets, and unmeasured meters stay unmeasured', async ({
-    page,
-  }) => {
+  test('every usage meter counts for real', async ({ page }) => {
     await createOwnerWithWorkspace(page, 'w-usage');
 
     await page.goto('/workspace');
@@ -381,8 +379,14 @@ test.describe('usage meters', () => {
     await page.goto('/workspace');
     await expect(meters).toContainText('1 / 10');
 
-    // Stage 7 and 10 fill these in; until then they say so rather than showing
-    // a confident zero.
-    await expect(meters).toContainText('Counted once submissions exist');
+    /**
+     * The two monthly meters reported "not counted yet" until Stage 10a, which
+     * was honest while the data behind them did not exist. Both are now counted
+     * against the workspace's own month boundary, so a fresh workspace shows a
+     * truthful zero rather than a placeholder.
+     */
+    await expect(meters).toContainText('0 / 2000');
+    await expect(meters).toContainText('0 / 20000');
+    await expect(meters).not.toContainText('Not counted yet');
   });
 });

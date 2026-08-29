@@ -25,6 +25,15 @@ export const QUEUE_NAMES = {
   visitorConfirmation: 'visitor-confirmation',
   webhookDelivery: 'webhook-delivery',
   outboxReconciliation: 'outbox-reconciliation',
+  /**
+   * Analytics aggregation and raw-event expiry (blueprint 12.1, 13.2).
+   *
+   * One family for both, because they are two halves of the same schedule and
+   * must not race: expiry deletes raw events, aggregation reads them, and a
+   * shared queue with concurrency 1 means the sweep can never run while the
+   * aggregator is mid-day.
+   */
+  analyticsAggregation: 'analytics-aggregation',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

@@ -1572,6 +1572,107 @@ marks `limited` for a Member) and `settings.delivery.write`.
 
 ---
 
+## Part D-detail - Stage 10a analytics backend evidence
+
+Stage 10 is split. **10a is ingestion, aggregation, retention, and the completed live stream; there
+is no dashboard in it**, so Stage 10 stays OPEN until 10b renders them and proves live updates
+through the browser.
+
+### The three gate claims, each with named tests
+
+```
+npm test                    Test Files 14 passed (14)   Tests 317 passed (317)
+npm run test:integration    Test Files 12 passed (12)   Tests 260 passed (260)
+```
+
+Twenty-six of the unit tests and twenty of the integration tests are new.
+
+| Gate | Test                                                          | What it proves                                                                                                                                                                                                                                                                                                                    |
+| ---- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `GATE 1: aggregation produces verified metrics` (4 tests)     | A deliberately shaped day - 4 impressions, 2 opens, 1 form start, 1 CTA click across 4 batches - aggregates to exactly those counters, sliced by domain and page, with `openEligible` true for a CTA popover and false for an inline form. Running the aggregation three times leaves ONE set of counters with unchanged numbers. |
+| 2    | `GATE 2: raw-event expiry leaves aggregates intact` (3 tests) | Events aged past 90 days are deleted and the aggregate survives with its real counts. A day that reaches the cutoff with NO aggregate is aggregated first and only then deleted - asserted by checking the aggregate the sweep itself wrote carries the right numbers. Events inside the window are untouched.                    |
+| 3    | `GATE 3: the completed live stream` (3 tests)                 | `usage.changed` and `delivery.status_changed` both reach their own workspace's stream and never the other tenant's open connection; a revoked member is refused on reconnect with 404.                                                                                                                                            |
+
+### Why expiry is a sweep and not a TTL index
+
+Blueprint 9.2 describes InteractionEvent as having "automatic expiry after 90 days", which reads
+like a TTL index. It is not implemented as one, deliberately: 4.9 says raw events are "removed after
+daily aggregates are produced", and a TTL index deletes on a clock alone and cannot check that
+precondition. If aggregation had been failing for a week, a TTL would quietly destroy the only copy
+of that week's data - turning a retention rule into data loss. The sweep aggregates first, verifies
+the aggregate exists, and refuses the day otherwise.
+
+### Privacy of the visitor pseudonym (blueprint 9.4, 21)
+
+The construction is the Stage 7 IP pseudonym's, with two deliberate differences, and both are
+tested:
+
+- **Domain-separated.** Both pseudonyms derive from the same master secret and the same address, so
+  without a distinct subkey label (`visitor-pseudonym:` vs `ip-pseudonym:`) they would be identical
+  strings - and joining the analytics and abuse-evidence collections would reunite "who browsed"
+  with "who was rate limited", exactly the linkage 9.4 exists to prevent.
+- **Per widget.** Blueprint 21 asks for a "per-widget pseudonym" by name. Without the widget id
+  inside the HMAC, one visitor would carry a single identifier across every customer site that
+  embeds this platform - a cross-site tracking identifier by another name.
+
+A test asserts the stored raw event contains no IP, no user agent, and a 64-hex pseudonym; another
+asserts a client-supplied `visitorPseudonym` in the body is ignored.
+
+### Migration 009, applied
+
+```
+npm run migrate     applied 1, skipped 8   (009_analytics)
+
+interaction_events
+  workspace_widget_date         { workspaceId, widgetId, occurredAt }
+  workspace_day_widget          { workspaceId, localDay, widgetId }
+  occurred_at                   { occurredAt }          -- the sweep, NOT a TTL
+  workspace_day_visitor         { workspaceId, localDay, visitorPseudonym }
+daily_analytics
+  uniq_workspace_day_widget_dimension
+                                { workspaceId, day, widgetId, dimension, dimensionValue }  unique
+  workspace_day_dimension       { workspaceId, day, dimension }
+```
+
+The unique key is what makes aggregation idempotent: the job recomputes counters from the raw events
+and upserts them, so a retried BullMQ job or an operator re-running a day produces the same numbers
+rather than doubling them.
+
+### An operational note on the E2E database
+
+`npm run migrate` targets the development database only. `leadcapture_e2e` is separate and was still
+at migration 007 when this stage's code assumed 009 - a browser run failed once at widget publish
+with a server-side `MongoServerError`, and the test passed after the E2E database was brought up to
+date (`applied 2, skipped 7`). The failure did not reproduce, so the causal link is not proven; the
+staleness was. Stage 8b hit the same environment being behind in a different way. Nothing currently
+enforces that a new migration reaches both databases, which is worth fixing before deployment.
+
+### The monthly meters became real
+
+Both were `null` - "not counted yet" - since Stage 4a. They now count against
+`monthStartInZone(now, workspace.timezone)`, the same function the submission and interaction quotas
+enforce with, so the meter and the gate can never disagree about when a month turned. A test in an
+Auckland workspace confirms an event before that boundary is excluded.
+
+### What is still missing
+
+- **Every dashboard.** 4.9 lists eight, and none of them exists yet - that is 10b, along with the
+  browser proof of live updates. The aggregates and the funnel formulas are the typed seam it
+  consumes.
+- Geo slices are empty for interaction events. The country and city dimensions are computed and
+  indexed, but the ingest path does not call a geo provider: 20,000 events a month per workspace
+  would exhaust ip-api's free tier on telemetry alone, and blueprint 5.1 keeps that budget for the
+  submission path. Country and city are populated from submissions today.
+- The runtime records a `submission` funnel event where the form seam is, but the widget's form
+  still does not post a real submission - so that particular counter reflects the visitor reaching
+  the stage rather than an accepted lead.
+- `status conversion` is implemented and unit-tested as a pure function; nothing computes its inputs
+  from Contact status yet, which 10b will do when it renders the metric.
+- The aggregation sweep runs hourly only when workers are started in-process; the tests call it
+  directly, so nothing in CI proves the schedule fires.
+
+---
+
 ## Change log
 
 | Date       | Stage | Change                                                                                                                                                               |
@@ -1599,3 +1700,4 @@ marks `limited` for a Member) and `settings.delivery.write`.
 | 2026-08-29 | 8a | Blueprint Stage 8, sub-stage 8a. Contact inbox BACKEND: search/filter/cursor-paginated list, detail and timeline, workflow writes, canonical edits under optimistic concurrency, merge, bulk actions, 30-day trash, streaming filtered export, and the authenticated workspace-scoped SSE stream. Evidenced by 34 new unit tests and 38 new integration tests against real MongoDB, Redis, and Mailpit, plus migration `007_contact_inbox` applied, re-run as a no-op, and its indexes read back. **No new capability names and no matrix edits**; the section 11 table is unchanged. Stage 8 itself stays OPEN pending 8b (inbox UI, timeline, bulk-action UI, browser E2E). |
 | 2026-08-29 | 8b | Blueprint **Stage 8 COMPLETE**. Contact inbox UI: search, the full filter set behind a disclosure, keyset pagination, deterministic sort, bulk selection with a capability-driven action bar, inline merge, canonical editing with a designed conflict state, the lead timeline, the trash, streaming export, and live arrival over SSE. Evidenced by 16 new browser tests (88 total), including 6 axe scans covering the empty, no-results, conflict, and trash states plus a keyboard-only pass. The browser found a real defect review missed: export was hidden inside the collapsed filter panel. |
 | 2026-08-29 | 9 | Blueprint **Stage 9 COMPLETE**. BullMQ queue families, outbox reconciliation, five-attempt exponential backoff with jitter, transient-only retry, dead-letter and manual replay, per-widget verified recipients, controlled email templates, SSRF-safe HMAC-signed webhooks with 24-hour rotation overlap, and the workspace delivery health view. Evidenced by 53 new unit tests and 31 new integration tests, including the full 18.4 provider matrix. **No new capability names**; the section 11 table is unchanged. The E2E database was reset with the user's explicit authorization, closing the migration gap Stage 8b recorded: `applied 7, skipped 0`. |
+| 2026-08-29 | 10a | Blueprint Stage 10, sub-stage 10a. Analytics BACKEND: the public interaction-event endpoint with Origin/quota/rate hardening and a per-widget rotating visitor pseudonym, runtime funnel instrumentation, idempotent daily aggregation, a 90-day retention sweep that never deletes an un-aggregated day, the five funnel formulas as pure functions, and the remaining two SSE event types. Both monthly meters became real, on the workspace timezone boundary. Evidenced by 26 new unit tests and 20 new integration tests. Stage 10 stays OPEN pending 10b (dashboards + browser E2E). |

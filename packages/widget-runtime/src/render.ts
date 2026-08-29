@@ -113,10 +113,20 @@ export interface RenderOptions {
    * half-working post.
    */
   readonly onSubmit: (values: Record<string, string>) => void;
+  /**
+   * The visitor started filling the form (blueprint 4.9).
+   *
+   * Fired on the first input or focus, whichever comes first, and only once -
+   * the funnel counts a visitor REACHING a stage, not how many fields they
+   * touched.
+   */
+  readonly onFormStart?: () => void;
+  /** The visitor clicked the CTA link (blueprint 4.9). */
+  readonly onCtaClick?: () => void;
 }
 
 export function renderWidget(options: RenderOptions): RenderedWidget {
-  const { response, dismissible, onClose, onSubmit } = options;
+  const { response, dismissible, onClose, onSubmit, onFormStart, onCtaClick } = options;
   const config: PublicWidgetConfig = response.config;
   const idPrefix = `lcp-${response.publicId}`;
 
@@ -154,6 +164,11 @@ export function renderWidget(options: RenderOptions): RenderedWidget {
     }
     link.rel = 'noopener noreferrer';
     link.target = '_blank';
+    /**
+     * Recorded on click, before the navigation. The analytics queue flushes on
+     * `visibilitychange`, so a click that leaves the page still reports.
+     */
+    if (onCtaClick !== undefined) link.addEventListener('click', () => onCtaClick());
     panel.append(link);
 
     return { panel, focusable: () => collectFocusable(panel) };
@@ -161,6 +176,26 @@ export function renderWidget(options: RenderOptions): RenderedWidget {
 
   const form = element('form');
   form.noValidate = true;
+
+  /**
+   * Form start, on whichever of focus or input happens first.
+   *
+   * `focusin` alone would count a visitor who tabbed through without typing;
+   * `input` alone would miss somebody who focused and then left, which is a
+   * real signal about a form people open and abandon. Taking the earlier of the
+   * two, once, records the stage they actually reached. Both listeners are
+   * `once` so neither leaks.
+   */
+  if (onFormStart !== undefined) {
+    let started = false;
+    const start = (): void => {
+      if (started) return;
+      started = true;
+      onFormStart();
+    };
+    form.addEventListener('focusin', start, { once: true });
+    form.addEventListener('input', start, { once: true });
+  }
   const ordered = [...config.fields].sort((a, b) => a.order - b.order);
   for (const field of ordered) form.append(renderField(field, idPrefix));
 

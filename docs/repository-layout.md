@@ -1,6 +1,6 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 9.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+**Status: Stage 10a.** All nine workspaces exist. `packages/config`, `packages/contracts`,
 `packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
 rest remain deliberate shells until the stage that fills them.
 
@@ -288,6 +288,21 @@ structural rather than carefully maintained.
 **`failed` and `dead_letter` are different states**, and the difference is what the replay button
 depends on: a permanent rejection was final on its first attempt, a dead letter exhausted five
 transient attempts and might succeed now.
+
+### What `apps/server` gained in Stage 10a
+
+| Path                                             | Contents                                                            |
+| ------------------------------------------------ | ------------------------------------------------------------------- |
+| `src/domain/analytics/funnel.ts`                 | The five 13.2 formulas; a zero denominator is `null`, never `0`     |
+| `src/domain/analytics/visitor-pseudonym.ts`      | Rotating, domain-separated from the IP pseudonym, scoped per widget |
+| `src/application/analytics/analytics-service.ts` | Ingest, idempotent aggregation, and the retention sweep             |
+
+**Expiry is a sweep, not a TTL index.** Blueprint 9.2 reads like a TTL; 4.9 is more specific -
+raw events are "removed after daily aggregates are produced". A TTL deletes on a clock alone and
+cannot check that, so a week of failed aggregation would become a week of destroyed data.
+
+**Aggregation recomputes and upserts** onto a unique workspace/day/widget/dimension key, so a
+retried job produces the same numbers rather than doubling them.
 
 ### End-to-end tests
 

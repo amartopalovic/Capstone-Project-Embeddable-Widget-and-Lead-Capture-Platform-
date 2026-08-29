@@ -64,6 +64,26 @@ export const SUBMISSION_RATE_RULES = {
   perWidgetMinute: { name: 'submit-widget-min', limit: 100, windowSeconds: 60 },
 } as const satisfies Record<string, RateLimitRule>;
 
+/**
+ * Limits for the public interaction-event endpoint (blueprint 13.2 step 1).
+ *
+ * Deliberately looser than the submission limits, and keyed differently. One
+ * visitor legitimately produces four or five funnel events in a session -
+ * impression, open, form start, submission - and a batch of them arrives as one
+ * request, so the allowance is per REQUEST and sized for somebody browsing
+ * rather than for a form being filled.
+ *
+ * The per-visitor rule keys on the rotating PSEUDONYM rather than the raw
+ * address. The pseudonym is already derived for storage, so this needs no
+ * second identifier and nothing downstream ever has to hold an IP.
+ */
+export const INTERACTION_RATE_RULES = {
+  /** 30 batches per minute from one visitor to one widget. */
+  perVisitorWidgetMinute: { name: 'event-visitor-widget-min', limit: 30, windowSeconds: 60 },
+  /** 2,000 batches per minute per widget, across every visitor. */
+  perWidgetMinute: { name: 'event-widget-min', limit: 2000, windowSeconds: 60 },
+} as const satisfies Record<string, RateLimitRule>;
+
 export class RedisRateLimiter implements RateLimiter {
   readonly #redis: Redis;
   readonly #keys: RedisKeyBuilder;

@@ -208,6 +208,20 @@ test results, remaining limitations, and confirmation of the exit gate.
   - **Goal:** Deliver the selected analytics without over-retaining visitor data.
   - **Exit gate:** Seeded deterministic data produces verified metrics; raw-event cleanup leaves
     aggregates intact; reconnecting SSE does not cross tenants.
+  - [x] **10a — Ingestion, aggregation, and the completed live-update backend** _(2026-08-29)_
+    - The public interaction-event endpoint, hardened like the Stage 7 submission path: Origin
+      allowlist, published-state check, 8 KB body, batch schema, per-visitor and per-widget rate
+      limits, and the 20,000/month workspace quota on the workspace's own timezone boundary.
+    - A rotating visitor pseudonym that is domain-separated from the IP pseudonym and scoped per
+      widget, so it is neither joinable with abuse evidence nor usable across customer sites.
+    - Runtime funnel instrumentation for all five events, batched and best-effort, flushed with
+      `sendBeacon` when the page goes away.
+    - Idempotent daily aggregation into workspace/widget/day/dimension counters, and a 90-day
+      retention sweep that aggregates a day before it will delete it - never a TTL index.
+    - The five funnel formulas as pure functions, with `null` rather than `0` for a zero
+      denominator, ready for 10b to consume.
+    - `usage.changed` and `delivery.status_changed` added to the Stage 8a stream, completing 13.1.
+  - [ ] **10b — Dashboards and browser E2E** _(not started)_
 
 - [ ] **Stage 11 — Consent, unsubscribe, privacy, and retention automation**
   - **Goal:** Complete the data-rights and deletion promises.

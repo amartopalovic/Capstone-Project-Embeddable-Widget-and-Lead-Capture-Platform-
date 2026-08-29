@@ -16,5 +16,6 @@ export * from './auth.js';
 export * from './workspace.js';
 export * from './contact.js';
 export * from './delivery.js';
+export * from './analytics.js';
 export * from './widget.js';
 export * from './widget-rules.js';
