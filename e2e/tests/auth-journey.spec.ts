@@ -245,8 +245,17 @@ test.describe('two-step verification', () => {
     await page.getByRole('button', { name: 'Turn off', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('incorrect');
 
-    // The correct password and a fresh code turns it off. The failed attempt
-    // above did not consume the code, because the password is checked first.
+    /**
+     * The correct password and a fresh code turns it off. The failed attempt
+     * above did not consume the code, because the password is checked first.
+     *
+     * A code is only valid for the remainder of its 30-second period, so if
+     * this one is nearly spent, wait for the next. Submitting a code with a
+     * second left works right up until the run is slow, and then it fails in a
+     * way that looks like a broken feature rather than an expired code.
+     */
+    if (totp.remaining() < 5000) await waitForNextTotpPeriod(secret);
+
     await page.getByLabel('Password').fill(STRONG_PASSWORD);
     await page.getByLabel('Code from your app').fill(totp.generate());
     await page.getByRole('button', { name: 'Turn off', exact: true }).click();

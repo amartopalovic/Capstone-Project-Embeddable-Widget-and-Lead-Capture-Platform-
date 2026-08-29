@@ -1,15 +1,17 @@
 # Embeddable Widget & Lead-Capture Platform
 
-> **Project status: Stage 5 of 16 complete.**
+> **Project status: Stage 6 of 16 complete.**
 > Authentication and the multi-workspace user model both work end to end through a real
 > accessible interface: onboarding, the workspace switcher, the full role matrix, invitations,
 > ownership transfer, and workspace delete/recover. Proven by 125 unit, 110 integration, and 37
 > browser end-to-end tests, the last of which include `axe` WCAG 2.2 AA scans on every page.
 > Widgets now work end to end too: the three widget types, a settings-form builder with a live
 > preview, field schemas, targeting rules, draft/publish revisions, and a copyable embed snippet.
-> Proven by 162 unit, 131 integration, and 57 browser end-to-end tests. Nothing renders a widget
-> on a real customer page yet (Stage 6), and there are still no submissions, contacts, or
-> analytics. Every command, link, and proof marked _planned_ or _TBD_ below does not work today.
+> Published widgets now render on a genuinely separate origin through a cached loader and a
+> framework-free runtime, isolated in Shadow DOM. Proven by 183 unit, 146 integration, and 72
+> browser end-to-end tests. Visitors cannot submit anything yet (Stage 7), and there are still no
+> contacts or analytics. Every command, link, and proof marked _planned_ or _TBD_ below does not
+> work today.
 
 ---
 
@@ -245,9 +247,9 @@ Run these on the host after `npm ci`:
 | `npm run lint`             | ESLint across every workspace (25 files today)                                                              | Real      |
 | `npm run format:check`     | Prettier formatting check                                                                                   | Real      |
 | `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                                | Real      |
-| `npm run test`             | Unit tests, no infrastructure needed (162 tests, incl. the role matrix and widget rules)                    | Real      |
-| `npm run test:integration` | Tenancy, migrations, auth, workspace/RBAC, and widgets against real MongoDB, Redis, and Mailpit (131 tests) | Real      |
-| `npm run test:e2e`         | Browser journeys plus axe accessibility checks, driven through the real UI (57 tests)                       | Real      |
+| `npm run test`             | Unit tests, no infrastructure needed (183 tests, incl. the role matrix and widget rules)                    | Real      |
+| `npm run test:integration` | Tenancy, migrations, auth, workspace/RBAC, and widgets against real MongoDB, Redis, and Mailpit (146 tests) | Real      |
+| `npm run test:e2e`         | Browser journeys plus axe accessibility checks, driven through the real UI (72 tests)                       | Real      |
 | `npm run migrate`          | Apply committed migrations and indexes; repeatable                                                          | Real      |
 | `npm run build`            | Production build of every workspace                                                                         | Real      |
 | BullMQ queue tests         | Background job integration                                                                                  | _Stage 9_ |
@@ -307,17 +309,21 @@ reflects that this repository is only at Stage 0.
 - Everything listed in §4 above is out of scope.
 - The repository is organized as an npm-workspaces monorepo — see §3.
 
-### 7.2 Stage 5 limitations (temporary)
+### 7.2 Stage 6 limitations (temporary)
 
-- **Nothing serves a widget to a visitor yet.** The public loader, the framework-free
-  runtime, and Shadow DOM rendering are Stage 6. The embed snippet is real and its shape is
-  fixed, but the loader path it names does not exist until then.
-- The live preview is an approximation rendered by the dashboard, not the real runtime. Its
-  content cannot diverge — it renders the exact configuration that gets saved — but the
-  visual result is only as faithful as this stage's own rendering.
-- Targeting, triggers, and cooldown are stored and validated, not executed.
-- The builder does not warn when a creator picks a low-contrast colour pairing. The preview
-  shows the poor contrast faithfully, but nothing flags it.
+- **A visitor cannot submit anything.** The widget renders its form, validates in the
+  browser, and stops there: the public submission endpoint, spam heuristics, rate limits,
+  and geo enrichment are Stage 7. The runtime has a typed seam where that will attach.
+- The runtime bundle is read from disk once when the server starts, so a rebuilt runtime
+  needs a server restart before the new content hash is served. That is a deliberate
+  consequence of hashing at startup rather than per request, and it caught me out once
+  during this stage.
+- No interaction events are recorded yet, so nothing measures whether a widget was seen or
+  opened (Stage 10).
+- The dashboard's live preview is its own rendering, not the runtime's. Its content cannot
+  diverge — both read the same saved configuration — but the visuals can.
+- The builder does not warn when a creator picks a low-contrast colour pairing. Both the
+  preview and the real widget render it faithfully, including its poor contrast.
 
 - **There is no dashboard chrome.** The workspace pages sit in a deliberately minimal shell
   — a switcher, four links, and an account link. The real product navigation is Stage 12.

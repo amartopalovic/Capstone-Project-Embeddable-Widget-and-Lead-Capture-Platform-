@@ -3,7 +3,7 @@
 The project is implemented in 16 bounded stages (blueprint §19). Exactly one stage is requested per
 implementation prompt, and work stops when that stage's exit gate is green.
 
-**Progress: 6 of 16 stages complete.**
+**Progress: 7 of 16 stages complete.**
 
 ## Stage execution rules (blueprint §19)
 
@@ -121,10 +121,23 @@ test results, remaining limitations, and confirmation of the exit gate.
     - Moved the per-type mandatory-field rule into `@lcp/contracts` so the builder and the API
       validator share ONE implementation rather than two that could drift.
 
-- [ ] **Stage 6 — Cached public loader and framework-free widget runtime**
+- [x] **Stage 6 — Cached public loader and framework-free widget runtime** _(2026-08-29)_
   - **Goal:** Render published widgets correctly on an origin the platform does not control.
   - **Exit gate:** All three widget types render on the second origin, multiple instances coexist,
-    host CSS does not break them, and cache headers match the contract.
+    host CSS does not break them, and cache headers match the contract. **Met**, each by a named
+    Playwright test running against `apps/demo` on port 5174 while the platform runs on 5173.
+  - A public config endpoint returning renderable settings only, with the Origin allowlist,
+    published state, and workspace state all re-checked on the server; a generated stable loader
+    with a 5-minute cache; a content-hashed runtime served immutable for a year; Shadow DOM
+    rendering of all three widget types in inline, modal, and floating modes; a page-level
+    registry sharing one runtime across many tags; and live click, delay, scroll-depth, and
+    exit-intent triggers with session or multi-day cooldown and a rotating pseudonymous
+    visitor identifier.
+  - The pure rules from Stage 5a moved into `@lcp/contracts` so the runtime uses the SAME
+    implementation the server validates with, rather than a copy.
+  - Measured bundle sizes, tracked in CI and asserted by the unit suite: runtime 13,613 B raw /
+    5,439 B gzip, loader 734 B raw / 434 B gzip. No framework and no validation library reach
+    the public bundle.
 
 - [ ] **Stage 7 — Hardened public submission path**
   - **Goal:** Satisfy the capstone's most important backend request path.

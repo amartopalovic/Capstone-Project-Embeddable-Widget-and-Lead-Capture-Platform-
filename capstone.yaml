@@ -2,8 +2,8 @@
 # capstone.yaml - machine-readable evaluation manifest
 # =============================================================================
 #
-# STATUS: Stage 5 complete (widget domain model, builder, drafts, and publishing, UI
-# included). Install, run, seed,
+# STATUS: Stage 6 complete (published widgets now render on a separate origin through the
+# cached public loader and framework-free runtime). Install, run, seed,
 # migrate, lint, typecheck, build, unit, integration, and browser E2E commands below are REAL
 # and verified. The six acceptance probes and every production URL remain `TBD`.
 #
@@ -27,7 +27,7 @@ project:
   authoritative_reference: Embeddable_Widget_Lead_Capture_Blueprint.md
   license: MIT
   repository: TBD # filled_in_by: Stage 14
-  stage_completed: 5
+  stage_completed: 6
   stages_total: 16
 
 # -----------------------------------------------------------------------------
@@ -53,7 +53,7 @@ commands:
   test:
     command: npm run test
     description: >-
-      Unit tests, no infrastructure required (162 tests as of Stage 5a),
+      Unit tests, no infrastructure required (183 tests as of Stage 6),
       including the complete section 11 authorization matrix. Integration and
       browser E2E are separate commands.
   test_unit:

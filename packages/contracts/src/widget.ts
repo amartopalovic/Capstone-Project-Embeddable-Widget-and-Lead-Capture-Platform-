@@ -344,3 +344,76 @@ export interface WidgetDetail {
   /** The one-line snippet from blueprint 7.2. */
   readonly snippet: string;
 }
+
+// ---------------------------------------------------------------------------
+// The PUBLIC config, served to a visitor's browser (blueprint 7.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The renderable half of a widget's configuration.
+ *
+ * Blueprint 7.2: "The public config contains only renderable settings. It never
+ * includes email recipients, webhook URLs/secrets, internal notes, tenant
+ * identifiers, or other private settings."
+ *
+ * This type is the allowlist that makes that true. It is built by naming the
+ * fields that go OUT rather than by removing the ones that must not, because a
+ * later stage adding a private setting to `WidgetConfig` would otherwise leak
+ * it by default - and a leak by omission is the kind nobody notices.
+ *
+ * `allowedDomains` is deliberately absent even though it is not secret. It is
+ * not renderable, the server is the authority on it (7.2 step 5), and shipping
+ * an allowlist to the client it is meant to constrain invites someone to try
+ * editing it.
+ */
+export interface PublicWidgetConfig {
+  readonly headline: string;
+  readonly body: string;
+  readonly submitLabel: string;
+  readonly fields: readonly WidgetField[];
+  readonly appearance: WidgetAppearance;
+  readonly formMode: FormMode;
+  readonly triggers: readonly WidgetTrigger[];
+  readonly ctaAction: CtaAction;
+  readonly success: SuccessOutcome;
+  /** Only the parts the runtime evaluates itself (7.2 step 7). */
+  readonly targeting: {
+    readonly includePatterns: readonly string[];
+    readonly excludePatterns: readonly string[];
+    readonly cooldown: Cooldown;
+  };
+}
+
+/** What `GET /public/widgets/:publicId/config` returns. */
+export interface PublicWidgetResponse {
+  readonly publicId: string;
+  readonly type: WidgetType;
+  /** Which revision this is, so a stale cache is identifiable in support. */
+  readonly revision: number;
+  readonly config: PublicWidgetConfig;
+}
+
+/**
+ * Narrow a stored configuration to the public one.
+ *
+ * Shared rather than server-only so the type and the projection stay in one
+ * place; the runtime imports the TYPE and never this function.
+ */
+export function toPublicConfig(config: WidgetConfig): PublicWidgetConfig {
+  return {
+    headline: config.headline,
+    body: config.body,
+    submitLabel: config.submitLabel,
+    fields: config.fields,
+    appearance: config.appearance,
+    formMode: config.formMode,
+    triggers: config.triggers,
+    ctaAction: config.ctaAction,
+    success: config.success,
+    targeting: {
+      includePatterns: config.targeting.includePatterns,
+      excludePatterns: config.targeting.excludePatterns,
+      cooldown: config.targeting.cooldown,
+    },
+  };
+}

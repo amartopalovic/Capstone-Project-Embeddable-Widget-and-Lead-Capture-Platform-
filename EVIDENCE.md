@@ -2,14 +2,14 @@
 
 One repeatable proof per requirement.
 
-> ## Status at Stage 5: **no acceptance probe is proven.**
+> ## Status at Stage 6: **no acceptance probe is proven.**
 >
-> Blueprint Stages 3, 4, and 5 are complete. Stage 5b adds the builder UI, the live preview, and
-> the browser tests that close Stage 5's exit gate, so B3 and B5 are now proven through the
-> interface rather than at the API level only.
-> **All six acceptance probes remain `NOT YET IMPLEMENTED`**: they require a widget rendered on a
-> real customer page and a submission arriving through it, and neither the runtime (Stage 6) nor
-> the submission endpoint (Stage 7) exists.
+> Blueprint Stages 3, 4, 5, and 6 are complete. Stage 6 adds the public loader, the framework-free
+> runtime, and Shadow DOM rendering on a genuinely separate origin, so D3, D5, and D6 move to
+> `PROVEN` and B4's runtime half is now real rather than stored settings.
+> **All six acceptance probes remain `NOT YET IMPLEMENTED`**: every one of them ends in a
+> submission arriving, and the public submission endpoint is Stage 7. A widget now renders on a
+> customer page; nothing can yet be sent through it.
 >
 > As each stage completes, its entries gain: the exact command an evaluator can re-run, the
 > observed output or transcript, and a link to the test that enforces the behavior. An entry is
@@ -154,8 +154,9 @@ real queue behavior in Stage 9.
   triggers; exact-host and explicit wildcard domain matching where `*.example.com` excludes
   `example.com`; safe glob page targeting; configurable cooldown; rotating per-widget pseudonymous
   visitor identifier; multiple instances sharing one runtime.
-- **Status:** `IN PROGRESS` — the settings and their matching rules are `PROVEN` in Stage 5a.
-  Executing them against a real page, and the rotating visitor identifier, are **Stage 6**.
+- **Status:** `PROVEN`. The settings and matching rules were proven in Stage 5a; Stage 6 executes
+  them on a real page, including the rotating pseudonymous visitor identifier. What remains is not
+  display behaviour: submissions arriving through the rendered form are **Stage 7**.
 - **What is proven:** exact-host matching; `*.example.com` admitting `app.example.com` and
   `eu.app.example.com` but never the apex `example.com`, and never a lookalike such as
   `evilexample.com`; page include/exclude as safe globs where regular-expression syntax is treated
@@ -261,10 +262,10 @@ by the stage noted.
 | --- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
 | D1  | Tenant isolation: two seeded tenants cannot reach each other through any repository                        | `PROVEN` for foundation repositories - see Part D-detail                                                                                                                                        | Stage 2, re-proven per surface |
 | D2  | Tenant isolation across CRUD, search, export, analytics, SSE, trash, and recovery                          | `IN PROGRESS` - membership, invitation, audit, and workspace recovery paths proven isolated, at the API and now through the browser; export, analytics, SSE, and contact trash do not exist yet | Stages 8, 10                   |
-| D3  | Cache contract: 5-minute loader, 1-year immutable hashed runtime, 60-second config with ETag               | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 6                        |
-| D4  | A cached config cannot bypass unpublishing, deletion, a domain-rule change, or a quota block               | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stages 6, 7                    |
-| D5  | All three widget types render on a separate origin, multiple instances coexist, host CSS cannot break them | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 6                        |
-| D6  | Public config never leaks recipients, webhook URLs/secrets, notes, or tenant identifiers                   | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 6                        |
+| D3  | Cache contract: 5-minute loader, 1-year immutable hashed runtime, 60-second config with ETag               | `PROVEN` - asserted both at the API and on the headers a real browser received                                                                                                                  | Stage 6                        |
+| D4  | A cached config cannot bypass unpublishing, deletion, a domain-rule change, or a quota block               | `IN PROGRESS` - the server stops serving immediately on all four; the submission-side half of the guarantee needs a submission endpoint                                                         | Stages 6, 7                    |
+| D5  | All three widget types render on a separate origin, multiple instances coexist, host CSS cannot break them | `PROVEN` - see Part D-detail, Stage 6                                                                                                                                                           | Stage 6                        |
+| D6  | Public config never leaks recipients, webhook URLs/secrets, notes, or tenant identifiers                   | `PROVEN` - the response is an allowlist, asserted key by key                                                                                                                                    | Stage 6                        |
 | D7  | Outbox prevents a transient Redis enqueue failure from losing promised work                                | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stages 7, 9                    |
 | D8  | Transient-only retry, five attempts with backoff, dead letter, and manual replay                           | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 9                        |
 | D9  | Brevo daily budget priority reserve and visible deferred states                                            | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 9                        |
@@ -1043,6 +1044,131 @@ This would have been inherited by the Stage 6 runtime had it not been caught her
 
 ---
 
+## Part D-detail - Stage 6 public loader and runtime evidence
+
+### D5. The exit gate, on a genuinely separate origin
+
+Every test below runs against `apps/demo` on port 5174 while the platform runs on 5173. The
+separation is the point: a same-origin test would prove nothing about the Origin allowlist, CORS,
+or the widget being a guest on a page it does not control.
+
+| Claim                            | Test (`e2e/tests/widget-runtime.spec.ts`)                                                                        |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| All three types render           | `a contact form renders inline...`, `an email signup renders...`, `a CTA popover renders as a floating panel...` |
+| Multiple instances coexist       | `two widgets coexist on one page with one runtime load`                                                          |
+| Host CSS cannot break them       | `hostile host CSS does not reach into the widget`                                                                |
+| Widget CSS does not escape       | `widget CSS does not leak out onto the host page`                                                                |
+| Cache headers match the contract | `loader, runtime, and config carry the headers the contract specifies`                                           |
+
+The demo page is deliberately hostile. It sets `* { box-sizing: content-box !important }`,
+restyles every input with `!important` at 40px, and reuses the class name `.panel` that the
+widget's own stylesheet uses internally. The isolation tests read computed styles on both sides of
+the boundary and assert neither crosses it.
+
+Multi-instance is checked by counting requests rather than by eye: two snippet tags produce exactly
+one runtime fetch and two config fetches, which is blueprint 8.1's "multiple script tags share one
+runtime" stated as an assertion.
+
+```
+npm run test:e2e
+  72 passed
+```
+
+Fifteen of those are new.
+
+### D3. The cache contract, as a browser actually received it
+
+```
+loader.js                      cache-control: public, max-age=300
+runtime.<16-hex-hash>.js       cache-control: public, max-age=31536000, immutable
+config/<publicId>              cache-control: public, max-age=60
+                               etag: "w-<publicId>-<revision>"
+                               vary: Origin
+                               access-control-allow-origin: http://localhost:5174
+```
+
+Two details worth stating. `Vary: Origin` is there because the answer depends on the Origin: without
+it a shared cache could hand one site's allowed response to a site that is not on the allowlist. And
+the ETag is derived from the public id and revision number rather than from a hash of the body, so
+it is stable across processes and restarts; a body hash would change with incidental things like key
+order. Requesting the runtime under any other hash answers 404 rather than serving current bytes
+under a stale URL, which is what makes a one-year immutable cache safe.
+
+### D6. The public config is an allowlist, not a filtered record
+
+`toPublicConfig` names the fields that go out rather than removing the ones that must not, so a
+later stage adding a private setting cannot leak it by default. The integration test asserts the
+exact key set and that the response contains no `allowedDomains`, no `workspaceId`, no
+`ownerUserId`, and no `_id`.
+
+The allowlist itself is the interesting omission: it is not secret, but it is not renderable
+either, the server is the authority on it, and shipping it to the client it constrains invites
+tampering.
+
+### D4. Server state, checked on every config request
+
+Each of these has its own integration test, and each stops the server serving immediately:
+unpublishing, soft-deleting the widget, soft-deleting the owning workspace, and republishing with a
+different allowed-domain list. A browser that already holds a config may legitimately keep it for up
+to 60 seconds, which is what blueprint 8.2 permits - so the browser test proves the point with a
+FRESH context and an empty cache rather than pretending the TTL does not exist. The submission-side
+half of this guarantee arrives with the endpoint it describes, in Stage 7.
+
+### Bundle budgets (blueprint 8.3)
+
+Blueprint 8.3 asks for budgets to be established by measurement rather than promised in advance, so
+these were measured first and the ceilings set around them:
+
+```
+widget runtime   13,613 B raw    5,439 B gzip     budget 20,480 / 8,192
+widget loader       734 B raw      434 B gzip     budget  2,048 / 1,024
+```
+
+CI prints both on every run, and the unit suite fails the build if either exceeds its ceiling. A
+separate test asserts directly that the strings `react` and `zod` appear nowhere in the bundle -
+"no dashboard framework enters the widget bundle" checked as a fact rather than inferred from a
+size. That test also guards a real hazard: the shared contracts package depends on Zod, so
+importing its barrel instead of the zero-dependency `@lcp/contracts/rules` entry point would pull a
+validation library onto customer websites.
+
+### One implementation of the matching rules
+
+Stage 5a's host/wildcard matching, safe-glob page matching, and URL validation moved from
+`apps/server/src/domain/widget/` into `@lcp/contracts` for this stage, because blueprint 7.2 splits
+the work between the two sides: the backend confirms the Origin (step 5) and the runtime evaluates
+include/exclude patterns against the real page URL (step 7). The server's original module paths
+remain as re-export shims so existing imports and their tests are untouched.
+
+```
+LSP findReferences on isPageTargeted
+  used by packages/widget-runtime/src/instance.ts   (step 7, in the browser)
+  used by apps/server/src/domain/widget/            (re-export shim)
+  declared once in packages/contracts/src/widget-rules.ts
+```
+
+### Accessibility of the rendered widget
+
+`axe` at WCAG 2.2 AA runs against the demo page with the widget mounted, so the scan covers the
+widget as a visitor meets it - inside a shadow root, on a page with its own styles. axe traverses
+open shadow roots, which is one of the reasons the root is open rather than closed. A separate test
+completes a form interaction with the keyboard alone.
+
+Focus behaviour is deliberately split: a modal opened by a visitor's click takes focus and traps
+Tab until Escape, then returns focus to the control that opened it; a popover that appears on a
+timer takes no focus at all and announces itself politely instead, because moving focus under
+someone mid-task is hostile.
+
+### What is still missing
+
+- The public submission endpoint. The form renders and validates in the browser but posts nowhere;
+  the runtime has a typed seam where Stage 7 attaches.
+- Interaction events, so nothing yet records that a widget was seen or opened (Stage 10).
+- Config cache invalidation in Redis on publish (blueprint 8.2). The 60-second TTL is honoured and
+  the server always answers from current state, but there is no cache layer to invalidate yet.
+- The runtime bundle is hashed once at server startup, so a rebuild needs a restart.
+
+---
+
 ## Change log
 
 | Date       | Stage | Change                                                                                                                                                               |
@@ -1063,3 +1189,5 @@ This would have been inherited by the Stage 6 runtime had it not been caught her
 | 2026-08-29 | 5a | B3, B4, B5, and B10 moved to `IN PROGRESS` with their API halves proven; `usage().activeWidgets` changed from a hard-coded null to a real count, and the Stage 4a test asserting null was updated to match. Evidenced by 37 new unit tests and 21 new integration tests against real MongoDB, Redis, and Mailpit, plus migration `005_widget` applied and its indexes read back from a real database. No capability name was added: the three widget rows of the section 11 matrix already existed. Blueprint Stage 5 is NOT complete - the builder UI, live preview, and browser E2E are Stage 5b. All six acceptance probes remain unproven. |
 
 | 2026-08-29 | 5b | Blueprint Stage 5 COMPLETE. B3 and B5 moved to `PROVEN`, now through the browser as well as the API. The per-type mandatory-field rule was moved into `@lcp/contracts` so the builder and the API validator share one implementation. Evidenced by 20 new browser tests (57 in the suite), with axe reporting zero critical or serious violations on every new page including error, empty, and mid-confirmation states - one of which caught a real contrast defect in the live preview. All six acceptance probes remain unproven. |
+
+| 2026-08-29 | 6 | Blueprint Stage 6 COMPLETE. D3, D5, and D6 moved to `PROVEN` and D4 to `IN PROGRESS`; B4's runtime half is now executed rather than stored. Evidenced by 15 new browser tests against the real second origin, 15 new integration tests for the public endpoint, and 21 new unit tests for trigger, cooldown, and identity decisions. Bundle sizes measured and tracked: runtime 13,613 B raw / 5,439 B gzip, loader 734 B / 434 B gzip, with no framework or validation library in the public bundle. All six acceptance probes remain unproven; every one needs the Stage 7 submission endpoint. |

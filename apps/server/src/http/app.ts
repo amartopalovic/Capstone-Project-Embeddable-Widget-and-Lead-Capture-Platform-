@@ -11,6 +11,7 @@ import { createMfaRouter } from './routes/mfa.js';
 import { createWorkspacesRouter } from './routes/workspaces.js';
 import { createInvitationsRouter, createMembersRouter } from './routes/members.js';
 import { createWidgetsRouter } from './routes/widgets.js';
+import { PUBLIC_WIDGET_PREFIX, createPublicWidgetRouter } from './routes/public-widget.js';
 import { correlationMiddleware } from './middleware/correlation.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { sessionMiddleware, type SessionCookieOptions } from './middleware/session.js';
@@ -106,6 +107,12 @@ export function createApp(options: CreateAppOptions): Express {
   const membersRouter = createMembersRouter(workspaceRouterDeps);
   const invitationsRouter = createInvitationsRouter(workspaceRouterDeps);
 
+  const publicWidgetRouter = createPublicWidgetRouter({
+    widgets: deps.publicWidgetService,
+    logger: deps.logger,
+    publicBaseUrl: env.appBaseUrl,
+  });
+
   const widgetsRouter = createWidgetsRouter({
     widgets: deps.widgetService,
     memberships: deps.membershipService,
@@ -135,6 +142,17 @@ export function createApp(options: CreateAppOptions): Express {
   app.use(`${API_PREFIX}/members`, doubleCsrfProtection, membersRouter);
   app.use(`${API_PREFIX}/invitations`, doubleCsrfProtection, invitationsRouter);
   app.use(`${API_PREFIX}/widgets`, doubleCsrfProtection, widgetsRouter);
+
+  /**
+   * The public widget surface, mounted outside the versioned API and outside
+   * session and CSRF handling.
+   *
+   * A visitor on a customer's website has no session with us, so there is no
+   * token to bind a CSRF check to and nothing for a session to resolve. What
+   * protects these routes is the Origin allowlist and the published state,
+   * both enforced server-side (blueprint 7.2 step 5).
+   */
+  app.use(PUBLIC_WIDGET_PREFIX, publicWidgetRouter);
 
   app.get(API_PREFIX, (_request, response) => {
     response.status(200).json({ api: API_PREFIX, status: 'ok' });

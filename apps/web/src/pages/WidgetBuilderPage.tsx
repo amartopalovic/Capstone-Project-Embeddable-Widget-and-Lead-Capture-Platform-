@@ -44,6 +44,11 @@ export function WidgetBuilderPage(): React.JSX.Element {
    * is on screen.
    */
   const configRef = useRef<WidgetConfig | null>(null);
+  /**
+   * Whether there are unsaved edits, readable from `load` without re-creating
+   * it. See the guard in `load` for why this matters.
+   */
+  const dirtyRef = useRef(false);
   /** The version the current edits are based on; null means no draft exists yet. */
   const [baseVersion, setBaseVersion] = useState(0);
   const [dirty, setDirty] = useState(false);
@@ -70,7 +75,21 @@ export function WidgetBuilderPage(): React.JSX.Element {
       // then carries version 0, which is what Stage 5a expects.
       const source = result.data.draft ?? result.data.published;
       setBaseVersion(result.data.draft?.version ?? 0);
-      if (!keepEdits && source !== null) {
+
+      /**
+       * Never overwrite unsaved edits.
+       *
+       * `load` is a `useCallback` over `useNavigate`, and React Router does not
+       * promise that function is referentially stable - so the mount effect can
+       * legitimately re-run. Without this guard that re-run silently replaced
+       * whatever the creator had typed with the last saved copy, which is the
+       * lost-edit failure the whole optimistic-concurrency design exists to
+       * prevent, arriving from inside the page rather than from a teammate.
+       *
+       * It reproduced as an intermittent test failure: a widget published
+       * without the allowed domain that had just been typed into it.
+       */
+      if (!keepEdits && !dirtyRef.current && source !== null) {
         setConfig(source.config);
         configRef.current = source.config;
         setDirty(false);
@@ -87,6 +106,7 @@ export function WidgetBuilderPage(): React.JSX.Element {
   function edit(next: WidgetConfig): void {
     setConfig(next);
     configRef.current = next;
+    dirtyRef.current = true;
     setDirty(true);
     // A previous rejection no longer describes what is on screen.
     setErrors([]);
@@ -107,6 +127,7 @@ export function WidgetBuilderPage(): React.JSX.Element {
       setErrors([]);
       setConflict(null);
       setBaseVersion(result.data.version);
+      dirtyRef.current = false;
       setDirty(false);
       setNotice('Draft saved. It is not live until you publish it.');
       await load(true);
@@ -240,6 +261,9 @@ export function WidgetBuilderPage(): React.JSX.Element {
               data-testid="conflict-discard"
               onClick={() => {
                 setConflict(null);
+                // An explicit discard, so the dirty guard is stood down.
+                dirtyRef.current = false;
+                setDirty(false);
                 void load();
               }}
               className="border border-edge px-3 py-1.5 text-xs font-medium text-ink hover:bg-paper"

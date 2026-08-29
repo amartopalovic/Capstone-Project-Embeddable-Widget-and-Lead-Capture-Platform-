@@ -11,6 +11,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./rules": {
+      "types": "./dist/widget-rules.d.ts",
+      "default": "./dist/widget-rules.js"
     }
   },
   "files": [

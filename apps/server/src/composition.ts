@@ -7,16 +7,19 @@ import {
   UserRepository,
   WidgetRepository,
   WidgetRevisionRepository,
+  workspaceScope,
   WorkspaceRepository,
   type InvitationRecord,
 } from '@lcp/database';
 import { COLLECTIONS } from '@lcp/database';
 import type { WithId } from 'mongodb';
+import type { WidgetRecord, WorkspaceRecord } from '@lcp/database';
 import type { ServerEnv } from './config/env.js';
 import { AuthService } from './application/auth/auth-service.js';
 import { SessionService } from './application/auth/session-service.js';
 import { MfaService } from './application/auth/mfa-service.js';
 import { WidgetService } from './application/widget/widget-service.js';
+import { PublicWidgetService } from './application/widget/public-widget-service.js';
 import { WorkspaceService } from './application/workspace/workspace-service.js';
 import { MembershipService } from './application/workspace/membership-service.js';
 import { InvitationService } from './application/workspace/invitation-service.js';
@@ -58,6 +61,7 @@ export interface AppDependencies {
   readonly mfaService: MfaService;
   readonly mfaChallengeStore: RedisMfaChallengeStore;
   readonly widgetService: WidgetService;
+  readonly publicWidgetService: PublicWidgetService;
   readonly workspaceService: WorkspaceService;
   readonly membershipService: MembershipService;
   readonly invitationService: InvitationService;
@@ -222,6 +226,30 @@ export function buildDependencies(
     publicBaseUrl: env.appBaseUrl,
   });
 
+  const publicWidgetService = new PublicWidgetService({
+    /**
+     * The unscoped widget lookup.
+     *
+     * Kept here in the composition root, like the invitation token lookup, so
+     * the escape hatch from the tenancy invariant is visible in one place and
+     * cannot be reached accidentally from ordinary workspace code. Blueprint
+     * 9.1 names exactly this case: a public widget identifier resolves to one
+     * workspace on the server, and the visitor asking has no tenant context to
+     * scope by.
+     */
+    findByPublicId: async (publicId: string): Promise<WithId<WidgetRecord> | null> =>
+      db.collection<WidgetRecord>(COLLECTIONS.widgets).findOne({ publicId }),
+
+    /** The owning workspace, so a deleted tenant stops serving its widgets. */
+    findWorkspace: async (widget: WithId<WidgetRecord>): Promise<WithId<WorkspaceRecord> | null> =>
+      workspaceRepository.findInScope(workspaceScope(widget.workspaceId)),
+
+    revisions: widgetRevisionRepository,
+    // Stages 7 and 10 count what could block serving; nothing does yet.
+    isQuotaBlocked: async () => false,
+    logger,
+  });
+
   const membershipService = new MembershipService({
     memberships: membershipRepository,
     users: userRepository,
@@ -256,6 +284,7 @@ export function buildDependencies(
   return {
     logger,
     widgetService,
+    publicWidgetService,
     authService,
     sessionService,
     mfaService,

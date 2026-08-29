@@ -1,23 +1,63 @@
 /**
- * Stage 1 placeholder for the anonymous demo sandbox.
+ * The separate-origin demo sandbox.
  *
- * It exists to prove the second origin genuinely runs and builds. Seeded
- * examples of all three widget types, the hourly reset, the safe public feed,
- * and the synthetic-data labelling arrive in Stage 12.
+ * This page exists so cross-origin widget behaviour is testable locally rather
+ * than only after deployment: it runs on its own port, which makes it a
+ * genuinely different origin from the dashboard, so the Origin allowlist, CORS,
+ * and Shadow DOM isolation are all exercised for real.
+ *
+ * Which widgets to install is taken from the query string rather than hard-coded
+ * or seeded, because a public widget id only exists once something has been
+ * published through the dashboard. A browser test creates and publishes one,
+ * then sends this page its identifier:
+ *
+ *   /?w=w_abc123...            install one widget
+ *   /?w=w_abc...,w_def...      install several, sharing one runtime load
+ *   /?api=http://localhost:3000  where the loader and config come from
+ *
+ * The seeded showcase, hourly reset, and synthetic-data labelling described in
+ * blueprint 4.11 are Stage 12's job. This is the test fixture that proves the
+ * runtime works on somebody else's page.
  */
 
-const app = document.getElementById('app');
+const params = new URLSearchParams(window.location.search);
+const apiBase = (params.get('api') ?? 'http://localhost:3000').replace(/\/+$/, '');
+const publicIds = (params.get('w') ?? '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter((value) => value !== '');
 
-if (app !== null) {
-  const heading = document.createElement('h1');
-  heading.textContent = 'Lead Capture demo sandbox';
+const note = document.getElementById('origin-note');
+if (note !== null) {
+  note.textContent =
+    publicIds.length === 0
+      ? `Serving origin ${window.location.origin}. No widgets requested - add ?w=<publicId>.`
+      : `Serving origin ${window.location.origin}. Installing ${String(publicIds.length)} widget(s) from ${apiBase}.`;
+}
 
-  const status = document.createElement('p');
-  status.textContent =
-    'Stage 1 skeleton. This is a separate origin from the platform application, which is what makes the cross-origin widget behaviour testable. No widgets are installed yet.';
+const mount = document.getElementById('widgets');
 
-  const origin = document.createElement('p');
-  origin.textContent = `Serving origin: ${window.location.origin}`;
+for (const publicId of publicIds) {
+  /**
+   * A click-trigger element, using the one contract the runtime defines for
+   * host pages: `data-lcp-widget-open="<publicId>"`.
+   */
+  const opener = document.createElement('button');
+  opener.type = 'button';
+  opener.textContent = `Open ${publicId}`;
+  opener.setAttribute('data-lcp-widget-open', publicId);
+  opener.setAttribute('data-testid', `open-${publicId}`);
+  mount?.append(opener);
 
-  app.append(heading, status, origin);
+  /**
+   * The real snippet, exactly as blueprint 7.2 describes it and exactly as the
+   * dashboard prints it for a customer to paste. Several of these on one page
+   * is the multi-instance case: the loader guards itself so the runtime is
+   * fetched once no matter how many tags there are.
+   */
+  const script = document.createElement('script');
+  script.async = true;
+  script.src = `${apiBase}/widget/v1/loader.js`;
+  script.setAttribute('data-widget', publicId);
+  mount?.append(script);
 }

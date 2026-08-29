@@ -15,6 +15,10 @@ import { defineConfig, devices } from '@playwright/test';
 
 const WEB_PORT = 5173;
 const API_PORT = 3000;
+/** The second origin. Cross-origin widget behaviour is only real with one. */
+const DEMO_PORT = 5174;
+
+export const DEMO_ORIGIN = `http://localhost:${String(DEMO_PORT)}`;
 
 export default defineConfig({
   testDir: './e2e/tests',
@@ -67,6 +71,17 @@ export default defineConfig({
       command: 'node ../../node_modules/vite/bin/vite.js',
       cwd: 'apps/web',
       url: `http://localhost:${String(WEB_PORT)}`,
+      reuseExistingServer: process.env['CI'] === undefined,
+      timeout: 120_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      // The demo sandbox, on its own port. This is what makes the widget tests
+      // cross-origin rather than a same-origin simulation of one.
+      command: 'node ../../node_modules/vite/bin/vite.js',
+      cwd: 'apps/demo',
+      url: `http://localhost:${String(DEMO_PORT)}`,
       reuseExistingServer: process.env['CI'] === undefined,
       timeout: 120_000,
       stdout: 'pipe',

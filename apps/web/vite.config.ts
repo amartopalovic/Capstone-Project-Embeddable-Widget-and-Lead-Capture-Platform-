@@ -9,6 +9,13 @@ import tailwindcss from '@tailwindcss/vite';
  * `/api` is proxied to the Express server so the browser sees ONE origin in
  * development. That matters for auth: the session cookie is SameSite=Lax and
  * host-scoped, so a cross-origin dev setup would silently drop it.
+ *
+ * `/widget` is proxied for the same reason, from Stage 6. In production
+ * blueprint 5.1 puts the API, the React app, and the widget assets on ONE
+ * Render service, so an embed snippet naturally points at the same origin as
+ * the dashboard. Proxying here reproduces that topology locally, which is what
+ * lets a customer-facing snippet be tested without inventing a second base URL
+ * that production would never use.
  */
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -20,6 +27,10 @@ export default defineConfig({
         target: process.env['VITE_API_TARGET'] ?? 'http://localhost:3000',
         changeOrigin: false,
       },
+      '/widget': {
+        target: process.env['VITE_API_TARGET'] ?? 'http://localhost:3000',
+        changeOrigin: false,
+      },
     },
   },
   preview: {
@@ -27,6 +38,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
+        target: process.env['VITE_API_TARGET'] ?? 'http://localhost:3000',
+        changeOrigin: false,
+      },
+      '/widget': {
         target: process.env['VITE_API_TARGET'] ?? 'http://localhost:3000',
         changeOrigin: false,
       },

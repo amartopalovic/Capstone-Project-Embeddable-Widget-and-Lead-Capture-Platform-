@@ -76,6 +76,30 @@ jobs:
             echo "Found $artifact"
           done
 
+      - name: Report public widget bundle sizes
+        # Blueprint 8.3 asks for loader and runtime size to be TRACKED in CI.
+        # The budgets themselves are asserted by the unit suite above, which
+        # fails the build if either grows past its ceiling; this step prints the
+        # numbers so a reviewer can see the trend in the log rather than only
+        # finding out when a limit is breached.
+        run: |
+          set -euo pipefail
+          node -e "
+            const { gzipSync } = require('node:zlib');
+            const { readFileSync, statSync } = require('node:fs');
+            for (const file of [
+              'packages/widget-runtime/dist/widget-runtime.iife.js',
+              'packages/widget-runtime/dist/widget-runtime.js',
+            ]) {
+              const source = readFileSync(file);
+              console.log(
+                file.padEnd(58),
+                String(statSync(file).size).padStart(7) + ' B raw',
+                String(gzipSync(source).length).padStart(7) + ' B gzip',
+              );
+            }
+          "
+
   integration:
     name: Integration tests (real MongoDB and Redis)
     runs-on: ubuntu-latest

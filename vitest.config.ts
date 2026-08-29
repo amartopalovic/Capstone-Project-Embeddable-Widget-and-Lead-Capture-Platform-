@@ -26,6 +26,17 @@ export default defineConfig({
       },
       {
         test: {
+          name: 'unit-runtime',
+          root: './packages/widget-runtime',
+          // Node, not a DOM emulator: what is unit-tested here is decision
+          // logic, and the browser behaviour it feeds is covered by Playwright
+          // against the real second origin rather than a simulated one.
+          environment: 'node',
+          include: ['tests/**/*.test.ts'],
+        },
+      },
+      {
+        test: {
           name: 'unit-server',
           root: './apps/server',
           environment: 'node',

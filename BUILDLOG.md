@@ -1529,3 +1529,159 @@ npm run test:e2e           57 passed (8.4m)          (37 existing + 20 new)
 4. **The 10-widget cap has no UI affordance** until it is hit, when the server's `quota_exceeded`
    message appears. A meter is on the overview page, but the create form does not pre-empt it.
 5. **CI has still never run**, because no remote is configured.
+
+---
+
+## Stage 6 - Cached public loader and framework-free widget runtime (2026-08-29)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Blueprint Stage 6, complete.
+
+### What was done
+
+- `apps/server/src/application/widget/public-widget-service.ts` and
+  `src/http/routes/public-widget.ts`: the public config endpoint, the generated loader, and the
+  content-hashed runtime, mounted outside session and CSRF handling.
+- `packages/widget-runtime/src/`: registry, instance lifecycle, Shadow DOM rendering, stylesheet,
+  triggers, and cooldown - framework-free, no React, no Zod.
+- `packages/contracts/src/widget-rules.ts`: Stage 5a's matching rules moved here so the runtime
+  uses the same implementation the server validates with; `@lcp/contracts/rules` is a
+  zero-dependency entry point so the barrel's Zod dependency stays out of the public bundle.
+- `apps/demo`: a hostile host page on a second origin, installing widgets from `?w=`.
+- Bundle budgets in the unit suite, sizes printed in CI.
+
+### Where AI helped
+
+- Noticing that the runtime needed 5a's rules and that the obvious options were both bad: importing
+  server code into a browser bundle, or copying the rules and letting them drift. Moving them into
+  a shared zero-dependency entry point is the third option, and the one that keeps blueprint 7.2's
+  split between server and browser honest.
+- Spotting the Zod hazard before it shipped. `@lcp/contracts` depends on Zod, so importing its
+  barrel from the runtime would have quietly put a validation library on customer websites. The
+  subpath export prevents it and a test asserts it, rather than trusting the bundler.
+- Deriving the ETag from the public id and revision rather than from a body hash, so it is stable
+  across processes and restarts.
+- Working out that focus behaviour has to differ by how the widget opened. A modal the visitor
+  clicked should take focus; a popover that appears on a timer must not, because moving focus under
+  someone mid-task is hostile. Both cases are tested.
+
+### Where AI failed or was corrected
+
+- **I put backticks inside a template literal.** A CSS comment I wrote referred to
+  `* { box-sizing: content-box !important }` in backticks - inside the JS template string that
+  builds the stylesheet. It terminated the string and broke the build. The build error was one line
+  of Vite output that I nearly skimmed past because the grep on the next line still printed a
+  result from the previous build.
+- **I changed the stylesheet and did not rebuild the bundle**, then spent a round theorising about
+  CSS specificity to explain a test failure that was simply stale output. The server reads the
+  runtime from disk once at startup, so a rebuild also needs a restart - now written down in the
+  README as a real operational limitation rather than a thing I have to remember.
+- **My first box-sizing fix was wrong in an interesting way.** I used
+  `*, *::before, *::after { box-sizing: inherit }`, which is the standard idiom - but the value it
+  inherits comes from the HOST element, which lives in the host page's light DOM and can be forced
+  to `content-box !important` there. Inheritance is exactly the channel Shadow DOM does not block.
+  Stating `border-box` outright is immune.
+- **I asserted something the blueprint does not promise.** A test expected an unpublished widget to
+  vanish from a page on the next load; blueprint 8.2 gives the config a 60-second TTL, so a browser
+  may legitimately keep showing it for up to a minute. The test now uses a fresh context with an
+  empty cache and proves what is actually guaranteed: the server stops serving immediately.
+- **A trigger test raced the runtime.** Clicking a trigger before the loader, runtime, and config
+  had finished three async hops meant nothing was wired yet. Fixed with a deterministic wait on the
+  registry rather than a sleep - which also states the real precondition.
+- **I nearly called that one a flake.** It failed in the suite and passed alone, which is the exact
+  shape that invites a retry rather than a diagnosis.
+- **The full suite then found a real lost-edit bug I had shipped in Stage 5b.** Two tests failed
+  intermittently with "This widget is not ready to publish" - a widget published without the
+  allowed domain that had just been typed into it. Not a timeout: the page said so. The cause was
+  in the builder, not the tests. `load` is a `useCallback` over `useNavigate`, React Router does
+  not promise that function is referentially stable, so the mount effect can re-run - and when it
+  did, it replaced whatever the creator had typed with the last saved copy. That is the same
+  silent-lost-edit failure the optimistic-concurrency design exists to prevent, arriving from
+  inside the page instead of from a teammate. A dirty guard on the reload fixes it. Two things
+  worth noting: it only reproduced in a full 12-minute run, and the honest reading of "passes
+  alone, fails in the suite" was a real bug rather than contention.
+- **One genuinely timing-sensitive pre-existing test.** The Stage 3b MFA-disable test submits a
+  TOTP code that is only valid for the rest of its 30-second period; under a loaded run the period
+  can roll between generating and submitting. It now waits for a fresh period when the current one
+  is nearly spent, rather than being left to fail in a way that looks like a broken feature.
+
+### Judgment calls
+
+1. **The shadow root is OPEN, not closed.** Closed hides the root from the host page's script but
+   not from a determined one, and CSS isolation - the property that actually matters - is identical
+   either way. Open keeps the widget inspectable by the site owner who installed it, and both
+   Playwright and axe traverse open roots, so the tests examine what a visitor really gets.
+2. **The loader is generated server-side as a string.** It must name the current hashed runtime
+   URL; a pre-built loader would need rewriting on every runtime build.
+3. **The runtime is hashed once at startup**, not per request. Hashing per request would be waste;
+   the cost is that a rebuilt bundle needs a restart, which is documented.
+4. **The allowed-domain list is not in the public config.** It is not renderable, the server is the
+   authority on it, and shipping an allowlist to the client it constrains invites tampering. The
+   runtime therefore does not do domain matching at all - the server refuses first.
+5. **Include/exclude patterns ARE in the public config**, because one cached answer is shared by
+   every page on the site and only the browser knows which page this is. That is blueprint 7.2's
+   own split, step 5 versus step 7.
+6. **A missing Origin header is refused.** Browsers send it on cross-origin requests, so its
+   absence means this is not the browser fetch the endpoint exists to serve.
+7. **Failure is silent in the runtime.** A refused Origin, an unpublished widget, or a network
+   error leaves the customer's page exactly as it was. A widget that cannot load should be
+   invisible, never an error message on somebody else's site.
+8. **Storage failures degrade toward showing the widget.** Private modes throw on localStorage; a
+   widget that cannot remember its cooldown shows again, which is mildly annoying rather than
+   broken.
+9. **`/widget` is proxied through the web dev server.** Blueprint 5.1 puts the API, the dashboard,
+   and the widget assets on one Render service, so a snippet naturally points at one origin.
+   Proxying reproduces that locally instead of inventing a second base URL production never uses.
+10. **The submission handler is an empty typed seam.** Stage 7 owns the endpoint; the form renders
+    and validates but posts nowhere, which is a seam rather than a half-implementation.
+
+### Verification performed
+
+```
+npm run lint               exit 0
+npm run format:check       All matched files use Prettier code style!
+npm run typecheck          exit 0
+npm run build              exit 0
+npm test                   Test Files 10 passed (10)   Tests 183 passed (183)
+npm run test:integration   Test Files  8 passed (8)    Tests 146 passed (146)
+npm run test:e2e           72 passed
+npm run migrate            no new migration this stage
+
+measured bundle sizes
+  widget runtime   13,613 B raw    5,439 B gzip     budget 20,480 / 8,192
+  widget loader       734 B raw      434 B gzip     budget  2,048 / 1,024
+```
+
+### Plugin usage this stage
+
+- **`frontend-design` - applied to the widget's own output.** Its guidance shaped what the widget
+  looks like on somebody else's page: one quiet panel that states every property it depends on
+  rather than inheriting, a focus ring the host page cannot remove, a single 160ms entrance that
+  respects `prefers-reduced-motion`, and no decoration that does not serve the brief. The restraint
+  principle is why the widget has no chrome of its own beyond a close control - it is a guest, and
+  the creator's appearance settings are the design system, not ours.
+- **`typescript-lsp` - worked.** Verified up front with two deliberate type errors cross-checked
+  against `tsc`, resolving `WidgetConfig` from contracts into the runtime package. Used to confirm
+  the runtime consumes the shared rules rather than a copy, and for a clean diagnostics pass. It
+  went stale twice after external edits, as in Stages 4b and 5; `tsc` was the authority while
+  editing.
+- **`context7` - consulted three times, all load-bearing.** MDN on `attachShadow`,
+  `adoptedStyleSheets`, and `CSSStyleSheet.replaceSync`, which informed the open-vs-closed decision
+  and the styling approach. Express on ETag generation and `req.fresh`, which is what made me stop
+  relying on framework-implicit 304s and set an explicit validator instead. And Picomatch, whose
+  option surface confirmed the Stage 5a decision not to take a glob dependency still held for a
+  bundle that ships to customer sites.
+
+### Open questions for a human
+
+1. **No Redis config cache yet.** Blueprint 8.2 says "Publish invalidates Redis", but there is no
+   cache layer to invalidate - every config request reads Mongo. Correct, and fine at this scale,
+   but the caching that line describes is still to come.
+2. **Exit intent is untested in the browser suite.** It is unit-tested for the degradation rule and
+   wired in the runtime, but simulating a real pointer leaving the viewport top is unreliable in
+   headless Chromium, so it is not asserted end to end.
+3. **The click-trigger contract is `data-lcp-widget-open="<publicId>"`** and is documented nowhere a
+   customer would find it. Stage 12's public docs should cover it.
+4. **A widget with only an exit-intent trigger never opens on touch devices.** That is the
+   blueprint's rule working as written, but the builder does not warn a creator who configures it.
+5. **CI has still never run**, because no remote is configured.
