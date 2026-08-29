@@ -11,6 +11,8 @@ import { OnboardingPage } from './pages/OnboardingPage.jsx';
 import { AcceptInvitationPage } from './pages/AcceptInvitationPage.jsx';
 import { WorkspaceShell } from './components/WorkspaceShell.jsx';
 import { WorkspaceHomePage } from './pages/WorkspaceHomePage.jsx';
+import { WidgetsPage } from './pages/WidgetsPage.jsx';
+import { WidgetBuilderPage } from './pages/WidgetBuilderPage.jsx';
 import { MembersPage } from './pages/MembersPage.jsx';
 import { AuditLogPage } from './pages/AuditLogPage.jsx';
 import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage.jsx';
@@ -59,6 +61,8 @@ const router = createBrowserRouter([
     element: <WorkspaceShell />,
     children: [
       { index: true, element: <WorkspaceHomePage /> },
+      { path: 'widgets', element: <WidgetsPage /> },
+      { path: 'widgets/:widgetId', element: <WidgetBuilderPage /> },
       { path: 'members', element: <MembersPage /> },
       { path: 'audit', element: <AuditLogPage /> },
       { path: 'settings', element: <WorkspaceSettingsPage /> },

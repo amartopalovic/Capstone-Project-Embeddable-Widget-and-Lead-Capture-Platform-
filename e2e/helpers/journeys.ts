@@ -133,3 +133,62 @@ export async function acceptAsNewUser(
   await expect(page).toHaveURL(/\/workspace$/);
   return page;
 }
+
+// ---------------------------------------------------------------------------
+// Widgets (Stage 5b)
+// ---------------------------------------------------------------------------
+
+/** Create a widget through the UI and open its builder. */
+export async function createWidget(
+  page: Page,
+  type: 'Contact form' | 'Email signup' | 'CTA popover',
+  name: string,
+): Promise<void> {
+  await page.goto('/workspace/widgets');
+  await page.getByRole('radio', { name: new RegExp(type) }).check();
+  // Addressed as a textbox: each type radio's accessible name includes its
+  // description, and one of those descriptions begins with the word "Name".
+  await page.getByRole('textbox', { name: 'Name' }).fill(name);
+  await page.getByRole('button', { name: 'Create widget' }).click();
+
+  await expect(page.getByText('was created')).toBeVisible();
+  await page.getByRole('link', { name: `Edit ${name}` }).click();
+  await expect(page.getByRole('heading', { name, level: 1 })).toBeVisible();
+}
+
+/** Add one allowed domain, which blueprint 4.4 requires before publishing. */
+export async function addAllowedDomain(page: Page, domain: string): Promise<void> {
+  await page.getByRole('button', { name: 'Add allowed domains' }).click();
+  const list = page.getByTestId('allowed-domains');
+  await list.getByRole('textbox').last().fill(domain);
+}
+
+export async function saveDraft(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await expect(page.getByText('Draft saved')).toBeVisible();
+}
+
+export async function publishWidget(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Publish', exact: true }).click();
+  await expect(page.getByText(/Published revision \d+/)).toBeVisible();
+}
+
+/**
+ * A widget that is ready to publish: named, with an allowed domain, saved.
+ *
+ * Returns the headline it set, so a test can assert the live revision keeps it
+ * after somebody else edits the draft.
+ */
+export async function createPublishableWidget(
+  page: Page,
+  name: string,
+  headline: string,
+): Promise<string> {
+  await createWidget(page, 'Contact form', name);
+  await page.getByLabel('Headline').fill(headline);
+  await addAllowedDomain(page, 'example.com');
+  await saveDraft(page);
+  // The builder URL, because `invite` navigates the page away and callers
+  // routinely need to come back to it.
+  return page.url();
+}

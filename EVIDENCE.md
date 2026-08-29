@@ -2,14 +2,14 @@
 
 One repeatable proof per requirement.
 
-> ## Status at Stage 5a: **no acceptance probe is proven.**
+> ## Status at Stage 5: **no acceptance probe is proven.**
 >
-> Blueprint Stages 3 and 4 are complete. Stage 5a adds the widget backend: B3, B4, and B5 move to
-> `IN PROGRESS` with their API halves proven, and B10's widget meter becomes a real count.
+> Blueprint Stages 3, 4, and 5 are complete. Stage 5b adds the builder UI, the live preview, and
+> the browser tests that close Stage 5's exit gate, so B3 and B5 are now proven through the
+> interface rather than at the API level only.
 > **All six acceptance probes remain `NOT YET IMPLEMENTED`**: they require a widget rendered on a
-> real page and a submission arriving through it, and neither the runtime (Stage 6) nor the
-> submission endpoint (Stage 7) exists. Blueprint Stage 5 itself is NOT complete - the builder
-> UI, its live preview, and the browser journey are Stage 5b.
+> real customer page and a submission arriving through it, and neither the runtime (Stage 6) nor
+> the submission endpoint (Stage 7) exists.
 >
 > As each stage completes, its entries gain: the exact command an evaluator can re-run, the
 > observed output or transcript, and a link to the test that enforces the behavior. An entry is
@@ -135,14 +135,18 @@ real queue behavior in Stage 9.
 - **Requirement:** Exactly three widget types (contact form, email signup, CTA popover) with locked
   mandatory fields, the seven predefined field types, and bounded visual customization. No
   arbitrary CSS or JavaScript.
-- **Status:** `IN PROGRESS` — the data model, field schema, and validation are `PROVEN` at the API
-  level in Stage 5a. The settings form and live preview are Stage 5b.
+- **Status:** `PROVEN`. The data model, field schema, and validation were proven at the API level
+  in Stage 5a; Stage 5b added the settings form with its live preview and proved the same rules
+  through the browser.
 - **What is proven:** the three types are a locked union, not an open string; each type's mandatory
   fields cannot be removed OR quietly made optional; the CTA popover's email requirement applies
   only when its built-in lead form is enabled; a field type cannot appear twice; and appearance is
   a closed vocabulary of hex colours and enums, so no free-form style, class, HTML, or script value
   is representable anywhere in a configuration.
-- **Evidence:** see Part D-detail, Stage 5a.
+- **Also proven through the interface:** a locked field has no remove control at all rather than a
+  disabled one; removing an optional field and adding another updates the preview immediately; and
+  the preview renders the exact configuration that will be saved, because both read one object.
+- **Evidence:** see Part D-detail, Stage 5a and Stage 5b.
 
 ### B4. Display, targeting, and visitor behavior (§4.4)
 
@@ -163,9 +167,10 @@ real queue behavior in Stage 9.
 - **Requirement:** Stable widget identity with separately versioned revisions; Members edit drafts
   only; Owner/Admin publish to an immutable live revision; unpublishing immediately blocks config
   use and submissions at the backend; soft delete preserves historical contacts and events.
-- **Status:** `IN PROGRESS` — the whole lifecycle is `PROVEN` at the API level in Stage 5a. The
-  "blocks submissions" half of unpublishing cannot be proven until a submission endpoint exists
-  (**Stage 7**); this stage owns and persists the state transition it depends on.
+- **Status:** `PROVEN` for everything this stage can reach. The whole lifecycle is proven at the
+  API level (5a) and through the browser (5b). The "blocks submissions" half of unpublishing still
+  cannot be demonstrated until a submission endpoint exists (**Stage 7**); the state transition it
+  depends on is built, persisted, and reflected in the UI.
 - **What is proven:** a Member edits a draft while the live revision is byte-for-byte unchanged; a
   verified Owner/Admin publishes; an unverified one is refused with `email_not_verified`; a Member
   is refused publish and delete; editing a published widget opens a NEW revision rather than
@@ -968,6 +973,76 @@ alternation is reachable, so the expression cannot backtrack catastrophically.
 
 ---
 
+## Part D-detail - Stage 5b builder, preview, and browser evidence
+
+### Blueprint Stage 5's exit gate, through the browser
+
+The gate is three claims. Stage 5a proved each against the API; these prove them against the
+interface, which is a different claim - that the UI never offers a control it would then be refused
+for, and that a draft edit visibly leaves the live revision alone.
+
+| Claim                                              | Test (`e2e/tests/widget-journey.spec.ts`)                        |
+| -------------------------------------------------- | ---------------------------------------------------------------- |
+| A Member edits a draft without changing live state | `a Member edits a draft without changing live state - EXIT GATE` |
+| A verified Admin publishes                         | `a verified Admin publishes and copies the snippet`              |
+| Another tenant cannot read, modify, or publish it  | `another tenant cannot reach a widget through the UI`            |
+
+The first is the one worth reading closely. After the Member saves, the builder correctly shows
+THEIR text, because the builder edits the draft. What must not have moved is the live revision, so
+the test asserts the separate "Live now" panel still reports `Original headline` at revision 1, that
+the list marks the widget as having unpublished changes, and that a direct `POST /publish` from the
+Member's own session answers 403.
+
+```
+npm run test:e2e
+  57 passed (8.4m)
+```
+
+Twenty of those are new: 12 journeys and 8 accessibility scans.
+
+### One copy of the rules, extended to the builder
+
+Stage 4b established that the UI must not keep its own copy of the policy. The same principle
+applied here to the per-type mandatory-field rule, which the builder needs in order to decide
+whether to render a remove control:
+
+```
+LSP findReferences on mandatoryFieldsFor in packages/contracts/src/widget.ts
+  7 references across 3 files:
+    packages/contracts/src/widget.ts              (the single declaration)
+    apps/web/src/components/WidgetSettings.tsx    (which fields may be removed)
+    apps/server/src/domain/widget/fields.ts       (which configurations are valid)
+```
+
+It was moved out of the server's domain folder into the shared package for exactly this reason. The
+publish, unpublish, and delete controls key off the capability list the API derives from the section
+11 matrix, unchanged from Stage 4b.
+
+### Accessibility
+
+`axe` at WCAG 2.2 AA on every new page, zero critical or serious violations, covering the empty
+list, the populated list, the builder with every conditional section revealed, the builder mid-error,
+the builder mid-delete-confirmation, a published widget with its snippet, a CTA popover with no form
+section, the trash view, and the builder as a Member. One test completes an edit with the keyboard
+alone and watches the preview follow.
+
+**One real defect was found and fixed by these scans.** The preview muted whole field elements with
+`opacity: 0.55`, which rendered placeholder text as `#7e7f8a` on white - 3.96:1, below the 4.5:1 AA
+requires. Borders and text now scale separately, because a border is non-text and needs only 3:1.
+This would have been inherited by the Stage 6 runtime had it not been caught here.
+
+### What is still missing
+
+- Nothing renders a widget on a real customer page. The loader route named in the snippet does not
+  exist until Stage 6, and the preview is the dashboard's own rendering rather than the runtime's.
+- Targeting, triggers, and cooldown are stored and validated, never executed (Stage 6).
+- The submission endpoint, so the "unpublishing blocks submissions" half of B5 remains
+  undemonstrable (Stage 7).
+- The builder does not warn about a low-contrast colour pairing a creator chooses; the preview
+  renders it faithfully, including its poor contrast.
+
+---
+
 ## Change log
 
 | Date       | Stage | Change                                                                                                                                                               |
@@ -986,3 +1061,5 @@ alternation is reachable, so the expression cannot backtrack catastrophically.
 | 2026-08-28 | 4b | Blueprint Stage 4 COMPLETE. B1 moved to `PROVEN` end to end and C7 strengthened: the UI hides controls using capabilities the SERVER derives from the section 11 table, so there is no second copy of the policy. D2 widened onto workspace recovery. Evidenced by 37 browser E2E tests (20 new), 110 integration tests (4 new), and 125 unit tests, with axe reporting zero critical or serious violations on every new page including error and empty states. All six acceptance probes remain unproven. |
 
 | 2026-08-29 | 5a | B3, B4, B5, and B10 moved to `IN PROGRESS` with their API halves proven; `usage().activeWidgets` changed from a hard-coded null to a real count, and the Stage 4a test asserting null was updated to match. Evidenced by 37 new unit tests and 21 new integration tests against real MongoDB, Redis, and Mailpit, plus migration `005_widget` applied and its indexes read back from a real database. No capability name was added: the three widget rows of the section 11 matrix already existed. Blueprint Stage 5 is NOT complete - the builder UI, live preview, and browser E2E are Stage 5b. All six acceptance probes remain unproven. |
+
+| 2026-08-29 | 5b | Blueprint Stage 5 COMPLETE. B3 and B5 moved to `PROVEN`, now through the browser as well as the API. The per-type mandatory-field rule was moved into `@lcp/contracts` so the builder and the API validator share one implementation. Evidenced by 20 new browser tests (57 in the suite), with axe reporting zero critical or serious violations on every new page including error, empty, and mid-confirmation states - one of which caught a real contrast defect in the live preview. All six acceptance probes remain unproven. |

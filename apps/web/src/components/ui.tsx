@@ -1,5 +1,11 @@
-import { useId, type ReactNode, type InputHTMLAttributes, type ButtonHTMLAttributes } from 'react';
-import type { WorkspaceRoleName } from '@lcp/contracts';
+import {
+  useId,
+  useState,
+  type ReactNode,
+  type InputHTMLAttributes,
+  type ButtonHTMLAttributes,
+} from 'react';
+import type { WidgetLifecycleState, WorkspaceRoleName } from '@lcp/contracts';
 
 /**
  * Shared auth components.
@@ -349,6 +355,108 @@ export function Meter({ label, used, limit, pending }: MeterProps): React.JSX.El
           </p>
         </>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WidgetStateChip
+// ---------------------------------------------------------------------------
+
+/**
+ * A widget's lifecycle state, in the same mono micro-type as `RoleChip`.
+ *
+ * Published is the only state that gets the signal colour, because it is the
+ * only one that means "a visitor can see this right now" - the distinction that
+ * matters most on this surface.
+ */
+export function WidgetStateChip({
+  state,
+}: {
+  readonly state: WidgetLifecycleState;
+}): React.JSX.Element {
+  const tone: Record<WidgetLifecycleState, string> = {
+    published: 'border-secure text-secure',
+    draft: 'border-edge text-muted',
+    unpublished: 'border-edge text-ink',
+    deleted: 'border-danger text-danger',
+  };
+
+  return (
+    <span
+      data-testid={`widget-state-${state}`}
+      className={`border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] ${tone[state]}`}
+    >
+      {state}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CopyField
+// ---------------------------------------------------------------------------
+
+/**
+ * A read-only value with a copy button - the embed snippet (blueprint 7.2).
+ *
+ * The value stays visible and selectable in a real read-only input rather than
+ * living only behind the button, because clipboard access can be denied by the
+ * browser and someone installing a snippet must always be able to select it by
+ * hand. The button is a convenience on top, never the only route.
+ */
+export function CopyField({
+  label,
+  value,
+  testId,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly testId?: string;
+}): React.JSX.Element {
+  const id = useId();
+  const [copied, setCopied] = useState(false);
+
+  async function copy(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+    } catch {
+      // Clipboard permission can be refused; the value is still selectable.
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div>
+      <label
+        htmlFor={id}
+        className="mb-1.5 block font-mono text-[11px] uppercase tracking-[0.14em] text-muted"
+      >
+        {label}
+      </label>
+      <div className="flex items-start gap-2">
+        <input
+          id={id}
+          type="text"
+          readOnly
+          value={value}
+          {...(testId === undefined ? {} : { 'data-testid': testId })}
+          onFocus={(event) => event.target.select()}
+          className="w-full border border-edge bg-paper px-3 py-2 font-mono text-xs text-ink"
+        />
+        <button
+          type="button"
+          onClick={() => void copy()}
+          className="shrink-0 border border-edge px-3 py-2 text-xs font-medium text-ink hover:bg-paper"
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      {/* A polite live region, so the confirmation is announced rather than
+          only appearing on the button. */}
+      <p role="status" className="mt-1.5 text-xs text-secure">
+        {copied ? 'Snippet copied to your clipboard.' : ''}
+      </p>
     </div>
   );
 }

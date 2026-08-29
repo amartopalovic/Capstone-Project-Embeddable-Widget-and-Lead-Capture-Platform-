@@ -1,10 +1,18 @@
 import {
-  MANDATORY_FIELDS,
+  collectsSubmissions,
+  mandatoryFieldsFor,
   type ApiFieldError,
   type WidgetConfig,
   type WidgetFieldType,
   type WidgetType,
 } from '@lcp/contracts';
+
+/**
+ * The per-type field rules now live in `@lcp/contracts` so the builder UI and
+ * this validator share ONE implementation. Re-exported here because the rest of
+ * the widget domain, and its tests, already refer to them by this path.
+ */
+export { collectsSubmissions, mandatoryFieldsFor };
 import { checkDestinationUrl, describeUrlRejection } from './urls.js';
 
 /**
@@ -20,35 +28,6 @@ import { checkDestinationUrl, describeUrlRejection } from './urls.js';
  * configuration becomes a 400 listing every problem at once instead of a 500 or
  * a game of whack-a-mole.
  */
-
-/**
- * Fields this widget type may never lose.
- *
- * The CTA popover is the conditional case in blueprint 4.3: email is mandatory
- * only "when lead capture is enabled", which is a property of the CTA action
- * rather than of the type, so it cannot live in the static table.
- */
-export function mandatoryFieldsFor(
-  type: WidgetType,
-  config: WidgetConfig,
-): readonly WidgetFieldType[] {
-  const base = MANDATORY_FIELDS[type];
-  if (type === 'cta_popover' && config.ctaAction.kind === 'lead_form') {
-    return ['email'];
-  }
-  return base;
-}
-
-/**
- * Whether this widget type collects anything at all.
- *
- * A CTA popover pointing at an external URL is a button, not a form, so field
- * and submit-label rules do not apply to it.
- */
-export function collectsSubmissions(type: WidgetType, config: WidgetConfig): boolean {
-  if (type !== 'cta_popover') return true;
-  return config.ctaAction.kind === 'lead_form';
-}
 
 /**
  * Validate a whole configuration for one widget type.

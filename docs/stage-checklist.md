@@ -3,7 +3,7 @@
 The project is implemented in 16 bounded stages (blueprint §19). Exactly one stage is requested per
 implementation prompt, and work stops when that stage's exit gate is green.
 
-**Progress: 5 of 16 stages complete, plus Stage 5a of 5.**
+**Progress: 6 of 16 stages complete.**
 
 ## Stage execution rules (blueprint §19)
 
@@ -87,13 +87,14 @@ test results, remaining limitations, and confirmation of the exit gate.
     - Closed one gap left by 4a: a soft-deleted workspace was undiscoverable, so recovery had no
       reachable entry point. Added `GET /workspaces/recoverable`.
 
-- [ ] **Stage 5 — Widget domain model, builder, drafts, and publishing** _(split into 5a and 5b; 5a done)_
+- [x] **Stage 5 — Widget domain model, builder, drafts, and publishing** _(delivered as 5a + 5b, 2026-08-29)_
   - **Goal:** Let teams configure the three widget types safely.
   - **Exit gate:** A Member edits a draft without changing live state; a verified Admin publishes;
     another tenant cannot read, modify, or publish it.
 
-  - **This stage stays unchecked until 5b lands.** The gate is met at the API level, but the
-    builder UI, its live preview, the embed-snippet surface, and the browser journey are 5b.
+  - **Exit gate met.** A Member edits a draft without changing live state, a verified Admin
+    publishes, and another tenant cannot read, modify, or publish it - each proven at the API
+    level in 5a and again through the browser in 5b.
   - [x] **Stage 5a — Widget domain model, persistence, publishing lifecycle, and API** _(2026-08-29)_
     - `Widget` and `WidgetRevision` records with a platform-unique opaque public id, workspace +
       status indexing, 30-day widget trash, revision numbers unique per workspace + widget, and a
@@ -108,7 +109,17 @@ test results, remaining limitations, and confirmation of the exit gate.
       real count.
     - Proven by 37 unit tests and 21 integration tests against real MongoDB, Redis, and Mailpit.
       No React builder, no live preview, no browser E2E.
-  - [ ] **Stage 5b — React settings-form builder, live preview, embed-snippet UI, and browser E2E**
+  - [x] **Stage 5b — React settings-form builder, live preview, embed-snippet UI, and browser E2E** _(2026-08-29)_
+    - A widget list with create and trash/recover; a two-pane builder with the settings form beside
+      a live preview that renders the draft as it is edited; field add/remove/reorder honouring the
+      locked mandatory fields; appearance, trigger, targeting, cooldown, and success/redirect
+      settings; publish/unpublish and delete gated by the capabilities the API derives; a
+      non-destructive draft-conflict flow; and the embed snippet with copy-to-clipboard.
+    - Proven by 20 new Playwright tests (57 in the suite) against the real Compose stack, with
+      `axe` WCAG 2.2 AA scans on every new page including error, empty, and mid-confirmation
+      states.
+    - Moved the per-type mandatory-field rule into `@lcp/contracts` so the builder and the API
+      validator share ONE implementation rather than two that could drift.
 
 - [ ] **Stage 6 — Cached public loader and framework-free widget runtime**
   - **Goal:** Render published widgets correctly on an origin the platform does not control.

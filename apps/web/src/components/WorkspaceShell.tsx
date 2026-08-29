@@ -120,13 +120,15 @@ function WorkspaceBar({
 }: WorkspaceBarProps): React.JSX.Element {
   return (
     <header className="border-b border-edge bg-panel">
-      <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-6 gap-y-3 px-5 py-3">
+      {/* Wider than the narrow pages so the chrome spans the builder too. */}
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-5 py-3">
         <WorkspaceSwitcher active={active} workspaces={workspaces} onSwitched={onSwitched} />
 
         <nav aria-label="Workspace" className="flex flex-wrap items-center gap-x-5 gap-y-2">
           <ShellLink to="/workspace" end>
             Overview
           </ShellLink>
+          <ShellLink to="/workspace/widgets">Widgets</ShellLink>
           <ShellLink to="/workspace/members">Members</ShellLink>
           {/* Hidden entirely, not disabled: a Member has no audit log to read. */}
           {capabilities.includes('audit.view') && (

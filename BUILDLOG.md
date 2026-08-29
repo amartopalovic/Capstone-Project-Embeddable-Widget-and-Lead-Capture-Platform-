@@ -1395,3 +1395,137 @@ Indexes were read back from the real database rather than assumed; see EVIDENCE 
    `isPageTargeted`, and the published-revision lookup exist and are tested, but only the runtime
    and submission endpoints can make them load-bearing.
 5. **CI has still never run**, because no remote is configured.
+
+---
+
+## Stage 5b - Widget builder, live preview, and browser E2E (2026-08-29)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Stage 5b, the second half of blueprint Stage 5.
+**Blueprint Stage 5 is now COMPLETE** and is checked off in `docs/stage-checklist.md`.
+
+### What was done
+
+- `apps/web/src/pages/WidgetsPage.tsx`: the widget list, the create form, and the trash view.
+- `apps/web/src/pages/WidgetBuilderPage.tsx`: the two-pane builder, save/publish/unpublish/delete,
+  the draft-conflict flow, the "Live now" panel, and the embed snippet.
+- `apps/web/src/components/WidgetSettings.tsx`: every setting from blueprint 4.3-4.5, built from
+  native form controls.
+- `apps/web/src/components/WidgetPreview.tsx`: the live preview.
+- `apps/web/src/components/ui.tsx`: `WidgetStateChip` and `CopyField`.
+- `packages/contracts/src/widget.ts`: `mandatoryFieldsFor` and `collectsSubmissions` moved here
+  from the server so the builder and the validator share one implementation.
+- `e2e/`: `widget-journey.spec.ts` (12 tests) and `widget-accessibility.spec.ts` (8 tests), plus
+  widget helpers in `helpers/journeys.ts`.
+
+### Where AI helped
+
+- Spotting that the builder needed the mandatory-field rule and that copying it into React would
+  recreate exactly the drift problem Stage 4b set out to avoid. Moving the function into the
+  shared package was a small refactor that makes "one copy" literally true - `findReferences`
+  now shows one declaration and two consumers.
+- Rendering the preview as a rendering rather than a form. A preview full of disabled inputs would
+  have put a second copy of every field into the accessibility tree, with duplicate labels, for no
+  benefit - nothing in a preview is meant to be operable.
+- Noticing that the builder had no answer to "what is live right now". This surfaced as a failing
+  assertion rather than as a design review, but the fix was a product one, not a test one.
+
+### Where AI failed or was corrected
+
+- **A real staleness bug in the save path.** Saving immediately after a keystroke ran a handler
+  still closed over the previous render's config, so the OLDER value was persisted and the server
+  cheerfully accepted it. The E2E suite caught it in the one test where the stale value happened to
+  be valid and the new one was not: a `javascript:` redirect was "saved" successfully. This is the
+  silent-lost-edit failure the whole optimistic-concurrency design exists to prevent, arriving by a
+  completely different route. Fixed by reading the pending configuration from a ref at click time.
+  Worth stressing: this only showed up in the full-suite run, and my first instinct on seeing one
+  test fail in the full run but pass in isolation was "flake" - which would have been wrong.
+- **I asserted the wrong thing in the exit-gate test.** After the Member's save I expected the
+  owner's builder to still show `Original headline`. It shows `Member edit`, correctly, because the
+  builder edits the draft. The assertion was wrong AND it exposed a genuine gap: nothing in the UI
+  reported the live revision. Added the "Live now" panel, which is what the gate now asserts
+  against - a better test and a better product than the one I first wrote.
+- **A real contrast defect, found by axe.** The preview muted whole field elements with
+  `opacity: 0.55`, rendering placeholder text at `#7e7f8a` on white - 3.96:1, under the 4.5:1 bar.
+  Borders and text now scale separately. Stage 6's runtime would have inherited this.
+- **Two locator mistakes of my own making.** `getByLabel('Name')` matched both the name field and a
+  type radio, because one radio's description begins with the word "Name"; and I asserted a Member
+  sees a "View" link when every role holds `widget.draft.write` and therefore sees "Edit".
+- **Two tests navigated away and did not come back.** `invite()` moves the page to the members
+  page; I then kept operating on the builder. `createPublishableWidget` now returns the builder URL
+  so callers can return deliberately.
+- **A page can hold more than one live region.** `getByRole('status')` became ambiguous once the
+  copy control added its own, so the helpers assert on the message text instead.
+
+### Judgment calls
+
+1. **Explicit save, not autosave.** Every write can be refused as stale, and an autosaving builder
+   would surface that conflict at unpredictable moments. An explicit save makes the conflict land
+   when the creator asked for something, which is when they can act on it.
+2. **The conflict flow keeps the creator's work on screen** and offers two named choices - keep
+   mine, or discard mine and reload. Silently reloading would be the data loss the 409 exists to
+   prevent; silently overwriting would be the other half of it.
+3. **Publishing saves first when the draft is dirty.** "Publish" means what is on screen, not what
+   was last saved, and requiring two clicks to get there would invite publishing a stale draft.
+4. **The preview is framed as a fragment of someone else's page** - a tinted, dashed surround with
+   the existing mount-bracket corner ticks. This is the one flourish on the surface, and it is the
+   product's own metaphor rather than decoration: a widget is a guest on a site we do not control.
+   Deliberately not fake browser chrome with traffic lights, which would decorate rather than
+   inform.
+5. **Field position is shown as a number** (`01`, `02`). Numbered markers are usually decoration,
+   but here order is a real setting the creator controls and the visitor sees, so it encodes
+   something true.
+6. **Widget type is chosen with radios, not a select.** There are exactly three, blueprint 4.3
+   locks the list, and each needs a sentence of explanation - which a dropdown would hide.
+7. **The copy control keeps the snippet in a read-only input.** Clipboard access is a permission
+   that can be refused, and someone installing a snippet must always be able to select it by hand;
+   the button is a convenience on top, never the only route.
+8. **Still no headless component library.** The builder is fieldsets, inputs, selects, checkboxes,
+   radios, and buttons - native elements are the accessible primitives for all of them. The
+   question stays open for Stage 12's dialogs and comboboxes.
+
+### Verification performed
+
+```
+npm run lint               exit 0
+npm run format:check       All matched files use Prettier code style!
+npm run typecheck          exit 0
+npm run build              exit 0
+npm test                   Test Files 8 passed (8)   Tests 162 passed (162)
+npm run test:integration   Test Files 7 passed (7)   Tests 131 passed (131)
+npm run test:e2e           57 passed (8.4m)          (37 existing + 20 new)
+```
+
+### Plugin usage this stage
+
+- **`frontend-design` - invoked and used substantively.** The brief pinned the visual direction to
+  the existing system, and the skill is explicit that a brief's own words win, so the work was
+  coherent extension rather than reinvention. Its influence is concrete: it pushed me to find one
+  signature element and keep everything else quiet, which produced the "their page" preview framing
+  and the mount-bracket payoff; it pushed me to question numbered markers, which is why field
+  positions are numbered (order is real information) while nothing else is; and its guidance on
+  copy shaped the empty and error states - "No widgets yet. Create your first one below." rather
+  than an illustration, and "Publish this widget to get its embed snippet" rather than a disabled
+  control with no explanation.
+- **`typescript-lsp` - worked, and stayed accurate this stage.** Verified up front with two
+  deliberate type errors cross-checked against `tsc`. Used substantively to prove the shared
+  mandatory-field rule has one declaration and two consumers, and for a clean diagnostics pass over
+  the builder after a restart. It did go stale once mid-stage after external edits, the same
+  behaviour as Stages 4b and 5a; `tsc` was the authority during editing.
+- **`context7` - not consulted.** The prompt asked for it only if a genuine API question arose. It
+  did not: React 19, React Router 8, Playwright, and axe were all already in use in this repository
+  with established local patterns, and inventing a consultation would have been theatre.
+
+### Open questions for a human
+
+1. **The preview is the dashboard's rendering, not the runtime's.** Its content cannot diverge from
+   what is saved, but its visuals can diverge from what Stage 6 actually paints. Keeping them
+   honest will need either shared rendering code or a visual check in Stage 6.
+2. **No low-contrast warning.** A creator can pick a text/background pair that fails WCAG in their
+   own widget and nothing says so. Worth a builder-side check, especially since the platform holds
+   itself to AA.
+3. **Renaming a widget goes through the draft endpoint**, which is convenient but odd, since the
+   name is widget-level rather than revision-level. Unchanged from 5a.
+4. **The 10-widget cap has no UI affordance** until it is hit, when the server's `quota_exceeded`
+   message appears. A meter is on the overview page, but the create form does not pre-empt it.
+5. **CI has still never run**, because no remote is configured.

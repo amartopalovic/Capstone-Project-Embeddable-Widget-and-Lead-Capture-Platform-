@@ -67,6 +67,43 @@ export const DEFAULT_FIELDS: Readonly<Record<WidgetType, readonly WidgetFieldTyp
   cta_popover: ['email'],
 };
 
+/**
+ * Fields this widget type may never lose, for THIS configuration.
+ *
+ * Lives in the shared package rather than on the server because both sides need
+ * the identical answer: the API refuses a configuration that drops one, and the
+ * builder must not offer a remove control that would always be refused. Two
+ * implementations of the same rule would eventually disagree, and the UI would
+ * be the one that looked broken.
+ *
+ * The CTA popover is the conditional case in blueprint 4.3: email is mandatory
+ * only "when lead capture is enabled", which depends on the CTA action rather
+ * than on the type, so it cannot live in the static table above.
+ */
+export function mandatoryFieldsFor(
+  type: WidgetType,
+  config: { readonly ctaAction: { readonly kind: string } },
+): readonly WidgetFieldType[] {
+  if (type === 'cta_popover') {
+    return config.ctaAction.kind === 'lead_form' ? ['email'] : [];
+  }
+  return MANDATORY_FIELDS[type];
+}
+
+/**
+ * Whether this widget collects anything at all.
+ *
+ * A CTA popover pointing at an external URL is a button, not a form, so field
+ * rules do not apply to it and the preview shows no fields.
+ */
+export function collectsSubmissions(
+  type: WidgetType,
+  config: { readonly ctaAction: { readonly kind: string } },
+): boolean {
+  if (type !== 'cta_popover') return true;
+  return config.ctaAction.kind === 'lead_form';
+}
+
 // ---------------------------------------------------------------------------
 // Field schema
 // ---------------------------------------------------------------------------

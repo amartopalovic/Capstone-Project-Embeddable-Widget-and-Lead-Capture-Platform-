@@ -1,6 +1,6 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 5a.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+**Status: Stage 5.** All nine workspaces exist. `packages/config`, `packages/contracts`,
 `packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
 rest remain deliberate shells until the stage that fills them.
 
@@ -139,6 +139,20 @@ caller, and `GET /members` returns, per member, which roles the caller may assig
 and whether they may remove them — computed by the same `canChangeRole` and
 `canRemoveMember` the mutation routes enforce with. A second copy of the policy
 in the frontend could drift, and the drift would be invisible.
+
+### What `apps/web` gained in Stage 5b
+
+| Path                                | Contents                                                                                 |
+| ----------------------------------- | ---------------------------------------------------------------------------------------- |
+| `src/pages/WidgetsPage.tsx`         | Widget list, the create form, and the 30-day trash with restore                          |
+| `src/pages/WidgetBuilderPage.tsx`   | The two-pane builder, publish/unpublish/delete, the conflict flow, and the embed snippet |
+| `src/components/WidgetSettings.tsx` | Every setting from blueprint 4.3-4.5, built from native form controls                    |
+| `src/components/WidgetPreview.tsx`  | The live preview, framed as a fragment of a page we do not control                       |
+
+**The preview is a rendering, not a form.** It contains no `input` elements:
+a preview of disabled, duplicate-labelled controls would put a second copy of
+every field into the accessibility tree for no benefit, and nothing in it is
+meant to be operable.
 
 ### What `apps/server` gained in Stage 5a
 

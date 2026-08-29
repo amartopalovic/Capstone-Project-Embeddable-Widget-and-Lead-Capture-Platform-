@@ -8,6 +8,10 @@ import {
   type InvitationSummary,
   type MemberSummary,
   type RecoverableWorkspaceSummary,
+  type WidgetConfig,
+  type WidgetDetail,
+  type WidgetSummary,
+  type WidgetType,
   type WorkspaceSummary,
   type WorkspaceUsage,
 } from '@lcp/contracts';
@@ -126,6 +130,7 @@ async function request<T>(
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
+  put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),
 };
@@ -193,4 +198,50 @@ export const workspaceApi = {
 
   acceptInvitation: (token: string) =>
     api.post<{ status: string; workspaceId: string }>('/invitations/accept', { token }),
+};
+
+// ---------------------------------------------------------------------------
+// Widget endpoints (Stage 5a API)
+// ---------------------------------------------------------------------------
+
+/**
+ * Typed calls for the widget surface.
+ *
+ * As with `workspaceApi`, none of these decides anything. Whether a draft is
+ * valid, whether it may be published, and whether this caller is allowed to are
+ * all answered by the server; this layer only names endpoints and shapes.
+ */
+export const widgetApi = {
+  list: () => api.get<{ widgets: WidgetSummary[] }>('/widgets'),
+
+  trash: () => api.get<{ widgets: WidgetSummary[] }>('/widgets/trash'),
+
+  detail: (widgetId: string) => api.get<WidgetDetail>(`/widgets/${widgetId}`),
+
+  create: (type: WidgetType, name: string) => api.post<WidgetDetail>('/widgets', { type, name }),
+
+  /**
+   * Save the draft.
+   *
+   * `expectedVersion` is the optimistic-concurrency precondition from Stage 5a.
+   * A widget with no draft yet takes 0, which is what the API reports by
+   * returning `draft: null`.
+   */
+  saveDraft: (widgetId: string, config: WidgetConfig, expectedVersion: number, name?: string) =>
+    api.put<{ status: string; version: number }>(`/widgets/${widgetId}/draft`, {
+      config,
+      expectedVersion,
+      ...(name === undefined ? {} : { name }),
+    }),
+
+  publish: (widgetId: string, expectedVersion: number) =>
+    api.post<{ status: string; revisionNumber: number }>(`/widgets/${widgetId}/publish`, {
+      expectedVersion,
+    }),
+
+  unpublish: (widgetId: string) => api.post<{ status: string }>(`/widgets/${widgetId}/unpublish`),
+
+  remove: (widgetId: string) => api.delete<{ status: string }>(`/widgets/${widgetId}`),
+
+  recover: (widgetId: string) => api.post<{ status: string }>(`/widgets/${widgetId}/recover`),
 };
