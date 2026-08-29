@@ -417,3 +417,54 @@ export function toPublicConfig(config: WidgetConfig): PublicWidgetConfig {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Public submission (blueprint 7.3)
+// ---------------------------------------------------------------------------
+
+/** Blueprint 7.3: bodies over 32 KB are rejected with a clean 4xx. */
+export const SUBMISSION_MAX_BODY_BYTES = 32 * 1024;
+/** Blueprint 7.3: more than 20 fields is rejected. */
+export const SUBMISSION_MAX_FIELDS = 20;
+/** Blueprint 7.3: long-text values above 5,000 characters are rejected. */
+export const SUBMISSION_MAX_VALUE_LENGTH = 5000;
+
+/**
+ * What a widget posts when a visitor submits.
+ *
+ * `values` is deliberately a loose string map at THIS layer. The authoritative
+ * shape is the published revision's own field schema, which the server loads
+ * and validates against (blueprint 7.3 step 4) - so validating the map's keys
+ * here would be a second, weaker copy of a rule that has to be applied against
+ * server-owned settings anyway.
+ */
+export const submissionPayloadSchema = z.object({
+  /** Widget-generated, retained 24 hours to make a retry idempotent (7.3.5). */
+  idempotencyKey: z.string().trim().min(8).max(128),
+
+  values: z.record(z.string().min(1).max(64), z.string().max(SUBMISSION_MAX_VALUE_LENGTH)),
+
+  /** The page the widget was on. Metadata, never authorization evidence (7.3). */
+  pageUrl: z.string().trim().max(2048).optional(),
+  referrer: z.string().trim().max(2048).optional(),
+
+  /** The hidden field a human never fills (7.3.6). */
+  honeypot: z.string().max(SUBMISSION_MAX_VALUE_LENGTH).optional(),
+  /** When the form rendered, for the timing heuristic (7.3.6). */
+  renderedAt: z.number().int().optional(),
+});
+export type SubmissionPayload = z.infer<typeof submissionPayloadSchema>;
+
+/**
+ * The uniform response (blueprint 7.3 step 10).
+ *
+ * "The endpoint returns a uniform generic 2xx response that does not reveal
+ * spam classification." There is intentionally NO field here that could differ
+ * between an accepted submission and a discarded one - not a flag, not an id,
+ * not a count. A bot that can tell it was caught will adapt.
+ */
+export interface SubmissionAck {
+  readonly status: 'received';
+  /** The configured success message or redirect, so the widget can respond. */
+  readonly outcome: SuccessOutcome;
+}

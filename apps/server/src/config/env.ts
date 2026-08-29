@@ -50,6 +50,21 @@ export interface ServerEnv {
   readonly encryptionKeyVersion: number;
   /** Shown by authenticator apps beside the account name. */
   readonly totpIssuer: string;
+
+  // --- Stage 7: public submission path -------------------------------------
+
+  /**
+   * HMAC key material for the rotating IP pseudonym (blueprint 9.4).
+   *
+   * Separate from the encryption master key on purpose: this one derives a
+   * pseudonym that is written into stored events, while that one protects
+   * secrets we must be able to read back. Rotating or leaking one should not
+   * implicate the other.
+   */
+  readonly ipHmacSecret: string;
+  /** Whether to call the real geo providers. Off outside production. */
+  readonly geoEnabled: boolean;
+  readonly geoTimeoutMs: number;
 }
 
 export function loadEnv(): ServerEnv {
@@ -80,6 +95,17 @@ export function loadEnv(): ServerEnv {
     encryptionMasterKey: readEncryptionMasterKey(),
     encryptionKeyVersion: readNumber('ENCRYPTION_KEY_VERSION', 1),
     totpIssuer: readString('TOTP_ISSUER', 'Lead Capture Platform'),
+    ipHmacSecret: readIpHmacSecret(),
+    /**
+     * Real geo lookups are opt-in, and default ON only in production.
+     *
+     * ip-api's free endpoint allows 45 requests a minute per source address and
+     * excludes commercial use, so a test suite that called it would be both
+     * flaky and rude. Blueprint 18.4 wants deterministic provider outcomes
+     * anyway.
+     */
+    geoEnabled: readString('GEO_ENABLED', isProductionEnv() ? 'true' : 'false') === 'true',
+    geoTimeoutMs: readNumber('GEO_TIMEOUT_MS', 1500),
   };
 }
 
@@ -104,6 +130,31 @@ function readEncryptionMasterKey(): string {
     return Buffer.from('development-only-insecure-key-32').toString('base64');
   }
   return configured;
+}
+
+/**
+ * HMAC key material for IP pseudonyms (blueprint 9.4).
+ *
+ * Same discipline as the session and encryption secrets: production refuses to
+ * start without a real value; development falls back to an obviously-fake one
+ * so `docker compose up` needs no credentials. A weak key here would make the
+ * pseudonyms reversible by brute force over the IPv4 space, which is the whole
+ * thing the HMAC exists to prevent.
+ */
+function readIpHmacSecret(): string {
+  const configured = process.env['IP_HMAC_SECRET'];
+
+  if (configured === undefined || configured === '' || configured.startsWith('replace-me')) {
+    if (isProductionEnv()) {
+      throw new Error('IP_HMAC_SECRET must be set to a real random value in production');
+    }
+    return 'development-only-insecure-ip-hmac-secret';
+  }
+  return configured;
+}
+
+function isProductionEnv(): boolean {
+  return readString('NODE_ENV', 'development') === 'production';
 }
 
 function readNumber(name: string, fallback: number): number {

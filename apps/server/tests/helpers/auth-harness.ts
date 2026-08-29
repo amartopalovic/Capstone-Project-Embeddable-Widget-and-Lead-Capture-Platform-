@@ -10,6 +10,7 @@ import { createApp } from '../../src/http/app.js';
 import { HealthService } from '../../src/application/health-service.js';
 import type { ServerEnv } from '../../src/config/env.js';
 import type { Clock } from '../../src/ports/clock.js';
+import type { GeoProvider } from '../../src/ports/geo-provider.js';
 import { MailpitEmailSender } from '../../src/infrastructure/email/mailpit-sender.js';
 
 /**
@@ -71,7 +72,18 @@ export interface AuthHarness {
   teardown(): Promise<void>;
 }
 
-export async function createAuthHarness(): Promise<AuthHarness> {
+export interface HarnessOptions {
+  /**
+   * Geo providers to use instead of the default no-enrichment one.
+   *
+   * This is what makes blueprint 18.4's deterministic provider tests possible:
+   * "A down, B enriches" and "both down" are outcomes a test states rather than
+   * outcomes it waits for the internet to produce.
+   */
+  readonly geoProviders?: readonly GeoProvider[];
+}
+
+export async function createAuthHarness(options: HarnessOptions = {}): Promise<AuthHarness> {
   const suffix = randomBytes(6).toString('hex');
   const databaseName = `lcp_auth_${suffix}`;
   const keyPrefix = `lcp:test:${suffix}`;
@@ -114,6 +126,11 @@ export async function createAuthHarness(): Promise<AuthHarness> {
     encryptionMasterKey: Buffer.from('test-only-insecure-key-32-bytes!').toString('base64'),
     encryptionKeyVersion: 1,
     totpIssuer: 'Lead Capture Test',
+    ipHmacSecret: 'integration-test-ip-hmac-not-a-real-credential',
+    // Never call the real geo services from a test suite; blueprint 18.4 wants
+    // provider outcomes deterministic, and the tests inject their own.
+    geoEnabled: false,
+    geoTimeoutMs: 200,
   } satisfies ServerEnv;
 
   // The real SMTP sender, pointed at the real Mailpit service.
@@ -124,7 +141,12 @@ export async function createAuthHarness(): Promise<AuthHarness> {
     fromName: env.brevoSenderName,
   });
 
-  const deps = buildDependencies(env, mongo.db, redis, { clock, logger, emailSender });
+  const deps = buildDependencies(env, mongo.db, redis, {
+    clock,
+    logger,
+    emailSender,
+    ...(options.geoProviders === undefined ? {} : { geoProviders: options.geoProviders }),
+  });
   const healthService = new HealthService([], env.release);
   const app = createApp({ env, healthService, deps });
 

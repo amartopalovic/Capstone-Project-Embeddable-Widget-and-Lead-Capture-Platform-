@@ -2,14 +2,16 @@
 
 One repeatable proof per requirement.
 
-> ## Status at Stage 6: **no acceptance probe is proven.**
+> ## Status at Stage 7: **all six acceptance probes pass locally.**
 >
-> Blueprint Stages 3, 4, 5, and 6 are complete. Stage 6 adds the public loader, the framework-free
-> runtime, and Shadow DOM rendering on a genuinely separate origin, so D3, D5, and D6 move to
-> `PROVEN` and B4's runtime half is now real rather than stored settings.
-> **All six acceptance probes remain `NOT YET IMPLEMENTED`**: every one of them ends in a
-> submission arriving, and the public submission endpoint is Stage 7. A widget now renders on a
-> customer page; nothing can yet be sent through it.
+> Blueprint Stages 3 through 7 are complete. The hardened public submission path closes the six
+> PDF acceptance probes in Part A below, each with its own named, re-runnable test.
+>
+> Two are proven only as far as this stage reaches, and both say so in place: A1's "visible
+> dashboard result" needs the Stage 8 inbox, and A5's real queue, retry, and dead-letter behaviour
+> needs Stage 9. What A5 proves now is the property that matters most — a failing side effect
+> cannot reverse a stored lead — because the outbox record is written inside the submission's own
+> transaction and nothing consumes it yet.
 >
 > As each stage completes, its entries gain: the exact command an evaluator can re-run, the
 > observed output or transcript, and a link to the test that enforces the behavior. An entry is
@@ -35,54 +37,99 @@ real queue behavior in Stage 9.
 
 - **Requirement:** A valid submission from a genuinely different origin returns 2xx, creates a
   durable Submission Event, and produces a visible Contact and dashboard result.
-- **Status:** `NOT YET IMPLEMENTED` — planned for **Stage 7** (dashboard visibility completed in
-  **Stage 8**).
-- **Command:** _not available yet_
-- **Evidence:** _none_
+- **Status:** `PROVEN` at the API level in Stage 7. Dashboard visibility is **Stage 8**.
+- **Command:** `npm run test:integration -- submission`
+- **Evidence:** `PROBE 1: valid second-origin submission` in
+  `apps/server/tests/submission.integration.test.ts`. A submission from `https://shop.example.com`
+  to a widget served by the platform origin returns **202** with
+  `access-control-allow-origin: https://shop.example.com`, and the assertions then read the
+  database directly: a `Contact` with `status: new` and `submissionCount: 1`, an immutable
+  `SubmissionEvent` carrying the values and `source.domain`, and an `OutboxEvent` with
+  `status: pending` and idempotency key `submission:<eventId>` written in the same commit.
+  A second test proves a repeat submission attaches to the SAME contact (two events, one contact,
+  `submissionCount: 2`), and a third proves the stored event contains a 64-hex
+  `ipPseudonym` and no raw address anywhere.
+- **Not yet:** the "visible dashboard result" half. The contact inbox is Stage 8; what is proven
+  here is that the record exists and is correct.
 
 ### A2. Malformed and oversized input
 
 - **Requirement:** Malformed bodies, bodies over 32 KB, more than 20 fields, and long-text values
   above 5,000 characters all return clean 4xx JSON errors. Malformed or oversized input never
   becomes a 500 (blueprint §7.3, §10.1).
-- **Status:** `NOT YET IMPLEMENTED` — planned for **Stage 7**.
-- **Command:** _not available yet_
-- **Evidence:** _none_
+- **Status:** `PROVEN`.
+- **Command:** `npm run test:integration -- submission`
+- **Evidence:** `PROBE 2: malformed and oversized input` — five tests, one per rejection route: a
+  40 KB body, a 6,000-character value, 25 fields, a field the published widget does not declare,
+  and both a missing required field and a syntactically broken body. Each asserts the status is
+  `>= 400 and < 500`, that the content type is JSON, and that a machine-readable error code is
+  present. The undeclared-field case is the one worth noting: it proves the payload is checked
+  against the SERVER-owned field schema (§7.3 step 4), so a crafted request cannot smuggle extra
+  values into an event.
 
 ### A3. Burst traffic
 
 - **Requirement:** Under burst load, 429 responses appear while a later legitimate request still
   succeeds. Limits: 5 submissions/minute per IP-widget pair, 30/hour per IP-widget pair, 100/minute
   per widget (blueprint §7.3).
-- **Status:** `NOT YET IMPLEMENTED` — planned for **Stage 7**.
-- **Command:** _not available yet_
-- **Evidence:** _none_
+- **Status:** `PROVEN`.
+- **Command:** `npm run test:integration -- submission`
+- **Evidence:** `PROBE 3: burst traffic`. Eight submissions from one client to one widget: at least
+  five succeed with 202 and the burst then produces **429**, with the first 429 arriving after a
+  successful request rather than at the start. The test then clears the window and shows a later
+  legitimate submission returning **202** — the half of the probe that distinguishes a throttle
+  from a ban. It also asserts an `AbuseEvent` of type `rate_limit` was recorded, which is the
+  evidence §7.4 asks for.
 
 ### A4. Geo fallback
 
 - **Requirement:** Provider A down → provider B enriches the submission. Both providers down → the
   submission is still stored successfully, without geo (blueprint §7.3, §18.4).
-- **Status:** `NOT YET IMPLEMENTED` — planned for **Stage 7**.
-- **Command:** _not available yet_
-- **Evidence:** _none_
+- **Status:** `PROVEN`, deterministically.
+- **Command:** `npm run test:integration -- submission`
+- **Evidence:** `PROBE 4: geo fallback` — three tests driving scripted providers through the
+  `GeoProvider` port, so the outcomes are stated rather than waited for (§18.4). A answers →
+  `provider: ip-api`, `usedFallback: false`. A down, B answers → `provider: ipapi-co`,
+  `usedFallback: true`. Both down → the submission is **202** and the stored event has
+  `geo: null`. A fourth test in PROBE 5 uses a provider that THROWS rather than returning null,
+  and the lead still lands.
+- **Note:** the real providers are never called by the suite. `GEO_ENABLED` defaults to false
+  outside production, because ip-api's free endpoint allows 45 requests a minute per source
+  address and excludes commercial use.
 
 ### A5. Side-effect failure
 
 - **Requirement:** When email or webhook delivery throws, the primary submission remains successful
   and stored. Side effects can never reverse an accepted submission (blueprint §7.3, §12.2).
-- **Status:** `NOT YET IMPLEMENTED` — planned for **Stage 7**, completed with real queue, retry,
-  and dead-letter behavior in **Stage 9**.
-- **Command:** _not available yet_
-- **Evidence:** _none_
+- **Status:** `PROVEN` for what Stage 7 owns. Real queue, retry, and dead-letter behaviour are
+  **Stage 9**.
+- **Command:** `npm run test:integration -- submission`
+- **Evidence:** `PROBE 5: side-effect failure` — two tests. The first drives the outbox record to
+  `dead_letter` with `attempts: 5`, exactly as Stage 9's worker would on a permanent failure, and
+  re-reads the submission and contact afterwards: both intact, `submissionCount` unchanged. The
+  second substitutes a geo provider that throws outright, and the submission still returns 202 and
+  is stored with `geo: null`.
+- **Why this shape:** Stage 7's side effect IS the durable outbox record, written inside the same
+  transaction as the submission. Nothing consumes it yet, which is precisely why a failing consumer
+  cannot reverse a lead — the separation is structural rather than defended.
 
 ### A6. Honeypot
 
 - **Requirement:** A bot-like submission (filled honeypot or failed timing heuristic) receives a
   generic success outcome, creates no Contact, and records only a minimal Abuse Event with no
   captured form values (blueprint §7.3, §7.4).
-- **Status:** `NOT YET IMPLEMENTED` — planned for **Stage 7**.
-- **Command:** _not available yet_
-- **Evidence:** _none_
+- **Status:** `PROVEN`.
+- **Command:** `npm run test:integration -- submission`
+- **Evidence:** `PROBE 6: honeypot` — a good submission and a bot submission are sent to the same
+  widget, and the test asserts their responses are **byte-identical**: same status, same body. It
+  then shows no `Contact` exists for the bot's address, and that the only trace is an `AbuseEvent`
+  of type `honeypot` carrying a pseudonym and nothing else — the assertions check explicitly that
+  the bot's email, its message text, and the string `values` appear nowhere in the record, because
+  §7.4's whole point is not turning rejected spam into a shadow lead database. A second test does
+  the same for the timing heuristic.
+- **Why byte-identical matters:** a bot that can tell it was caught will adapt. §7.3 step 10 asks
+  for a uniform response, and the route writes the acknowledgement in exactly one place so the
+  accepted and discarded paths cannot drift apart.
 
 ---
 
@@ -1169,6 +1216,84 @@ someone mid-task is hostile.
 
 ---
 
+## Part D-detail - Stage 7 submission path evidence
+
+### The request gate, in blueprint order
+
+Blueprint 7.3 lists eleven numbered rules and the order is load-bearing, so the service follows it
+literally: widget and Origin, then schema, then idempotency, then heuristics, then quota, then geo,
+then one commit, then side effects. Each has its own test.
+
+```
+npm test                    Test Files 11 passed (11)   Tests 204 passed (204)
+npm run test:integration    Test Files  9 passed (9)    Tests 171 passed (171)
+```
+
+Twenty-one of the unit tests and twenty-five of the integration tests are new.
+
+### Migration 006, applied and read back
+
+```
+npm run migrate     applied 1, skipped 5   (006_submissions)
+npm run migrate     applied 0, skipped 6   (repeatable, per blueprint 9.3)
+
+contacts
+  uniq_active_workspace_email   { workspaceId, normalizedEmail }  unique, partial { recordStatus: 'active' }
+  workspace_last_submission     { workspaceId, lastSubmissionAt }
+  workspace_status_date         { workspaceId, status, lastSubmissionAt }
+  workspace_assignee            { workspaceId, assigneeUserId }
+  workspace_tags                { workspaceId, tags }
+  record_status_purge_after     { recordStatus, purgeAfter }
+submission_events
+  workspace_contact_date        { workspaceId, contactId, submittedAt }
+  workspace_widget_date         { workspaceId, widgetId, submittedAt }
+  workspace_domain_date         { workspaceId, source.domain, submittedAt }
+  workspace_country             { workspaceId, geo.countryCode }
+  uniq_workspace_idempotency_key{ workspaceId, idempotencyKey }    unique
+consent_events
+  workspace_contact_date        { workspaceId, contactId, occurredAt }
+abuse_events
+  workspace_widget_type_date    { workspaceId, widgetId, type, occurredAt }
+  ttl_occurred_at               { occurredAt }                     ttl 7776000s (90 days)
+```
+
+`uniq_workspace_idempotency_key` is the index worth explaining. Redis holds the 24-hour replay
+answer, but Redis is a cache that can be flushed - so "a retry creates no duplicate event" is
+enforced by the database as well, and survives losing the cache entirely.
+
+### C-row: no raw IP is ever persisted (blueprint 9.4)
+
+The address is used for rate limiting and geo and then discarded. What lands is a rotating HMAC
+pseudonym, and a test asserts the stored event contains a 64-hex value and none of `127.0.0.1`,
+`::1`, or an `ipAddress` field.
+
+The construction matters: an HMAC rather than a plain hash, because the IPv4 space is small enough
+to enumerate completely - a SHA-256 of an address is not a pseudonym, it is a lookup table waiting
+to happen. The per-period subkey is derived from the master secret, so rotation needs no new secret
+provisioned and a leaked period key exposes one month rather than all of them. Unit tests cover
+stability within a period, a different value after the month turns, separation between addresses,
+and that the value changes completely if the key material does.
+
+### Tenancy on the new write paths (blueprint 9.1)
+
+Every contact, submission event, consent event, and outbox row carries a `workspaceId`, and a test
+asserts the two tenants' rows never mix across all three collections. A second test proves the same
+visitor email in two workspaces produces TWO independent contacts - contacts are unique per
+workspace, not globally, because one person contacting two customers is two separate leads.
+
+### What is still missing
+
+- The contact inbox, so A1's "visible dashboard result" is a stored record rather than a screen
+  (Stage 8).
+- Real queue processing. Stage 7 writes the durable outbox row; nothing consumes it, and the
+  email/webhook delivery, retry, backoff, and dead-letter behaviour of blueprint 12.2 are Stage 9.
+- Interaction events and analytics counters (Stage 10).
+- The consent confirmation and unsubscribe workflow; Stage 7 records opt-in evidence only
+  (Stage 11).
+- SSE live arrival: the submission commits, but nothing broadcasts it yet (Stage 10).
+
+---
+
 ## Change log
 
 | Date       | Stage | Change                                                                                                                                                               |
@@ -1191,3 +1316,5 @@ someone mid-task is hostile.
 | 2026-08-29 | 5b | Blueprint Stage 5 COMPLETE. B3 and B5 moved to `PROVEN`, now through the browser as well as the API. The per-type mandatory-field rule was moved into `@lcp/contracts` so the builder and the API validator share one implementation. Evidenced by 20 new browser tests (57 in the suite), with axe reporting zero critical or serious violations on every new page including error, empty, and mid-confirmation states - one of which caught a real contrast defect in the live preview. All six acceptance probes remain unproven. |
 
 | 2026-08-29 | 6 | Blueprint Stage 6 COMPLETE. D3, D5, and D6 moved to `PROVEN` and D4 to `IN PROGRESS`; B4's runtime half is now executed rather than stored. Evidenced by 15 new browser tests against the real second origin, 15 new integration tests for the public endpoint, and 21 new unit tests for trigger, cooldown, and identity decisions. Bundle sizes measured and tracked: runtime 13,613 B raw / 5,439 B gzip, loader 734 B / 434 B gzip, with no framework or validation library in the public bundle. All six acceptance probes remain unproven; every one needs the Stage 7 submission endpoint. |
+
+| 2026-08-29 | 7 | Blueprint Stage 7 COMPLETE. **All six acceptance probes (A1-A6) moved to `PROVEN`**, each with its own named integration test and a re-runnable command. A1's dashboard half and A5's real queue behaviour are noted in place as Stage 8 and Stage 9 work. Evidenced by 21 new unit tests and 25 new integration tests against real MongoDB, Redis, and Mailpit, plus migration `006_submissions` applied and its indexes read back. Geo providers are exercised deterministically through a port; the real services are never called by the suite. |

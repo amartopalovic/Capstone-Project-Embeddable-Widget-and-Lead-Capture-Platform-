@@ -300,3 +300,163 @@ export interface WidgetRevisionRecord extends WorkspaceOwned, Timestamped {
   readonly publishedByUserId: ObjectId | null;
   readonly createdByUserId: ObjectId;
 }
+
+// ---------------------------------------------------------------------------
+// Contacts, submissions, consent, and abuse (blueprint 9.2, added in Stage 7)
+// ---------------------------------------------------------------------------
+
+/** Lead workflow statuses, in the order blueprint 4.6 lists them. */
+export const CONTACT_STATUSES = ['new', 'contacted', 'qualified', 'converted', 'archived'] as const;
+export type ContactStatus = (typeof CONTACT_STATUSES)[number];
+
+/**
+ * The workspace-level canonical lead (blueprint 4.6, 9.2).
+ *
+ * "A Contact is unique by normalized email within a workspace" and "Repeated
+ * submissions from the same normalized email update or attach to the same
+ * workspace Contact."
+ */
+export interface ContactRecord extends WorkspaceOwned, Timestamped {
+  readonly _id: ObjectId;
+  readonly email: string;
+  /** Lowercased and trimmed. Unique per workspace among active contacts. */
+  readonly normalizedEmail: string;
+
+  // --- canonical values, which a later submission may refresh -------------
+  readonly name: string | null;
+  readonly phone: string | null;
+  readonly company: string | null;
+
+  /**
+   * Canonical fields a human has edited.
+   *
+   * Blueprint 4.6: "Manually edited canonical values are not silently
+   * overwritten by a later submission; the new raw values remain visible in its
+   * immutable event." Recording WHICH fields were touched is what lets an
+   * upsert refresh everything else without trampling a deliberate correction.
+   * Stage 8 owns the editing UI; Stage 7 only has to respect the list.
+   */
+  readonly manuallyEditedFields: readonly string[];
+
+  // --- workflow state (blueprint 4.6); Stage 8 owns the UI ---------------
+  readonly status: ContactStatus;
+  readonly assigneeUserId: ObjectId | null;
+  readonly tags: readonly string[];
+
+  readonly firstSubmissionAt: Date;
+  readonly lastSubmissionAt: Date;
+  readonly submissionCount: number;
+
+  /**
+   * Optimistic-concurrency token (blueprint 9.3: "Contact canonical values use
+   * optimistic concurrency to prevent silent overwrites by teammates").
+   */
+  readonly version: number;
+
+  readonly recordStatus: RecordStatus;
+  readonly deletedAt: Date | null;
+  readonly purgeAfter: Date | null;
+}
+
+/** Approximate location, if a provider answered (blueprint 9.4). */
+export interface GeoSnapshot {
+  readonly countryCode: string | null;
+  readonly countryName: string | null;
+  readonly region: string | null;
+  readonly city: string | null;
+  readonly timezone: string | null;
+  /** Which provider answered, or that both failed. Useful operationally. */
+  readonly provider: string;
+  readonly usedFallback: boolean;
+}
+
+/** Where a submission came from. Metadata, never authorization evidence. */
+export interface SubmissionSource {
+  readonly origin: string;
+  /** The origin's host. Null only if it somehow failed to parse after the
+   *  allowlist check, which the type system cannot rule out even though the
+   *  check already did. */
+  readonly domain: string | null;
+  readonly pageUrl: string | null;
+  readonly referrer: string | null;
+}
+
+/**
+ * One accepted submission (blueprint 4.6, 9.2, 9.3).
+ *
+ * IMMUTABLE. Blueprint 9.3 lists SubmissionEvent alongside published widget
+ * revisions as records that are never updated in place: it is the evidence of
+ * what a visitor actually sent, and editing it would destroy the audit value
+ * that makes the canonical Contact safe to edit.
+ */
+export interface SubmissionEventRecord extends WorkspaceOwned {
+  readonly _id: ObjectId;
+  readonly contactId: ObjectId;
+  readonly widgetId: ObjectId;
+  /** Which published revision produced the field schema this was validated against. */
+  readonly widgetRevisionNumber: number;
+
+  /** The submitted field snapshot, keyed by field type. */
+  readonly values: Readonly<Record<string, string>>;
+
+  readonly source: SubmissionSource;
+  readonly geo: GeoSnapshot | null;
+
+  /**
+   * Rotating HMAC pseudonym of the submitting IP (blueprint 9.4).
+   *
+   * The raw address is never stored. This exists so abuse analysis can group
+   * events over a short window without creating an indefinite visitor identity.
+   */
+  readonly ipPseudonym: string;
+  /** Which rotation period produced the pseudonym, so an old one is readable. */
+  readonly ipPseudonymPeriod: string;
+
+  /** The widget-generated key that made this submission idempotent. */
+  readonly idempotencyKey: string;
+  readonly submittedAt: Date;
+}
+
+export const CONSENT_EVENT_TYPES = ['opt_in', 'confirmation', 'withdrawal'] as const;
+export type ConsentEventType = (typeof CONSENT_EVENT_TYPES)[number];
+
+/**
+ * Append-only consent evidence (blueprint 9.2).
+ *
+ * "immutable text/version snapshot" - the exact wording shown to the visitor is
+ * copied in, because proving consent later means proving what they agreed TO,
+ * not just that a box was ticked.
+ */
+export interface ConsentEventRecord extends WorkspaceOwned {
+  readonly _id: ObjectId;
+  readonly contactId: ObjectId;
+  readonly submissionEventId: ObjectId | null;
+  readonly type: ConsentEventType;
+  readonly granted: boolean;
+  /** The consent wording as displayed, snapshotted at the moment of consent. */
+  readonly text: string;
+  readonly widgetRevisionNumber: number;
+  readonly occurredAt: Date;
+}
+
+export const ABUSE_EVENT_TYPES = ['honeypot', 'timing', 'rate_limit', 'quota'] as const;
+export type AbuseEventType = (typeof ABUSE_EVENT_TYPES)[number];
+
+/**
+ * Minimal abuse evidence (blueprint 7.4).
+ *
+ * The blueprint enumerates exactly what may be stored and why the list is
+ * short: "This lets the dashboard prove protection without turning rejected
+ * spam into a shadow lead database." There is deliberately no field for
+ * captured values, so none can be added by accident.
+ */
+export interface AbuseEventRecord extends WorkspaceOwned {
+  readonly _id: ObjectId;
+  readonly widgetId: ObjectId;
+  readonly type: AbuseEventType;
+  readonly ipPseudonym: string;
+  readonly ipPseudonymPeriod: string;
+  /** Coarse source only: the origin host. Never a page URL or field value. */
+  readonly domain: string | null;
+  readonly occurredAt: Date;
+}

@@ -1,6 +1,6 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 6.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+**Status: Stage 7.** All nine workspaces exist. `packages/config`, `packages/contracts`,
 `packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
 rest remain deliberate shells until the stage that fills them.
 
@@ -203,6 +203,28 @@ the platform on 5173. It resets `box-sizing` globally, restyles every input with
 uses internally, so the isolation tests fail loudly rather than subtly. Which
 widgets to install comes from `?w=<publicId>`, because a public widget id only
 exists once something has been published through the dashboard.
+
+### What `apps/server` gained in Stage 7
+
+| Path                                               | Contents                                                                     |
+| -------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `src/domain/submission/heuristics.ts`              | Honeypot and timing classification - pure, and never visible in the response |
+| `src/domain/submission/ip-pseudonym.ts`            | The monthly-rotating HMAC pseudonym that replaces the raw IP                 |
+| `src/domain/submission/quota.ts`                   | The monthly submission cap, on workspace-timezone month boundaries           |
+| `src/infrastructure/geo/providers.ts`              | ip-api and ipapi.co adapters, a null provider, and the fallback chain        |
+| `src/ports/geo-provider.ts`                        | The port that makes blueprint 18.4's deterministic provider tests possible   |
+| `src/application/submission/submission-service.ts` | The eleven rules of blueprint 7.3, in order, ending in one transaction       |
+
+**The raw IP never lands.** It is used for rate limiting and geo and then
+discarded; what is persisted is an HMAC pseudonym keyed by a per-month subkey
+derived from `IP_HMAC_SECRET`. An HMAC rather than a plain hash because the IPv4
+space is small enough to enumerate, which would make a bare hash a lookup table
+rather than a pseudonym.
+
+**Abuse evidence has no field for captured values**, so none can be added by
+accident. Blueprint 7.4 enumerates what may be stored and says why the list is
+short: proving protection without turning rejected spam into a shadow lead
+database.
 
 ### End-to-end tests
 

@@ -35,6 +35,11 @@ export function buildTestApp(healthService: HealthService): Express {
     encryptionMasterKey: Buffer.from('test-only-insecure-key-32-bytes!').toString('base64'),
     encryptionKeyVersion: 1,
     totpIssuer: 'Lead Capture Test',
+    ipHmacSecret: 'integration-test-ip-hmac-not-a-real-credential',
+    // Never call the real geo services from a test suite; blueprint 18.4 wants
+    // provider outcomes deterministic, and the tests inject their own.
+    geoEnabled: false,
+    geoTimeoutMs: 200,
   } satisfies ServerEnv;
 
   // Only the health surface is exercised, so the auth graph is never called.

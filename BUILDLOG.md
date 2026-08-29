@@ -1685,3 +1685,152 @@ measured bundle sizes
 4. **A widget with only an exit-intent trigger never opens on touch devices.** That is the
    blueprint's rule working as written, but the builder does not warn a creator who configures it.
 5. **CI has still never run**, because no remote is configured.
+
+---
+
+## Stage 7 - Hardened public submission path (2026-08-29)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Blueprint Stage 7, complete. All six PDF acceptance probes now pass locally.
+
+### What was done
+
+- `packages/database`: `Contact`, `SubmissionEvent`, `ConsentEvent`, and `AbuseEvent` records with
+  their repositories, and migration `006_submissions`.
+- `packages/contracts`: the submission payload schema, the size limits from blueprint 7.3, and the
+  uniform acknowledgement shape.
+- `apps/server/src/domain/submission/`: honeypot and timing heuristics, the rotating IP pseudonym,
+  and the monthly quota with workspace-timezone boundaries - all pure.
+- `apps/server/src/infrastructure/geo/`: ip-api and ipapi.co adapters, a null provider, and the
+  fallback chain, behind a port.
+- `apps/server/src/application/submission/submission-service.ts`: blueprint 7.3's eleven rules in
+  order, ending in one transaction over contact upsert, immutable event, consent evidence, and the
+  durable outbox record.
+- `POST /widget/v1/submit/:publicId` with CORS preflight, the three Redis rate limits, and a
+  response that is byte-identical for an accepted and a discarded submission.
+
+### Where AI helped
+
+- Keeping the accepted and discarded paths from drifting. Blueprint 7.3 step 10 wants a uniform
+  response, so the route writes the acknowledgement in exactly one place and a test asserts the two
+  responses are byte-identical. Two separate `res.json` calls would have passed review and then
+  slowly diverged.
+- Noticing that "monthly quota" is a timezone question. Blueprint 4.10 says month boundaries use
+  the WORKSPACE timezone, so a workspace in Auckland rolls over roughly half a day before a UTC
+  server would say it did. Doing the comparison inline against UTC would have quietly given some
+  tenants a shorter month than others.
+- Choosing HMAC over a hash for the IP pseudonym, and writing down why: the IPv4 space is small
+  enough to enumerate completely, so a SHA-256 of an address is a lookup table rather than a
+  pseudonym.
+- Enforcing idempotency in the database as well as Redis. Redis holds the 24-hour replay answer,
+  but it is a cache that can be flushed, and "a retry creates no duplicate event" has to survive
+  that. A unique index on `{ workspaceId, idempotencyKey }` does.
+- Treating the geo port as a testability requirement rather than tidiness. Blueprint 18.4 asks for
+  deterministic provider tests, and "A down, B enriches" cannot depend on a third party actually
+  being down when the suite runs.
+
+### Where AI failed or was corrected
+
+- **I wrote to the wrong database.** The service took a `MongoClient` and called `client.db()` with
+  no argument, which returns the connection string's DEFAULT database - not the one the app uses,
+  and definitively not the per-run database the test harness creates. Fifteen integration tests
+  failed at once, several with a 500. Taking the `Db` handle explicitly and getting sessions from
+  `db.client` fixed it. The lesson is narrow and worth keeping: a convenience accessor that
+  "usually" resolves to the right thing is a bug waiting for a second environment.
+- **A required consent checkbox could never be submitted.** The consent field's `maxLength`
+  defaults to 1 because the builder treats it like a text field, and the submission validator
+  applied that limit to the value `true` - four characters. So every ticked consent box was
+  rejected as "too long". An integration test caught it; the validator now skips length checks for
+  a field whose value is a boolean word.
+- **A geo provider that threw could reject a lead.** The port asks implementations never to throw,
+  but "asks" is not a guarantee, and the chain did not catch. A provider that rejected instead of
+  returning null produced a 500 on the most important write path in the product. The chain now
+  absorbs it and continues - which is also what makes the "provider throws" half of probe A5
+  meaningful.
+- **My tests assumed a clean database per test.** The harness gives the whole FILE one database, so
+  assertions like "one contact exists" were quietly becoming "seventeen do". Added a per-test
+  cleanup of the collections this path writes.
+- **I compared client wall-clock time against a fixed server clock.** The harness drives a
+  `MutableClock`, so `Date.now()` in a test is not the server's idea of now. A deliberately
+  too-fast submission came out with a NEGATIVE elapsed time, which the heuristic leniently accepts,
+  so the timing test failed for a reason unrelated to the rule it was checking. The test now reads
+  the harness clock. The leniency itself is correct and stays.
+
+### Judgment calls
+
+1. **Idempotency is stored durably, not just in Redis.** The blueprint says a key is "retained for
+   24 hours", which Redis does; the unique index is what makes the guarantee survive a cache flush.
+   The replay answer is reconstructed from the stored event rather than cached separately, so there
+   is one source of truth for what the original response was.
+2. **Geo timeout: 1.5 seconds per provider.** Both are consulted in the worst case, so this is half
+   the enrichment budget. Comfortably above a healthy round trip and low enough that two failures
+   cost three seconds rather than hanging the request.
+3. **Geo is off outside production.** ip-api's free endpoint allows 45 requests a minute per source
+   address and its terms exclude commercial use - fine for a portfolio demo, not fine for a test
+   suite. `GEO_ENABLED` defaults to false and the tests inject scripted providers.
+4. **HMAC key rotation is by derived subkey, monthly, with the period stored alongside the value.**
+   Rotation needs no new secret provisioned, a leaked period key exposes one month, and an event
+   written last month stays interpretable.
+5. **A missing `renderedAt` is accepted, not rejected.** It is client-supplied and trivially
+   omitted by a determined bot, so treating absence as guilt would only cost real visitors whose
+   browser or extension interfered. The honeypot is the check with teeth.
+6. **The timing floor is 1.5 seconds.** Deliberately low: the cost of a false positive is a
+   silently discarded real lead, which is the worst failure this path has.
+7. **A rate-limited attempt costs one widget lookup** to record the abuse event blueprint 7.4 asks
+   for. The refusal happens first; the bookkeeping is off the fast path and failures in it are
+   swallowed.
+8. **`AbuseEvent` has no field for captured values.** Not "we do not populate it" - the type does
+   not have one, so a later stage cannot add values by accident.
+9. **Contacts are unique per workspace, not globally.** One person contacting two customers is two
+   separate leads, and a test asserts exactly that.
+10. **A submission refreshes canonical contact values EXCEPT ones a human edited.** Blueprint 4.6
+    requires manual edits to survive; `manuallyEditedFields` records which, and Stage 8's editing UI
+    will populate it.
+
+### Verification performed
+
+```
+npm run lint               exit 0
+npm run format:check       All matched files use Prettier code style!
+npm run typecheck          exit 0
+npm run build              exit 0
+npm test                   Test Files 11 passed (11)   Tests 204 passed (204)
+npm run test:integration   Test Files  9 passed (9)    Tests 171 passed (171)
+npm run migrate            applied 1, skipped 5, then applied 0, skipped 6 on a second run
+```
+
+Indexes were read back from the real database rather than assumed; see EVIDENCE Part D-detail.
+No browser E2E was required this stage - there is no UI in it - and the existing 72 browser tests
+were left untouched.
+
+### Plugin usage this stage
+
+- **`typescript-lsp` - worked.** Verified up front with two deliberate type errors cross-checked
+  against `tsc`, resolving `WorkspaceScope` across the package boundary. Used for a clean
+  diagnostics pass over the submission service and to confirm `isOriginAllowed` resolves to the
+  shared `@lcp/contracts` implementation rather than a local copy - the reuse the stage brief asked
+  for. It went stale once after external edits, as in earlier stages; `tsc` was the authority while
+  editing.
+- **`context7` - consulted three times, all load-bearing.** Node's crypto docs confirmed that
+  `timingSafeEqual` THROWS on a length mismatch, which is why the comparison checks lengths first
+  rather than letting it throw. ioredis confirmed the `SET key value EX n NX` argument order and
+  that it returns null when NX fails. ip-api's own documentation supplied the details that shaped
+  the adapter and the configuration default: the free endpoint is HTTP-only, limited to 45 requests
+  a minute per source address, reports failure in the BODY with a 200 status, and excludes
+  commercial use.
+- **`frontend-design` - available, deliberately not invoked.** There is no UI in this stage.
+
+### Open questions for a human
+
+1. **Nothing consumes the outbox.** That is Stage 9 by design, but until then a submission produces
+   no notification at all, and the `pending` rows will accumulate.
+2. **The widget's form still posts nowhere.** The Stage 6 runtime stops at a typed seam. Wiring it
+   to this endpoint is small, but it belongs with Stage 8's inbox so the result is visible.
+3. **ip-api's free tier forbids commercial use.** Fine for a portfolio demo, and the adapter is
+   behind a port - but a real deployment would need the paid tier or a different provider.
+4. **The quota counts submissions with a `countDocuments` per request.** Correct, and cheap at this
+   scale given the index, but blueprint 4.10 mentions Redis quota counters and Stage 10 may want
+   one.
+5. **Consent is recorded as opt-in evidence only.** Double opt-in confirmation and withdrawal are
+   Stage 11; the record type already has the event types for them.
+6. **CI has still never run**, because no remote is configured.

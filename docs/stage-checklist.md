@@ -3,7 +3,7 @@
 The project is implemented in 16 bounded stages (blueprint §19). Exactly one stage is requested per
 implementation prompt, and work stops when that stage's exit gate is green.
 
-**Progress: 7 of 16 stages complete.**
+**Progress: 8 of 16 stages complete.**
 
 ## Stage execution rules (blueprint §19)
 
@@ -139,10 +139,22 @@ test results, remaining limitations, and confirmation of the exit gate.
     5,439 B gzip, loader 734 B raw / 434 B gzip. No framework and no validation library reach
     the public bundle.
 
-- [ ] **Stage 7 — Hardened public submission path**
+- [x] **Stage 7 — Hardened public submission path** _(2026-08-29)_
   - **Goal:** Satisfy the capstone's most important backend request path.
   - **Exit gate:** All six acceptance probes for the submission path pass locally, including
     provider and side-effect failure simulations.
+
+  - **All six PDF acceptance probes now pass locally**, each with its own named, re-runnable
+    integration test: valid second-origin submission, malformed/oversized input, burst traffic,
+    geo fallback, side-effect failure, and honeypot.
+  - The request gate follows blueprint 7.3's eleven numbered rules in order: Origin allowlist and
+    published-state checks, 32 KB / 20-field / 5,000-character limits, three Redis rate limits,
+    validation against the server-owned field schema, 24-hour idempotency, honeypot and timing
+    heuristics, the monthly quota on workspace-timezone boundaries, geo with fallback, then one
+    transaction covering contact upsert, immutable submission event, consent evidence, and a
+    durable outbox record.
+  - Raw IP is never persisted: a monthly-rotating HMAC pseudonym is what abuse evidence keeps.
+  - Origin and domain matching are reused from `@lcp/contracts`, not reimplemented.
 
 - [ ] **Stage 8 — Contact inbox, collaboration, lifecycle, and exports**
   - **Goal:** Turn accepted submissions into a usable collaborative lead workspace.

@@ -43,6 +43,27 @@ export const AUTH_RATE_RULES = {
   mfaChallenge: { name: 'mfa-challenge', limit: 10, windowSeconds: 900 },
 } as const satisfies Record<string, RateLimitRule>;
 
+/**
+ * Public submission limits, exactly as blueprint 7.3 step 3 states them.
+ *
+ * Three rules rather than one, because they defend against different things:
+ * the per-minute pair limit stops a burst from one visitor, the hourly pair
+ * limit stops a slow grind that would slip under it, and the per-widget limit
+ * caps what a distributed botnet can cost one customer even when no single
+ * address looks abusive.
+ *
+ * All three share the Stage 3a Redis mechanism rather than introducing a
+ * second one.
+ */
+export const SUBMISSION_RATE_RULES = {
+  /** 5 submissions per minute per IP-widget pair. */
+  perIpWidgetMinute: { name: 'submit-ip-widget-min', limit: 5, windowSeconds: 60 },
+  /** 30 per hour per IP-widget pair. */
+  perIpWidgetHour: { name: 'submit-ip-widget-hour', limit: 30, windowSeconds: 3600 },
+  /** 100 per minute per widget, across every visitor. */
+  perWidgetMinute: { name: 'submit-widget-min', limit: 100, windowSeconds: 60 },
+} as const satisfies Record<string, RateLimitRule>;
+
 export class RedisRateLimiter implements RateLimiter {
   readonly #redis: Redis;
   readonly #keys: RedisKeyBuilder;

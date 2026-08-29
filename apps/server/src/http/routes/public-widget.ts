@@ -3,8 +3,19 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { ERROR_CODES, createErrorPayload, type Logger } from '@lcp/contracts';
+import {
+  ERROR_CODES,
+  SUBMISSION_MAX_BODY_BYTES,
+  createErrorPayload,
+  submissionPayloadSchema,
+  validate,
+  type Logger,
+} from '@lcp/contracts';
+import express from 'express';
 import type { PublicWidgetService } from '../../application/widget/public-widget-service.js';
+import type { SubmissionService } from '../../application/submission/submission-service.js';
+import type { RateLimiter } from '../../ports/rate-limiter.js';
+import { SUBMISSION_RATE_RULES } from '../../infrastructure/redis/rate-limiter.js';
 
 /**
  * The public widget surface: loader, runtime, and config (blueprint 7.2, 8.2).
@@ -70,6 +81,8 @@ export function loadRuntimeAsset(): RuntimeAsset | null {
 
 export interface PublicWidgetRouterDeps {
   readonly widgets: PublicWidgetService;
+  readonly submissions: SubmissionService;
+  readonly limiter: RateLimiter;
   readonly logger: Logger;
   /** Absolute origin the loader points at, e.g. https://app.example.com. */
   readonly publicBaseUrl: string;
@@ -77,7 +90,7 @@ export interface PublicWidgetRouterDeps {
 
 export function createPublicWidgetRouter(deps: PublicWidgetRouterDeps): Router {
   const router = Router();
-  const { widgets, logger, publicBaseUrl } = deps;
+  const { widgets, submissions, limiter, logger, publicBaseUrl } = deps;
 
   const runtime = loadRuntimeAsset();
   if (runtime === null) {
@@ -224,6 +237,134 @@ export function createPublicWidgetRouter(deps: PublicWidgetRouterDeps): Router {
       next(error);
     }
   });
+
+  // ------------------------------------------------------------- submission
+
+  /**
+   * CORS preflight.
+   *
+   * A submission sends `content-type: application/json`, which is not a
+   * simple request, so browsers ask first. This answers permissively about the
+   * METHOD and headers while saying nothing about whether the widget exists -
+   * the Origin allowlist is enforced on the POST itself, against the widget's
+   * own current settings. Blueprint 7.3 step 1 is explicit that CORS headers
+   * are not treated as authentication, so a permissive preflight grants
+   * nothing.
+   */
+  router.options('/submit/:publicId', (request, response) => {
+    const origin = request.get('origin');
+    response.set('Vary', 'Origin');
+    if (origin !== undefined) response.set('Access-Control-Allow-Origin', origin);
+    response.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    response.set('Access-Control-Allow-Headers', 'content-type');
+    response.set('Access-Control-Max-Age', '600');
+    response.status(204).end();
+  });
+
+  /**
+   * The public submission endpoint (blueprint 7.3).
+   *
+   * The body parser is mounted here rather than globally so the 32 KB limit
+   * applies to exactly this route, and an oversized body becomes a clean 413
+   * rather than reaching the handler at all.
+   */
+  router.post(
+    '/submit/:publicId',
+    express.json({ limit: SUBMISSION_MAX_BODY_BYTES }),
+    async (request, response, next) => {
+      const origin = request.get('origin');
+      const publicId = String(request.params.publicId ?? '');
+
+      response.set('Vary', 'Origin');
+
+      /**
+       * The generic answer, used for success AND for a silently discarded bot.
+       *
+       * Declared once so the two paths cannot drift apart: blueprint 7.3 step
+       * 10 requires a uniform response that does not reveal spam
+       * classification, and the surest way to keep that true is to have one
+       * place that writes it.
+       */
+      const ack = (outcome: unknown): void => {
+        if (origin !== undefined) response.set('Access-Control-Allow-Origin', origin);
+        response.status(202).json({ status: 'received', outcome });
+      };
+
+      const fail = (
+        code: (typeof ERROR_CODES)[keyof typeof ERROR_CODES],
+        message: string,
+        status: number,
+        details?: unknown,
+      ): void => {
+        if (origin !== undefined) response.set('Access-Control-Allow-Origin', origin);
+        response
+          .status(status)
+          .json(createErrorPayload(code, message, request.correlationId, details as never));
+      };
+
+      try {
+        const parsed = validate(submissionPayloadSchema, request.body);
+        if (!parsed.ok) {
+          fail(ERROR_CODES.VALIDATION_FAILED, 'Check the submitted fields', 400, parsed.errors);
+          return;
+        }
+
+        /**
+         * Blueprint 7.3 step 7: the raw address is used transiently here for
+         * rate limiting and geo, and is never persisted. What reaches storage
+         * is the rotating HMAC pseudonym the service derives.
+         */
+        const ip = request.ip ?? 'unknown';
+
+        // Step 3: three shared Redis limits.
+        const pair = `${publicId}:${ip}`;
+        for (const rule of [
+          { rule: SUBMISSION_RATE_RULES.perIpWidgetMinute, id: pair },
+          { rule: SUBMISSION_RATE_RULES.perIpWidgetHour, id: pair },
+          { rule: SUBMISSION_RATE_RULES.perWidgetMinute, id: publicId },
+        ]) {
+          const decision = await limiter.consume(rule.rule, rule.id);
+          if (!decision.allowed) {
+            // Minimal evidence only (blueprint 7.4): the pseudonym and the
+            // event type, never the body that was refused.
+            await submissions.recordRateLimited(publicId, ip, origin);
+            response.set('Retry-After', String(decision.retryAfterSeconds));
+            fail(ERROR_CODES.RATE_LIMITED, 'Too many submissions. Try again shortly.', 429);
+            return;
+          }
+        }
+
+        const outcome = await submissions.submit({
+          publicId,
+          origin,
+          ip,
+          payload: parsed.data,
+        });
+
+        switch (outcome.kind) {
+          case 'accepted':
+          case 'discarded':
+            // Identical answers. A bot learns nothing from the response.
+            ack(outcome.outcome);
+            return;
+          case 'widget_unavailable':
+            fail(ERROR_CODES.NOT_FOUND, 'Widget not available', 404);
+            return;
+          case 'origin_not_allowed':
+            fail(ERROR_CODES.FORBIDDEN, 'This widget is not permitted on this site', 403);
+            return;
+          case 'invalid':
+            fail(ERROR_CODES.VALIDATION_FAILED, 'Check the submitted fields', 400, outcome.errors);
+            return;
+          case 'quota_exceeded':
+            fail(ERROR_CODES.QUOTA_EXCEEDED, 'This form is temporarily unavailable', 429);
+            return;
+        }
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   return router;
 }

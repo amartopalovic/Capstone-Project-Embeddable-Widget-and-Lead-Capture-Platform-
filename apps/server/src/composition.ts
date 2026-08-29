@@ -14,12 +14,20 @@ import {
 import { COLLECTIONS } from '@lcp/database';
 import type { WithId } from 'mongodb';
 import type { WidgetRecord, WorkspaceRecord } from '@lcp/database';
+import type { WidgetConfig } from '@lcp/contracts';
 import type { ServerEnv } from './config/env.js';
 import { AuthService } from './application/auth/auth-service.js';
 import { SessionService } from './application/auth/session-service.js';
 import { MfaService } from './application/auth/mfa-service.js';
 import { WidgetService } from './application/widget/widget-service.js';
 import { PublicWidgetService } from './application/widget/public-widget-service.js';
+import { SubmissionService } from './application/submission/submission-service.js';
+import {
+  IpApiGeoProvider,
+  IpapiCoGeoProvider,
+  NullGeoProvider,
+} from './infrastructure/geo/providers.js';
+import type { GeoProvider } from './ports/geo-provider.js';
 import { WorkspaceService } from './application/workspace/workspace-service.js';
 import { MembershipService } from './application/workspace/membership-service.js';
 import { InvitationService } from './application/workspace/invitation-service.js';
@@ -62,6 +70,7 @@ export interface AppDependencies {
   readonly mfaChallengeStore: RedisMfaChallengeStore;
   readonly widgetService: WidgetService;
   readonly publicWidgetService: PublicWidgetService;
+  readonly submissionService: SubmissionService;
   readonly workspaceService: WorkspaceService;
   readonly membershipService: MembershipService;
   readonly invitationService: InvitationService;
@@ -75,6 +84,8 @@ export interface AppDependencies {
 
 export interface CompositionOverrides {
   readonly clock?: Clock;
+  /** Substituted by the deterministic provider tests in blueprint 18.4. */
+  readonly geoProviders?: readonly GeoProvider[];
   readonly logger?: Logger;
   /** Substituted in tests that assert on sent mail without SMTP. */
   readonly emailSender?: EmailSender;
@@ -250,6 +261,41 @@ export function buildDependencies(
     logger,
   });
 
+  /**
+   * Geo providers (blueprint 5.1, 7.3 step 8).
+   *
+   * Real providers only in production. Development and the test suite must not
+   * depend on - or hammer - a free third-party service, and blueprint 18.4 wants
+   * provider outcomes to be deterministic anyway, so the default is the
+   * no-enrichment provider and the tests substitute their own.
+   */
+  const geoProviders =
+    overrides.geoProviders ??
+    (env.geoEnabled
+      ? [new IpApiGeoProvider(env.geoTimeoutMs), new IpapiCoGeoProvider(env.geoTimeoutMs)]
+      : [new NullGeoProvider()]);
+
+  const submissionService = new SubmissionService({
+    db,
+    findWidgetByPublicId: async (publicId: string): Promise<WithId<WidgetRecord> | null> =>
+      db.collection<WidgetRecord>(COLLECTIONS.widgets).findOne({ publicId }),
+    findWorkspace: async (widget: WithId<WidgetRecord>): Promise<WithId<WorkspaceRecord> | null> =>
+      workspaceRepository.findInScope(workspaceScope(widget.workspaceId)),
+    findPublishedConfig: async (scope, widget) => {
+      if (widget.publishedRevisionId === null) return null;
+      const revision = await widgetRevisionRepository.findById(scope, widget.publishedRevisionId);
+      if (revision === null || revision.status !== 'published') return null;
+      return {
+        config: revision.config as unknown as WidgetConfig,
+        revisionNumber: revision.revisionNumber,
+      };
+    },
+    geoProviders,
+    ipHmacSecret: env.ipHmacSecret,
+    clock,
+    logger,
+  });
+
   const membershipService = new MembershipService({
     memberships: membershipRepository,
     users: userRepository,
@@ -285,6 +331,7 @@ export function buildDependencies(
     logger,
     widgetService,
     publicWidgetService,
+    submissionService,
     authService,
     sessionService,
     mfaService,
