@@ -1990,3 +1990,158 @@ Part D-detail. No browser E2E was required this sub-stage - there is no UI in it
 6. **The widget's form still posts nowhere.** Wiring the Stage 6 runtime's typed seam to the Stage 7
    endpoint belongs with 8b, where the resulting lead is visible in the inbox.
 7. **CI has still never run**, because no remote is configured.
+
+---
+
+## Stage 8b - Contact inbox UI, timeline, bulk actions, and browser E2E (2026-08-29)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Blueprint Stage 8, sub-stage 8b of 2. **Stage 8 is complete with this entry.**
+
+### What was done
+
+- `apps/web/src/pages/ContactsPage.tsx`: the inbox - search, the nine filter dimensions behind a
+  disclosure, keyset pagination, deterministic sort, bulk selection with a capability-driven action
+  bar, inline merge, and the live-arrival button.
+- `apps/web/src/pages/ContactDetailPage.tsx`: workflow controls for every role, canonical editing
+  for Owner/Admin with a designed conflict state, and the merged timeline.
+- `apps/web/src/pages/ContactTrashPage.tsx`: the 30-day trash and recovery.
+- `apps/web/src/lib/use-workspace-events.ts`: the SSE subscription, with bounded backoff on hard
+  failures.
+- `apps/web/src/lib/api.ts`: `contactApi` and the shared query-string builder.
+- `apps/web/src/components/ui.tsx`: `ContactStatusChip`, `Select`, `TextArea`.
+- `e2e/tests/contact-journey.spec.ts` and `contact-accessibility.spec.ts`: 16 new browser tests.
+
+### Key UI decisions
+
+1. **New leads queue; they do not inject themselves.** Blueprint 13.1 asks for live updates, and
+   the obvious reading is "insert the row". That is the wrong behaviour for a list somebody is
+   working: an inserted row moves the thing they were about to click, and it silently changes what
+   a bulk selection covers. Arrivals increment a count in a polite live region, and the row appears
+   when the button is pressed - announced without stealing focus, applied only on request.
+2. **The status chips read along the pipeline, and `converted` is the only filled chip anywhere in
+   the app.** The five statuses are a progression, not five unrelated states, so `new` takes the
+   signal colour (it is the one asking for attention) and `converted` is filled, so the outcome
+   that matters is unmistakable when scanning a long list. Every chip still spells its status out,
+   so colour reinforces rather than carries the meaning.
+3. **The timeline gives submissions and activity two different weights.** A submission is a
+   bordered panel because it is immutable evidence somebody sent; an activity entry is a hairline
+   note because it is an annotation a teammate made. That is blueprint 4.6's distinction expressed
+   as structure rather than as a legend, and reading down the spine tells you which marks came from
+   outside and which came from your own team.
+4. **The conflict is a designed state, not an error banner.** A stale canonical save says what
+   happened - "This lead changed while you were editing" - names both causes (a teammate, or the
+   visitor submitting again), and offers the one action that resolves it. Telling somebody
+   "conflict" and leaving their typing in a box that will not save is a dead end.
+5. **Merge is an inline panel, not a modal.** This app has deliberately avoided composite widgets
+   in favour of native elements, and a modal is the one that most often ships with broken focus
+   handling. The inline panel needs none of that machinery and keeps both leads visible while the
+   choice is made. It also states that the merge cannot be undone BEFORE it happens.
+6. **Export sits beside the filter disclosure, not inside it.** Blueprint 4.7 exports what the
+   filter is showing, so the download control belongs next to the control that narrows the list -
+   and next to the "N active" badge, which is what tells somebody the list is narrowed at the exact
+   moment they decide to download it. It is a real `<a href>` rather than a fetch, so the streamed
+   attachment stays out of memory and keeps the filename the server sets.
+7. **`EventSource`, not a hand-rolled fetch stream.** It gets two of blueprint 13.1's requirements
+   for free and correctly: it remembers the last `id:` and sends it back as `Last-Event-ID` on
+   reconnect, and it applies the `retry:` interval the server sets, so the ordinary reconnect delay
+   is one server decision rather than each client's invention. What it does not do is give up, so
+   the hook adds one layer: a CLOSED socket reopens with a delay that doubles to a 30-second cap and
+   stops after six attempts. Without that cap a revoked member's browser would loop forever against
+   an endpoint that will never accept it again.
+8. **A refused control is absent, not disabled.** A Member has no export button, no trash link, no
+   merge button, and no canonical-edit panel. Same treatment the audit-log link already gets.
+
+### Where AI failed or was corrected
+
+- **Export was unreachable, and the browser test is what said so.** I had put it inside the filter
+  disclosure, which is collapsed by default - so an Owner looking for it would not have found it.
+  `toBeVisible()` failed, and the honest fix was a design fix rather than opening the panel in the
+  test. It now sits beside the disclosure, always visible.
+- **I overclaimed the row design in my own comment.** I had written that "every row carries where
+  the lead came from", which is the idea I wanted; the screenshot showed the row carries a
+  submission count and a date, because the list summary the API returns has no source field.
+  Corrected the comment to describe what the row does and where full provenance actually lives -
+  the detail timeline, which does carry the page each submission arrived from.
+- **A reserved-height live region left a hole in the layout.** `min-h-9` on the arrival region kept
+  space for a button that is usually absent, which read as an unexplained gap above the list. A
+  live region has to exist in the DOM to announce reliably; it does not have to reserve space.
+- **`reuseExistingServer` bit twice, in opposite directions.** First, every submission in the
+  opening E2E run failed with a 404 whose body was the app's catch-all message rather than the
+  submission service's: the long-running dev server predated Stage 7's submit route and had been
+  kept alive across stages. Worth keeping on its own - read the error BODY, not just the status;
+  the two 404s meant completely different things. Later, a suite run failed from test 19 onward
+  with uniform ~12-second failures across specs I had not touched, including ones that had just
+  passed. The API server had died mid-run: it was a `webServer` child of an EARLIER Playwright
+  process, this run adopted it because its health check answered, and it went away when its real
+  owner was reaped. The lesson is the same hazard from the other side - a suite that reuses a
+  server it does not own can be handed a stale one or lose a live one, and neither failure looks
+  like what it is. `curl /health/live` distinguished them in seconds.
+- **A flaky exit-gate test turned out to be a real product bug.** The Member journey failed roughly
+  one run in three, and only in a multi-file run - the pattern Stage 6 taught me not to dismiss as
+  contention. The bulk bar simply was not there after a row was checked, which meant the selection
+  had been cleared. `load()` ended with `setSelected(new Set())`, and React StrictMode runs the
+  mount effect twice in development, so the second load's completion erased a selection made
+  between the two. The defect is not the double-invoke: it is that ANY refresh silently discarded
+  a selection the person had just made, with no explanation, and Stages 9 and 10 add more refresh
+  triggers. The list now PRUNES the selection to the rows still present instead of clearing it,
+  which keeps the guarantee that mattered - a bulk action can never target a row that is gone -
+  and lets somebody apply a second action to the same set.
+- **Three test-side locator mistakes, each pointing at something real.** `getByLabel('Search')` also
+  matched the "Select <name>" row checkboxes, because `getByLabel` is a substring match.
+  `getByRole('status')` was ambiguous because the arrival live region is a permanent second status
+  region. And the status chip testid appears in both a row and the filter panel. All three were
+  fixed in the tests, but each is a reminder that a `<details>` panel's contents stay in the DOM
+  while collapsed.
+- **`typescript-lsp` went stale twice**, once reporting line numbers from before an edit and once
+  omitting a component that had just been added. Same workaround as previous stages: kill the
+  language server, let it respawn, re-run. `tsc` stayed the authority while editing.
+
+### Verification performed
+
+```
+npm run lint               exit 0
+npm run format:check       All matched files use Prettier code style!
+npm run typecheck          exit 0
+npm run build              exit 0
+npm test                   Test Files 12 passed (12)   Tests 238 passed (238)
+npm run test:integration   Test Files 10 passed (10)   Tests 209 passed (209)
+npm run test:e2e           88 tests passed (16 new)
+```
+
+### Plugin usage this stage
+
+- **`frontend-design` - used substantively, as the stage brief asked.** It set the working method:
+  plan tokens and layout first, then check the plan against the brief for anything that reads as a
+  default rather than a decision. The existing system fixed the palette and the type, so the design
+  work went into structure, and the skill's "structure is information" principle is what produced
+  the two-weight timeline - submissions and activity look different because blueprint 4.6 says they
+  ARE different, not for variety. Its restraint prompt is what cut a per-row hover action cluster:
+  it duplicated the bulk bar and the detail page, and hover-only affordances are bad for keyboard
+  and touch. The one deliberate risk it pushed for is the filled `converted` chip - the only filled
+  chip in the app.
+- **`typescript-lsp` - worked.** Used for navigation across three new pages and for a clean
+  diagnostics pass; went stale twice and was restarted, after which document symbols matched disk
+  exactly.
+- **`context7` - not consulted.** The stage brief said to use it only if a genuine question arose.
+  None did: the SSE client question resolved to "use the platform's own EventSource", and the rest
+  was this repository's existing conventions.
+
+### Open questions for a human
+
+1. **Nothing consumes the outbox.** A lead reaches the inbox live, but no email or webhook is sent
+   (Stage 9).
+2. **The widget's form still does not post.** Everything downstream of the submission endpoint is
+   real and tested; the visitor's keystrokes are the one unwired part. It is a small change and
+   belongs with the runtime.
+3. **The E2E database has never had migrations applied.** `npm run migrate` against
+   `leadcapture_e2e` fails on duplicate membership data left by earlier runs. The suite passes
+   because MongoDB creates collections implicitly, but that database runs without its unique
+   indexes, so it is a weaker environment than production. Pre-existing rather than introduced
+   here; it wants a deliberate reset, which is not mine to do unasked.
+4. **Live updates carry contact events only**, and membership revocation closes a stream within one
+   25-second heartbeat rather than instantly.
+5. **Nine filter dimensions is a lot of interface** for a portfolio demo, and I have no usage data
+   to say which ones earn their place. They are behind a disclosure, so they cost nothing until
+   opened, but a real product would cut most of them.
+6. **CI has still never run**, because no remote is configured.

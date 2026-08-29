@@ -3,7 +3,7 @@
 The project is implemented in 16 bounded stages (blueprint §19). Exactly one stage is requested per
 implementation prompt, and work stops when that stage's exit gate is green.
 
-**Progress: 8 of 16 stages complete.**
+**Progress: 9 of 16 stages complete.**
 
 ## Stage execution rules (blueprint §19)
 
@@ -156,7 +156,7 @@ test results, remaining limitations, and confirmation of the exit gate.
   - Raw IP is never persisted: a monthly-rotating HMAC pseudonym is what abuse evidence keeps.
   - Origin and domain matching are reused from `@lcp/contracts`, not reimplemented.
 
-- [ ] **Stage 8 — Contact inbox, collaboration, lifecycle, and exports**
+- [x] **Stage 8 — Contact inbox, collaboration, lifecycle, and exports** _(2026-08-29)_
   - **Goal:** Turn accepted submissions into a usable collaborative lead workspace.
   - **Exit gate:** Role-aware E2E journeys pass; export matches active filters; live arrival is
     workspace-isolated.
@@ -174,7 +174,18 @@ test results, remaining limitations, and confirmation of the exit gate.
       server-set reconnect backoff, a last-event cursor, and membership rechecked at connect and
       on every heartbeat.
     - **No new capability names and no matrix edits**; `capabilities.ts` is unchanged.
-  - [ ] **8b — Inbox UI, timeline, bulk actions, and browser E2E** _(not started)_
+  - [x] **8b — Inbox UI, timeline, bulk actions, and browser E2E** _(2026-08-29)_
+    - The inbox list with search, the nine-dimension filter set, keyset pagination, deterministic
+      sort, bulk selection, and a live-arrival button that queues new leads rather than injecting
+      rows into a list somebody is reading.
+    - The lead detail page: workflow controls for every role, canonical editing for Owner/Admin
+      with a designed conflict state rather than a bare error, and a timeline that gives immutable
+      submissions and team activity two different visual weights.
+    - Inline merge, the 30-day trash with recovery, and a streaming export whose link is built from
+      the same query string the list just ran.
+    - **No role table in the UI**: every affordance reads a capability the server derived.
+    - 16 new browser tests, including 6 axe scans (WCAG 2.2 AA) over the empty, no-results,
+      conflict, and trash states, and a keyboard-only pass.
 
 - [ ] **Stage 9 — Reliable email, webhooks, and delivery operations**
   - **Goal:** Complete failure-safe side effects without weakening the submission path.

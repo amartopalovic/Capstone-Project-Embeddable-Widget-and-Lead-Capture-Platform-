@@ -1,6 +1,6 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 8a.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+**Status: Stage 8.** All nine workspaces exist. `packages/config`, `packages/contracts`,
 `packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
 rest remain deliberate shells until the stage that fills them.
 
@@ -248,6 +248,24 @@ combined differently rather than both intersected.
 **One copy of the policy.** The Owner/Admin-vs-Member bulk split comes from the section 11 matrix
 through `can()`, not from a table written for the inbox. `capabilities.ts` is unchanged in this
 stage.
+
+### What `apps/web` gained in Stage 8b
+
+| Path                              | Contents                                                              |
+| --------------------------------- | --------------------------------------------------------------------- |
+| `src/pages/ContactsPage.tsx`      | The inbox: search, filters, pagination, bulk actions, merge, arrivals |
+| `src/pages/ContactDetailPage.tsx` | Workflow, canonical editing with its conflict state, and the timeline |
+| `src/pages/ContactTrashPage.tsx`  | The 30-day trash and recovery                                         |
+| `src/lib/use-workspace-events.ts` | The SSE subscription, with bounded backoff on hard failures           |
+
+**No role table lives in the browser.** Grepping these pages for `'owner'`, `'admin'`, or
+`'member'` returns nothing: every affordance reads a capability the server derived, or the
+`allowedActions` list the contact detail endpoint returns. A control a role may never use is absent
+rather than disabled.
+
+**Arrivals queue rather than inject.** A row that inserts itself into a list somebody is reading
+moves what they were about to click and changes what their selection covers, so an arrival
+increments a count in a polite live region and appears when the button is pressed.
 
 ### End-to-end tests
 

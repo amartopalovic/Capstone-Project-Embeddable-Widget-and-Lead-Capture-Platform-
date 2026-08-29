@@ -129,6 +129,8 @@ function WorkspaceBar({
             Overview
           </ShellLink>
           <ShellLink to="/workspace/widgets">Widgets</ShellLink>
+          {/* Every role may view contacts, so this link is never conditional. */}
+          <ShellLink to="/workspace/contacts">Inbox</ShellLink>
           <ShellLink to="/workspace/members">Members</ShellLink>
           {/* Hidden entirely, not disabled: a Member has no audit log to read. */}
           {capabilities.includes('audit.view') && (

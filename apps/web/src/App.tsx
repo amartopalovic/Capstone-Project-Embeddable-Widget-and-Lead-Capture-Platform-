@@ -13,6 +13,9 @@ import { WorkspaceShell } from './components/WorkspaceShell.jsx';
 import { WorkspaceHomePage } from './pages/WorkspaceHomePage.jsx';
 import { WidgetsPage } from './pages/WidgetsPage.jsx';
 import { WidgetBuilderPage } from './pages/WidgetBuilderPage.jsx';
+import { ContactsPage } from './pages/ContactsPage.jsx';
+import { ContactDetailPage } from './pages/ContactDetailPage.jsx';
+import { ContactTrashPage } from './pages/ContactTrashPage.jsx';
 import { MembersPage } from './pages/MembersPage.jsx';
 import { AuditLogPage } from './pages/AuditLogPage.jsx';
 import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage.jsx';
@@ -63,6 +66,14 @@ const router = createBrowserRouter([
       { index: true, element: <WorkspaceHomePage /> },
       { path: 'widgets', element: <WidgetsPage /> },
       { path: 'widgets/:widgetId', element: <WidgetBuilderPage /> },
+      /*
+       * `trash` is declared before `:contactId` so the literal path wins; a
+       * route order that let the parameter match first would send someone to a
+       * lead detail page for a lead called "trash".
+       */
+      { path: 'contacts', element: <ContactsPage /> },
+      { path: 'contacts/trash', element: <ContactTrashPage /> },
+      { path: 'contacts/:contactId', element: <ContactDetailPage /> },
       { path: 'members', element: <MembersPage /> },
       { path: 'audit', element: <AuditLogPage /> },
       { path: 'settings', element: <WorkspaceSettingsPage /> },

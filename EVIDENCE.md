@@ -1374,6 +1374,97 @@ applied to the write and not only to the read.
 
 ---
 
+## Part D-detail - Stage 8b inbox UI and browser evidence
+
+8b puts a role-aware interface on 8a's API and proves blueprint Stage 8's gate through the browser,
+the way 4b and 5b closed Stages 4 and 5. **Stage 8 is complete with this sub-stage.**
+
+### The three gate claims, proven through the UI
+
+```
+npm run test:e2e     88 tests passed
+```
+
+Sixteen of those are new. The gate tests name themselves so a reader can find them:
+
+| Gate | Test                                                  | What the browser actually did                                                                                                                                                                                                                                                                                                             |
+| ---- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `GATE 1: role-aware inbox` (2 tests)                  | A real Member, in their own browser context, opened the inbox: no export control, no trash link, no merge button, no soft-delete in the bulk bar, and no canonical-edit panel on the detail page. They then DID set a status, add a tag, and write a note. An Owner, in the same fixture shape, saw every control the Member was refused. |
+| 2    | `GATE 2: export matches the active filter` (1 test)   | Qualified one of two leads through the bulk bar, filtered the inbox to `qualified`, clicked Export CSV, and read the downloaded bytes: the qualified lead is present, the other is absent, and the header carries no `workspaceId`.                                                                                                       |
+| 3    | `GATE 3: live arrival is workspace-isolated` (1 test) | Two owners in two browser contexts sat on their own inboxes. A lead was submitted to one. That page raised "1 new lead arrived" **without any reload**, and showed the lead when pressed. The other tenant's open page never received it.                                                                                                 |
+
+Six more cover the journeys around the gate: a canonical edit that survives a later submission, a
+stale edit that conflicts instead of overwriting, a merge that retires the duplicate, search by a
+word that appears only inside a captured message, trash and recovery, and a cross-tenant check that
+uses the other workspace's exact contact URL rather than only its list.
+
+### Accessibility (blueprint 14.1, WCAG 2.2 AA)
+
+Six new axe scans, on the same tag set every other surface uses
+(`wcag2a wcag2aa wcag21a wcag21aa wcag22aa`), failing on any critical or serious violation:
+
+- the inbox empty, populated, with the filter disclosure open, with the bulk bar showing, and with
+  the merge panel open;
+- the no-results empty state, which carries a different message from the never-had-a-lead one;
+- the lead detail page, with both timeline weights on screen;
+- the optimistic-concurrency **conflict** state;
+- the trash, empty and populated;
+- a keyboard-only pass: search focused, the filter disclosure toggled with Enter, a row selected
+  with Space, and a lead opened with Enter.
+
+### What the browser caught that review did not
+
+**Export was unreachable.** It had been placed inside the filter disclosure, which is collapsed by
+default - so an Owner looking for it would not have found it. `toBeVisible()` failed, and the fix
+was a design fix, not a selector fix: export now sits beside the disclosure, always visible, next to
+the "N active" badge that says how narrow the list currently is.
+
+**A flaky test was a real defect.** The Member gate test failed intermittently, and only in a
+multi-file run: the bulk bar was absent after a row was checked, because `load()` cleared the
+selection and StrictMode's double-invoked mount effect landed the second load after the click. The
+underlying bug was that any refresh silently discarded a selection somebody had just made. The list
+now prunes the selection to rows still present rather than clearing it.
+
+**A suite can adopt a server it does not own.** Playwright's `reuseExistingServer` caused two
+opposite failures. Once it handed the suite a stale server that predated Stage 7's submit route;
+once the adopted API server was reaped mid-run by its real owner, and every test from #19 onward
+failed with uniform ~12-second errors across specs that had just passed. Neither looks like what it
+is from the test output; `curl /health/live` told both apart in seconds.
+
+**A stale API server passed for a missing route.** The first run failed every submission with a 404
+whose body was the catch-all message rather than the submission service's. The long-running dev
+server predated Stage 7's submit route, and `reuseExistingServer` had kept it alive across stages.
+
+### One copy of the policy, verified rather than asserted
+
+There is no role table in the inbox UI. Grepping the new pages for `'owner'`, `'admin'`, or
+`'member'` returns nothing; every affordance reads a capability the SERVER derived - `contact.export`,
+`contact.delete`, `contact.workflow.write`, `contact.canonical.write` - or the `allowedActions` list
+8a returns per contact.
+
+### One thing fixed in passing
+
+`capstone.yaml` still carried `test_integration: TBD # filled_in_by: Stage 2` and
+`test_e2e: TBD # filled_in_by: Stage 6`. Both commands have worked for several stages, and the
+README tells an evaluator that anything marked TBD "does not work today" - so the file was
+understating the project. Both are now filled in with their real commands and counts.
+
+### What is still missing
+
+- The widget's own form still does not post. A visitor's keystrokes stop at the Stage 6 typed seam,
+  so the E2E submits to the real public endpoint directly. Wiring the seam is a small change that
+  belongs with the runtime, not the inbox.
+- No email or webhook is sent when a lead arrives (Stage 9), so the inbox is the only place a new
+  lead shows up.
+- The reconnect replay buffer is process-local; a client away longer than 50 events refetches.
+- Analytics dashboards, delivery health, and the unsubscribe surface are Stages 10 and 11.
+- The E2E database has never had migrations applied - `npm run migrate` against it fails on stale
+  duplicate membership data from earlier runs. The suite passes because MongoDB creates collections
+  implicitly, but that database is running without its unique indexes. Pre-existing, not introduced
+  here, and it wants a deliberate reset rather than a silent drop.
+
+---
+
 ## Change log
 
 | Date       | Stage | Change                                                                                                                                                               |
@@ -1399,3 +1490,4 @@ applied to the write and not only to the read.
 
 | 2026-08-29 | 7 | Blueprint Stage 7 COMPLETE. **All six acceptance probes (A1-A6) moved to `PROVEN`**, each with its own named integration test and a re-runnable command. A1's dashboard half and A5's real queue behaviour are noted in place as Stage 8 and Stage 9 work. Evidenced by 21 new unit tests and 25 new integration tests against real MongoDB, Redis, and Mailpit, plus migration `006_submissions` applied and its indexes read back. Geo providers are exercised deterministically through a port; the real services are never called by the suite. |
 | 2026-08-29 | 8a | Blueprint Stage 8, sub-stage 8a. Contact inbox BACKEND: search/filter/cursor-paginated list, detail and timeline, workflow writes, canonical edits under optimistic concurrency, merge, bulk actions, 30-day trash, streaming filtered export, and the authenticated workspace-scoped SSE stream. Evidenced by 34 new unit tests and 38 new integration tests against real MongoDB, Redis, and Mailpit, plus migration `007_contact_inbox` applied, re-run as a no-op, and its indexes read back. **No new capability names and no matrix edits**; the section 11 table is unchanged. Stage 8 itself stays OPEN pending 8b (inbox UI, timeline, bulk-action UI, browser E2E). |
+| 2026-08-29 | 8b | Blueprint **Stage 8 COMPLETE**. Contact inbox UI: search, the full filter set behind a disclosure, keyset pagination, deterministic sort, bulk selection with a capability-driven action bar, inline merge, canonical editing with a designed conflict state, the lead timeline, the trash, streaming export, and live arrival over SSE. Evidenced by 16 new browser tests (88 total), including 6 axe scans covering the empty, no-results, conflict, and trash states plus a keyboard-only pass. The browser found a real defect review missed: export was hidden inside the collapsed filter panel. |

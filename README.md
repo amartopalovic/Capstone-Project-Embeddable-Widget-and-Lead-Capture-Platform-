@@ -1,19 +1,19 @@
 # Embeddable Widget & Lead-Capture Platform
 
-> **Project status: Stage 7 of 16 complete.**
+> **Project status: Stage 8 of 16 complete.**
 > Authentication and the multi-workspace user model both work end to end through a real
 > accessible interface: onboarding, the workspace switcher, the full role matrix, invitations,
 > ownership transfer, and workspace delete/recover. Proven by 125 unit, 110 integration, and 37
 > browser end-to-end tests, the last of which include `axe` WCAG 2.2 AA scans on every page.
 > Widgets now work end to end too: the three widget types, a settings-form builder with a live
 > preview, field schemas, targeting rules, draft/publish revisions, and a copyable embed snippet.
-> Published widgets render on a genuinely separate origin through a cached loader and a
-> framework-free runtime, and visitors can now submit through them: the hardened submission path
-> handles Origin enforcement, size and rate limits, spam heuristics, idempotency, geo fallback,
-> and one transactional commit. **All six acceptance probes pass locally.** Proven by 204 unit,
-> 171 integration, and 72 browser end-to-end tests. There is no contact inbox yet (Stage 8) and no
-> email or webhook delivery (Stage 9). Every command, link, and proof marked _planned_ or _TBD_
-> below does not work today.
+> Published widgets render on a genuinely separate origin, visitors submit through a hardened
+> path, and the leads land in a role-aware inbox: search and filters, a lead timeline, bulk
+> actions, merge, a 30-day trash, filtered CSV/JSON export, and live arrival over SSE. **All six
+> acceptance probes pass locally.** Proven by 238 unit, 209 integration, and 88 browser end-to-end
+> tests. No email or webhook is sent when a lead arrives yet (Stage 9), and there are no analytics
+> dashboards (Stage 10). Every command, link, and proof marked _planned_ or _TBD_ below does not
+> work today.
 
 ---
 
@@ -244,19 +244,19 @@ later stages extend it rather than invent it.
 
 Run these on the host after `npm ci`:
 
-| Command                    | What it does                                                                                                 | Status    |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------ | --------- |
-| `npm run lint`             | ESLint across every workspace (25 files today)                                                               | Real      |
-| `npm run format:check`     | Prettier formatting check                                                                                    | Real      |
-| `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                                 | Real      |
-| `npm run test`             | Unit tests, no infrastructure needed (204 tests, incl. the role matrix and widget rules)                     | Real      |
-| `npm run test:integration` | Tenancy, auth, workspace/RBAC, widgets, and submissions against real MongoDB, Redis, and Mailpit (171 tests) | Real      |
-| `npm run test:e2e`         | Browser journeys plus axe accessibility checks, driven through the real UI (72 tests)                        | Real      |
-| `npm run migrate`          | Apply committed migrations and indexes; repeatable                                                           | Real      |
-| `npm run build`            | Production build of every workspace                                                                          | Real      |
-| BullMQ queue tests         | Background job integration                                                                                   | _Stage 9_ |
-| Widget E2E journeys        | Cross-origin widget rendering and submission                                                                 | _Stage 6_ |
-| Acceptance probes          | The six mandatory probes                                                                                     | _Stage 7_ |
+| Command                    | What it does                                                                                            | Status    |
+| -------------------------- | ------------------------------------------------------------------------------------------------------- | --------- |
+| `npm run lint`             | ESLint across every workspace (25 files today)                                                          | Real      |
+| `npm run format:check`     | Prettier formatting check                                                                               | Real      |
+| `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                            | Real      |
+| `npm run test`             | Unit tests, no infrastructure needed (238 tests, incl. the role matrix and widget rules)                | Real      |
+| `npm run test:integration` | Tenancy, auth, RBAC, widgets, submissions, and the inbox against real MongoDB/Redis/Mailpit (209 tests) | Real      |
+| `npm run test:e2e`         | Browser journeys plus axe accessibility checks, driven through the real UI (88 tests)                   | Real      |
+| `npm run migrate`          | Apply committed migrations and indexes; repeatable                                                      | Real      |
+| `npm run build`            | Production build of every workspace                                                                     | Real      |
+| BullMQ queue tests         | Background job integration                                                                              | _Stage 9_ |
+| Widget E2E journeys        | Cross-origin widget rendering and submission                                                            | _Stage 6_ |
+| Acceptance probes          | The six mandatory probes                                                                                | _Stage 7_ |
 
 `npm run test:integration` and `npm run test:e2e` need MongoDB, Redis, and Mailpit
 running. Start them with `docker compose up -d --wait mongo redis mailpit`, or the full
@@ -311,20 +311,27 @@ reflects that this repository is only at Stage 0.
 - Everything listed in §4 above is out of scope.
 - The repository is organized as an npm-workspaces monorepo — see §3.
 
-### 7.2 Stage 7 limitations (temporary)
+### 7.2 Stage 8 limitations (temporary)
 
-- **A submission is stored but nothing is delivered.** The path writes a durable outbox
-  record inside the same transaction as the lead; the email, webhook, retry, backoff, and
-  dead-letter behaviour that consumes it is Stage 9. Nothing is lost — the promise is
-  durable — but no notification is sent yet.
-- **There is no contact inbox.** Leads are stored, indexed, and correct, and can be read
-  from the database; the search, filters, exports, and live SSE arrival are Stage 8.
-- **The widget's form does not post yet.** The Stage 6 runtime renders and validates the
-  form and stops at a typed seam. Wiring that seam to this endpoint is Stage 8's job,
-  alongside the inbox that would show the result.
+- **A lead arrives, but nobody is told.** The submission path writes a durable outbox
+  record inside the same transaction as the lead, and the inbox shows it live — but the
+  email, webhook, retry, backoff, and dead-letter behaviour that consumes that record is
+  Stage 9. Nothing is lost; no notification is sent.
+- **The widget's form still does not post.** The Stage 6 runtime renders and validates the
+  form and stops at a typed seam. The submission endpoint and everything downstream of it
+  are real and tested — a visitor's keystrokes are the one part not yet wired to them.
+- Live updates carry contact events only. Submission, usage, and delivery events are named
+  in the contract so Stages 9 and 10 attach to a stream that already knows them.
+- The SSE reconnect replay buffer is process-local and holds 50 events per workspace, which
+  is right for the single web process version 1 deploys and would need to move into Redis
+  for a second.
+- Membership revocation closes an open stream within one 25-second heartbeat rather than
+  instantly.
 - Geo enrichment is off outside production. ip-api's free endpoint allows 45 requests a
   minute per source address and excludes commercial use, so `GEO_ENABLED` defaults to false
   and the test suite drives scripted providers instead.
+- Trashed leads are marked with a purge date but never swept; executing the 30-day promise
+  is Stage 11's retention automation.
 - The runtime bundle is read from disk once when the server starts, so a rebuilt runtime
   needs a server restart before the new content hash is served.
 - No interaction events are recorded yet, so nothing measures whether a widget was seen or

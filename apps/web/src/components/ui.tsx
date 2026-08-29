@@ -4,8 +4,10 @@ import {
   type ReactNode,
   type InputHTMLAttributes,
   type ButtonHTMLAttributes,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
 } from 'react';
-import type { WidgetLifecycleState, WorkspaceRoleName } from '@lcp/contracts';
+import type { ContactStatusValue, WidgetLifecycleState, WorkspaceRoleName } from '@lcp/contracts';
 
 /**
  * Shared auth components.
@@ -457,6 +459,141 @@ export function CopyField({
       <p role="status" className="mt-1.5 text-xs text-secure">
         {copied ? 'Snippet copied to your clipboard.' : ''}
       </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ContactStatusChip
+// ---------------------------------------------------------------------------
+
+/** The five lead statuses, in the pipeline order blueprint 4.6 lists them. */
+const CONTACT_STATUS_LABELS: Record<ContactStatusValue, string> = {
+  new: 'new',
+  contacted: 'contacted',
+  qualified: 'qualified',
+  converted: 'converted',
+  archived: 'archived',
+};
+
+/**
+ * A lead's status, in the same mono micro-type as `RoleChip` and
+ * `WidgetStateChip`.
+ *
+ * Unlike those two, these five are a PROGRESSION - new leads to closed business
+ * - so the treatment reads along it rather than colouring five unrelated
+ * states:
+ *
+ *   new        signal, because it is the one asking for attention;
+ *   contacted  neutral ink, in play;
+ *   qualified  secure outline, going well;
+ *   converted  the only FILLED chip anywhere in this app, so the outcome that
+ *              matters is unmistakable when scanning a long list;
+ *   archived   muted, deliberately set aside.
+ *
+ * The status name is always spelled out, so colour reinforces and never carries
+ * the meaning alone.
+ */
+export function ContactStatusChip({
+  status,
+}: {
+  readonly status: ContactStatusValue;
+}): React.JSX.Element {
+  const tone: Record<ContactStatusValue, string> = {
+    new: 'border-signal text-signal',
+    contacted: 'border-edge text-ink',
+    qualified: 'border-secure text-secure',
+    converted: 'border-secure bg-secure-soft text-secure',
+    archived: 'border-edge text-muted',
+  };
+
+  return (
+    <span
+      data-testid={`contact-status-${status}`}
+      className={`border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] ${tone[status]}`}
+    >
+      {CONTACT_STATUS_LABELS[status]}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Select
+// ---------------------------------------------------------------------------
+
+export interface SelectProps extends Omit<
+  SelectHTMLAttributes<HTMLSelectElement>,
+  'id' | 'className'
+> {
+  readonly label: string;
+  readonly children: ReactNode;
+  /** Hide the label visually but keep it for screen readers and for tests. */
+  readonly labelHidden?: boolean;
+}
+
+/**
+ * A labelled native `select`.
+ *
+ * The inbox filter set needs nine of these, and repeating the label markup nine
+ * times is nine chances for one to lose its `htmlFor`. A native select is the
+ * accessible primitive for choosing one of a short list; nothing here replaces
+ * its behaviour, it only supplies the label and the house styling.
+ */
+export function Select({ label, children, ...selectProps }: SelectProps): React.JSX.Element {
+  const id = useId();
+  return (
+    <div>
+      <label
+        htmlFor={id}
+        className="mb-1.5 block font-mono text-[11px] uppercase tracking-[0.14em] text-muted"
+      >
+        {label}
+      </label>
+      <select
+        id={id}
+        {...selectProps}
+        className="w-full border border-edge bg-panel px-3 py-2 text-sm text-ink"
+      >
+        {children}
+      </select>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TextArea
+// ---------------------------------------------------------------------------
+
+export interface TextAreaProps extends Omit<
+  TextareaHTMLAttributes<HTMLTextAreaElement>,
+  'id' | 'className'
+> {
+  readonly label: string;
+  readonly hint?: string | undefined;
+}
+
+export function TextArea({ label, hint, ...textareaProps }: TextAreaProps): React.JSX.Element {
+  const id = useId();
+  const hintId = `${id}-hint`;
+  return (
+    <div>
+      <label
+        htmlFor={id}
+        className="mb-1.5 block font-mono text-[11px] uppercase tracking-[0.14em] text-muted"
+      >
+        {label}
+      </label>
+      <textarea
+        id={id}
+        {...textareaProps}
+        aria-describedby={hint === undefined ? undefined : hintId}
+        className="w-full border border-edge bg-panel px-3 py-2 text-sm text-ink"
+      />
+      {hint !== undefined && (
+        <p id={hintId} className="mt-1.5 text-xs text-muted">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }

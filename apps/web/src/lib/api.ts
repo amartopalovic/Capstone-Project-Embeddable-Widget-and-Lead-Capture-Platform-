@@ -3,7 +3,11 @@ import {
   type ApiErrorPayload,
   type ApiFieldError,
   type AuditEntrySummary,
+  type BulkActionInput,
   type Capability,
+  type ContactDetail,
+  type ContactPage,
+  type ContactSummary,
   type InvitableRole,
   type InvitationSummary,
   type MemberSummary,
@@ -244,4 +248,110 @@ export const widgetApi = {
   remove: (widgetId: string) => api.delete<{ status: string }>(`/widgets/${widgetId}`),
 
   recover: (widgetId: string) => api.post<{ status: string }>(`/widgets/${widgetId}/recover`),
+};
+
+// ---------------------------------------------------------------------------
+// Contact endpoints (Stage 8a API)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the inbox query string.
+ *
+ * Exported because the export endpoint has to receive EXACTLY the same filter
+ * the list is showing (blueprint 4.7). Building it in one place is what makes
+ * that true rather than intended - a second builder for the download link would
+ * be a second chance to drop a parameter.
+ *
+ * A repeated key is how a multi-value filter travels; `status` is the only one
+ * that can repeat today.
+ */
+export function contactQueryString(
+  filter: Readonly<Record<string, string | readonly string[] | undefined>>,
+): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filter)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      for (const entry of value) if (entry !== '') params.append(key, entry);
+    } else if (typeof value === 'string' && value !== '') {
+      params.set(key, value);
+    }
+  }
+  const query = params.toString();
+  return query === '' ? '' : `?${query}`;
+}
+
+/**
+ * Typed calls for the contact inbox.
+ *
+ * As everywhere else in this client, none of these decides anything. Which
+ * actions a role may take, whether an edit is stale, and what an export
+ * contains are all answered by the server; this layer names endpoints and
+ * shapes.
+ */
+export const contactApi = {
+  list: (query: string) => api.get<ContactPage>(`/contacts${query}`),
+
+  trash: (query: string) => api.get<ContactPage>(`/contacts/trash${query}`),
+
+  detail: (contactId: string) => api.get<ContactDetail>(`/contacts/${contactId}`),
+
+  updateWorkflow: (
+    contactId: string,
+    change: {
+      status?: string;
+      assigneeUserId?: string | null;
+      tags?: readonly string[];
+    },
+  ) => api.patch<{ contact: ContactSummary }>(`/contacts/${contactId}/workflow`, change),
+
+  addNote: (contactId: string, note: string) =>
+    api.post<{ contact: ContactSummary }>(`/contacts/${contactId}/notes`, { note }),
+
+  /**
+   * A canonical edit.
+   *
+   * `expectedVersion` is the Stage 8a optimistic-concurrency precondition. It
+   * is a required argument here rather than an optional field, so a caller
+   * cannot forget it - a forgotten precondition is a silent overwrite, which is
+   * the failure the endpoint exists to prevent.
+   */
+  updateCanonical: (
+    contactId: string,
+    expectedVersion: number,
+    change: {
+      email?: string;
+      name?: string | null;
+      phone?: string | null;
+      company?: string | null;
+    },
+  ) =>
+    api.patch<{ contact: ContactSummary }>(`/contacts/${contactId}`, {
+      expectedVersion,
+      ...change,
+    }),
+
+  merge: (survivorId: string, duplicateId: string) =>
+    api.post<{ contact: ContactSummary; movedSubmissions: number; movedActivities: number }>(
+      '/contacts/merge',
+      { survivorId, duplicateId },
+    ),
+
+  bulk: (input: BulkActionInput) =>
+    api.post<{ changed: number; contactIds: string[] }>('/contacts/bulk', input),
+
+  softDelete: (contactId: string) =>
+    api.delete<{ contact: ContactSummary }>(`/contacts/${contactId}`),
+
+  recover: (contactId: string) =>
+    api.post<{ contact: ContactSummary }>(`/contacts/${contactId}/recover`),
+
+  /**
+   * Where the browser should navigate to download an export.
+   *
+   * A real URL rather than a fetch, because the response is a streamed
+   * attachment: letting the browser handle it keeps the stream out of memory
+   * and gets the Content-Disposition filename for free.
+   */
+  exportUrl: (query: string) => `${BASE}/contacts/export${query}`,
 };

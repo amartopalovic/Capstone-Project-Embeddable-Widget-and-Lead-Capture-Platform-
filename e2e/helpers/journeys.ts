@@ -192,3 +192,67 @@ export async function createPublishableWidget(
   // routinely need to come back to it.
   return page.url();
 }
+
+// ---------------------------------------------------------------------------
+// Contacts (Stage 8b)
+// ---------------------------------------------------------------------------
+
+/** Where the widget is installed in these tests, and what the allowlist admits. */
+export const LEAD_ORIGIN = 'http://localhost:5174';
+
+/**
+ * Publish a widget that accepts leads from the demo origin, and return its
+ * public id.
+ *
+ * Built through the real builder UI rather than seeded, so the inbox tests
+ * start from a widget a person could actually have made.
+ */
+export async function publishWidgetForLeads(page: Page, label: string): Promise<string> {
+  await createWidget(page, 'Contact form', `${label} widget`);
+  // The demo runs on localhost, so that is the host the allowlist must admit.
+  await addAllowedDomain(page, 'localhost');
+  await saveDraft(page);
+  await publishWidget(page);
+
+  const publicId = (await page.locator('main p.font-mono').first().innerText())
+    .split('\u00b7')[0]
+    ?.trim();
+  expect(publicId).toMatch(/^w_[a-z2-9]{16}$/);
+  return publicId ?? '';
+}
+
+let leadCounter = 0;
+
+/**
+ * Submit a lead to the real public endpoint.
+ *
+ * Posted directly rather than typed into the rendered widget, because the
+ * Stage 6 runtime still stops at a typed seam and does not post anywhere yet.
+ * The endpoint, the Origin check, and the whole Stage 7 pipeline are real; only
+ * the visitor's keystrokes are not, and they are not what these tests are
+ * about.
+ */
+export async function submitLead(
+  page: Page,
+  publicId: string,
+  values: Record<string, string>,
+): Promise<void> {
+  leadCounter += 1;
+  const response = await page.request.post(`http://localhost:5173/widget/v1/submit/${publicId}`, {
+    headers: { origin: LEAD_ORIGIN, 'content-type': 'application/json' },
+    data: {
+      idempotencyKey: `e2e-lead-${String(Date.now())}-${String(leadCounter)}`,
+      values,
+      pageUrl: `${LEAD_ORIGIN}/pricing`,
+      // Comfortably past the timing floor, so the heuristic accepts it.
+      renderedAt: Date.now() - 30_000,
+    },
+  });
+  expect(response.status()).toBe(202);
+}
+
+/** Open the inbox and wait for it to finish loading. */
+export async function openInbox(page: Page): Promise<void> {
+  await page.goto('/workspace/contacts');
+  await expect(page.getByRole('heading', { level: 1, name: /^Leads in / })).toBeVisible();
+}
