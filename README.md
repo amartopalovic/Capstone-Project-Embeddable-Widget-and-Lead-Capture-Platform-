@@ -137,24 +137,24 @@ notes) is deliberately distinct from an immutable **Submission Event** (the capt
 snapshot, widget revision, domain, page URL, consent snapshot, geo result, and timestamps). Repeat
 submissions update the Contact but never rewrite history.
 
-### 2.5 Planned repository layout
+### 2.5 Repository layout
 
-All nine workspaces now exist as npm workspaces. Most are deliberately **empty shells** carrying
-only their boundary and build wiring — see [`docs/repository-layout.md`](./docs/repository-layout.md).
+All nine workspaces are implemented as npm workspaces; their boundaries are documented in
+[`docs/repository-layout.md`](./docs/repository-layout.md).
 
-| Workspace/path            | Responsibility                                                                       | State                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| `apps/server`             | Express API, static serving, SSE, worker bootstrap                                   | Skeleton: boots, health endpoints only                               |
-| `apps/web`                | React platform, public pages, dashboard                                              | Skeleton: one placeholder view                                       |
-| `apps/demo`               | Separate-origin anonymous sandbox                                                    | Skeleton: placeholder page on its own origin                         |
-| `packages/contracts`      | Shared TypeScript contracts and validation schemas                                   | **Populated** — errors, pagination, validation, concurrency, logging |
-| `packages/database`       | Mongo models, repositories, indexes, migrations                                      | **Populated** — connection, migrations, tenancy-scoped repositories  |
-| `packages/widget-runtime` | Framework-free TypeScript loader/runtime build                                       | Shell with browser library build — Stage 6                           |
-| `packages/ui`             | Shared accessible React components and design tokens                                 | Shell — components with the first real UI                            |
-| `packages/config`         | Shared lint, TypeScript, test, and build configuration                               | **Populated** — consumed by every workspace                          |
-| `packages/test-utils`     | Fixtures, provider fakes, tenant helpers                                             | **Populated** — two-tenant and isolated-database fixtures            |
-| `docs`                    | Architecture decisions and operational runbooks                                      | Populated                                                            |
-| Repository root           | README, capstone manifest, evidence/build logs, env example, license, Docker Compose | Populated                                                            |
+| Workspace/path            | Responsibility                                                                       | State                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `apps/server`             | Express API, static serving, SSE, worker bootstrap                                   | **Populated** — API, jobs, probes, docs, widget and production web    |
+| `apps/web`                | React platform, public pages, dashboard                                              | **Populated** — auth, builder, inbox, analytics, privacy, diagnostics |
+| `apps/demo`               | Separate-origin anonymous sandbox                                                    | **Populated** — live synthetic widgets, activity feed, reset notice   |
+| `packages/contracts`      | Shared TypeScript contracts and validation schemas                                   | **Populated** — errors, pagination, validation, concurrency, logging  |
+| `packages/database`       | Mongo models, repositories, indexes, migrations                                      | **Populated** — connection, migrations, tenancy-scoped repositories   |
+| `packages/widget-runtime` | Framework-free TypeScript loader/runtime build                                       | **Populated** — loader, shadow-DOM runtime, forms and triggers        |
+| `packages/ui`             | Shared accessible React components and design tokens                                 | **Populated** — accessible components and design system               |
+| `packages/config`         | Shared lint, TypeScript, test, and build configuration                               | **Populated** — consumed by every workspace                           |
+| `packages/test-utils`     | Fixtures, provider fakes, tenant helpers                                             | **Populated** — two-tenant and isolated-database fixtures             |
+| `docs`                    | Architecture decisions and operational runbooks                                      | Populated                                                             |
+| Repository root           | README, capstone manifest, evidence/build logs, env example, license, Docker Compose | Populated                                                             |
 
 ---
 
@@ -218,20 +218,20 @@ docker compose up --build
 
 That brings up all six services:
 
-| Service              | URL                   | Purpose                                             |
-| -------------------- | --------------------- | --------------------------------------------------- |
-| Server (Express API) | http://localhost:3000 | API and health endpoints                            |
-| Web (React platform) | http://localhost:5173 | Platform application shell                          |
-| Demo sandbox         | http://localhost:5174 | **A genuinely separate origin** from the web app    |
-| MongoDB              | `localhost:27017`     | Single-member replica set, so transactions work     |
-| Redis                | `localhost:6379`      | Sessions, rate limits, and queues from later stages |
-| Mailpit              | http://localhost:8025 | Local email inbox (SMTP on 1025)                    |
+| Service              | URL                   | Purpose                                          |
+| -------------------- | --------------------- | ------------------------------------------------ |
+| Server (Express API) | http://localhost:3000 | API and health endpoints                         |
+| Web (React platform) | http://localhost:5173 | Platform application shell                       |
+| Demo sandbox         | http://localhost:5174 | **A genuinely separate origin** from the web app |
+| MongoDB              | `localhost:27017`     | Single-member replica set, so transactions work  |
+| Redis                | `localhost:6379`      | Sessions, rate limits, queues, and delayed jobs  |
+| Mailpit              | http://localhost:8025 | Local email inbox (SMTP on 1025)                 |
 
 Check that the stack is healthy:
 
 ```bash
 curl http://localhost:3000/health/live     # {"status":"ok",...}
-curl http://localhost:3000/health/ready    # {"status":"ready","dependencies":[mongodb, redis]}
+curl http://localhost:3000/health/ready    # MongoDB, Redis, and migration compatibility
 ```
 
 Stop with `docker compose down`, or `docker compose down -v` to also discard the database volumes.
@@ -243,9 +243,8 @@ npm ci        # once, on the host
 npm run seed
 ```
 
-The seed command confirms the MongoDB connection and reports whether transactions are available.
-**There is no domain data to seed yet** — collections arrive in Stage 2. The command exists now so
-later stages extend it rather than invent it.
+The seed command applies migrations and then resets and reseeds only the explicitly synthetic
+`DemoService` workspace. It never creates or edits an ordinary workspace.
 
 ### 5.3 Quality commands
 
@@ -253,7 +252,7 @@ Run these on the host after `npm ci`:
 
 | Command                    | What it does                                                                                                                                                                                    | Status |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `npm run lint`             | ESLint across every workspace (25 files today)                                                                                                                                                  | Real   |
+| `npm run lint`             | ESLint across every workspace                                                                                                                                                                   | Real   |
 | `npm run format:check`     | Prettier formatting check                                                                                                                                                                       | Real   |
 | `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                                                                                                                    | Real   |
 | `npm run test`             | Unit tests, no infrastructure needed (385 tests, incl. the role matrix, widget rules, and the CSP)                                                                                              | Real   |
@@ -305,8 +304,11 @@ without `&`.
 
 ## 6. Deployment links
 
-> **Not available yet.** _To be completed in Stage 14 (production-demo deployment and recovery
-> rehearsal)._ Nothing is deployed. No URLs exist.
+> **Stage 14 is prepared but not deployed.** `render.yaml` now defines the free Frankfurt web
+> service and separate static demo, the production process serves the built React application, and
+> the release/backup/check commands are real. Live account creation and credentials are still
+> required, so no URL or deployed check is claimed yet. Follow
+> [`docs/deployment-recovery.md`](./docs/deployment-recovery.md).
 
 | Surface                        | URL            | Filled in by                            |
 | ------------------------------ | -------------- | --------------------------------------- |
@@ -315,12 +317,17 @@ without `&`.
 | API documentation (Swagger UI) | _Not deployed_ | Built in Stage 12, deployed in Stage 14 |
 | Health and readiness probes    | _Not deployed_ | Stage 14                                |
 
+The deployment cannot be completed anonymously from this repository: it needs a public GitHub
+remote, Atlas and Upstash connection strings, a verified Brevo sender and API key, a Sentry DSN,
+and the two Render-generated origins. Those values are entered in provider dashboards and never
+committed.
+
 ---
 
 ## 7. Limitations
 
 Two kinds of limitation apply. The first is permanent and by design; the second is temporary and
-reflects that this repository is only at Stage 0.
+reflects that Stage 14 still needs a credentialed live deployment and recovery rehearsal.
 
 ### 7.1 Permanent, by-design limitations of version 1
 
@@ -415,7 +422,15 @@ a reader trying to decide what to trust.
 **Deployment**
 
 - **CI has still never executed**, because no remote is configured.
-- Nothing is deployed, and `capstone.yaml` still has `TBD` for every production URL.
+- Stage 14's repository-side deployment is ready, but nothing is deployed and `capstone.yaml` still
+  has `TBD` for every production URL. That is an intentional stop at the real-credential boundary,
+  not a passing deployment claim.
+- Render's Free Web Service sleeps after 15 minutes and can take about a minute to wake. Release
+  migration/seed runs once in each deploy build because Render's dedicated pre-deploy command is a
+  paid-service feature; both operations are repeatable and the seed touches only the synthetic
+  sandbox, so a cold wake cannot mask the delayed-queue check by reseeding it.
+- Upstash's current free allowance is 500,000 commands per month. The deployment leaves eviction
+  disabled so capacity is a visible failure rather than silent loss of sessions or queued work.
 - The repository path must not contain `&` on Windows — see §5.4.
 
 _This section is expanded honestly as stages complete, and finalized in Stage 15._
@@ -453,10 +468,13 @@ its nineteen requirements names the code that enforces it and the named test tha
 | [`docs/repository-layout.md`](./docs/repository-layout.md)                                     | Workspace ownership map                                       | Current                                          |
 | [`docs/stage-checklist.md`](./docs/stage-checklist.md)                                         | All 16 stages, goals, and exit gates                          | Stages 0–13 checked                              |
 | [`docs/secret-rotation.md`](./docs/secret-rotation.md)                                         | How to rotate every key without destroying data               | Stage 13                                         |
+| [`docs/deployment-recovery.md`](./docs/deployment-recovery.md)                                 | Free-tier deployment, live gates, encrypted restore rehearsal | Stage 14 prepared; live results pending          |
 | [`EVIDENCE.md`](./EVIDENCE.md)                                                                 | One proof per requirement                                     | All six probes passing; §17 audited item by item |
 | [`BUILDLOG.md`](./BUILDLOG.md)                                                                 | Where AI helped, failed, and was corrected                    | Stages 0–13 recorded                             |
 | [`capstone.yaml`](./capstone.yaml)                                                             | Machine-readable run/seed/test/probe manifest                 | Real commands; production URLs `TBD`             |
 | [`scripts/scan-secrets.mjs`](./scripts/scan-secrets.mjs)                                       | Credential scan, run locally and in CI                        | Stage 13                                         |
+| [`render.yaml`](./render.yaml)                                                                 | Render Web Service and separate static demo Blueprint         | Stage 14                                         |
+| `scripts/backup-*.mjs`                                                                         | Authenticated encrypted export and guarded restore rehearsal  | Stage 14                                         |
 | [`.env.example`](./.env.example)                                                               | Safe placeholder configuration                                | Placeholders only, no secrets                    |
 | [`.gitignore`](./.gitignore)                                                                   | Established before dependencies or secrets could be committed | Current                                          |
 | [`LICENSE`](./LICENSE)                                                                         | MIT                                                           | Complete                                         |

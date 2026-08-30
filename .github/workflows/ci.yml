@@ -54,6 +54,9 @@ jobs:
       - name: Run unit tests
         run: npm run test
 
+      - name: Verify scanner and backup diagnostic privacy
+        run: npm run test:security-tools
+
       - name: Build every workspace
         run: npm run build
 

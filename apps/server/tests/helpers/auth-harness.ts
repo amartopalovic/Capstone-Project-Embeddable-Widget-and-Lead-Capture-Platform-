@@ -30,7 +30,7 @@ import { MailpitEmailSender } from '../../src/infrastructure/email/mailpit-sende
 export const TEST_MONGO_URI =
   process.env['TEST_MONGODB_URI'] ?? 'mongodb://localhost:27017/?directConnection=true';
 export const TEST_REDIS_URL = process.env['TEST_REDIS_URL'] ?? 'redis://localhost:6379';
-export const MAILPIT_HOST = process.env['MAILPIT_SMTP_HOST'] ?? 'localhost';
+export const MAILPIT_HOST = process.env['MAILPIT_SMTP_HOST'] ?? '127.0.0.1';
 export const MAILPIT_SMTP_PORT = Number(process.env['MAILPIT_SMTP_PORT'] ?? 1025);
 export const MAILPIT_API = process.env['MAILPIT_API'] ?? 'http://localhost:8025';
 

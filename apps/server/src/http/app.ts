@@ -1,5 +1,8 @@
 import express, { type Express } from 'express';
 import cookieParser from 'cookie-parser';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { API_PREFIX, ERROR_CODES, createErrorPayload } from '@lcp/contracts';
 import type { HealthService } from '../application/health-service.js';
 import type { AppDependencies } from '../composition.js';
@@ -28,9 +31,35 @@ import { sessionMiddleware, type SessionCookieOptions } from './middleware/sessi
 import { createCsrf } from './middleware/csrf.js';
 import {
   crossOriginReadable,
+  dashboardPageCsp,
   permissionsPolicy,
   securityHeaders,
 } from './middleware/security-headers.js';
+
+const RESERVED_SERVER_PREFIXES = [
+  '/api',
+  '/health',
+  '/widget',
+  '/public',
+  '/demo',
+  '/api-reference',
+] as const;
+
+/**
+ * The React build that the production Express process serves (blueprint 5.1).
+ *
+ * Anchored to this module instead of process.cwd(), so Render, a container, and
+ * a local `node apps/server/dist/index.js` launch all resolve the same files.
+ */
+function productionWebRoot(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), '../../../web/dist');
+}
+
+function isServerOwnedPath(pathname: string): boolean {
+  return RESERVED_SERVER_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
 
 /**
  * Express application factory.
@@ -312,6 +341,52 @@ export function createApp(options: CreateAppOptions): Express {
   app.get(API_PREFIX, (_request, response) => {
     response.status(200).json({ api: API_PREFIX, status: 'ok' });
   });
+
+  /**
+   * One production origin for the dashboard, API, widget assets, SSE, and the
+   * in-process worker (blueprint 5.1).
+   *
+   * Vite remains a separate development server. In production, Express serves
+   * the built application and gives client-side routes the index document.
+   * Server-owned prefixes are never rewritten to HTML, so an unknown API or
+   * widget URL still receives the JSON 404 below.
+   */
+  if (env.nodeEnv === 'production') {
+    const webRoot = productionWebRoot();
+    const indexDocument = join(webRoot, 'index.html');
+    if (!existsSync(indexDocument)) {
+      throw new Error(`Production web build is missing: ${indexDocument}`);
+    }
+
+    const pageCsp = dashboardPageCsp();
+    app.use(
+      express.static(webRoot, {
+        index: false,
+        setHeaders(response, filePath) {
+          pageCsp.set(response);
+          if (filePath.includes(`${join(webRoot, 'assets')}`)) {
+            response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          } else {
+            response.setHeader('Cache-Control', 'no-cache');
+          }
+        },
+      }),
+    );
+
+    app.use((request, response, next) => {
+      if (
+        (request.method !== 'GET' && request.method !== 'HEAD') ||
+        isServerOwnedPath(request.path) ||
+        !request.accepts('html')
+      ) {
+        next();
+        return;
+      }
+      pageCsp.set(response);
+      response.setHeader('Cache-Control', 'no-cache');
+      response.sendFile(indexDocument);
+    });
+  }
 
   /**
    * Everything that was mounted, for the contract check.

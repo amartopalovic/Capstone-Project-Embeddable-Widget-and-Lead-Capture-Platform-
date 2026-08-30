@@ -271,7 +271,7 @@ test results, remaining limitations, and confirmation of the exit gate.
     - 25 browser tests including 11 axe scans, and 6 contract tests.
   - [x] **12b — The separate anonymous demo** _(2026-08-30)_
     - A wholly separate application on its own origin, seeded with all three widget types, usable
-      with no account, wiped and reseeded hourly by the ninth queue family of 12.1.
+      with no account, wiped and reseeded hourly by the dedicated sandbox-reset queue.
     - The sandbox is an ordinary workspace with a marker, owned by nobody: no carve-out in the
       tenancy layer, and no membership by which its contents could reach a dashboard.
     - Email and outbound webhooks refused twice - where deliveries are planned, and again where one
@@ -300,6 +300,15 @@ test results, remaining limitations, and confirmation of the exit gate.
   - **Goal:** Deploy the exact tested architecture to the selected free providers.
   - **Exit gate:** Clean deployment from main passes smoke, cross-origin, auth, queue, and restore
     checks without a credit card.
+  - **In progress (repository preparation, 2026-08-30).** The production process now serves the
+    built React application on the same origin as API/widget/SSE/worker; `render.yaml` defines a
+    Frankfurt Free Web Service, a separate free static demo, CI-gated main deploys, the environment
+    allowlist, release commands, readiness probe, and static security headers. Encrypted streaming
+    export/restore tooling refuses non-rehearsal targets and has an independent crypto self-test.
+    `docs/deployment-recovery.md` gives exact provider and five-gate procedures.
+  - **Still open:** provider accounts, real secrets, GitHub remote/CI execution, deployment URLs,
+    live smoke/cross-origin/auth/queue/restore results, and the 65-minute cold-start rehearsal. Stage
+    14 remains unchecked until those facts exist.
 
 - [ ] **Stage 15 — Evaluation evidence and portfolio release**
   - **Goal:** Finish the submission pack and recruiter-facing story.

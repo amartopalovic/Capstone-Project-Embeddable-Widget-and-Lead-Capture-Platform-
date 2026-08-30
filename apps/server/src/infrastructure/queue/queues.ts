@@ -118,12 +118,18 @@ export class QueueRegistry {
     // Upstash database can host more than one environment.
     this.#prefix = keys.key(REDIS_DOMAINS.queue);
     this.#logger = logger;
+    this.#connection.on('error', () => {
+      this.#logger.error('queue.connection_error', { result: 'server_error' });
+    });
   }
 
   queue(name: QueueName): Queue {
     const existing = this.#queues.get(name);
     if (existing !== undefined) return existing;
     const created = new Queue(name, { connection: this.#connection, prefix: this.#prefix });
+    created.on('error', () => {
+      this.#logger.error('queue.connection_error', { queue: name, result: 'server_error' });
+    });
     this.#queues.set(name, created);
     return created;
   }

@@ -2,10 +2,11 @@
 # capstone.yaml - machine-readable evaluation manifest
 # =============================================================================
 #
-# STATUS: Stage 13 complete (security, accessibility, resilience, and observability hardening).
+# STATUS: Stage 13 complete; Stage 14 repository preparation is in progress.
 # All six acceptance probes pass locally and each names the command that runs it. Install, run,
 # seed, migrate, lint, typecheck, build, unit, integration, browser E2E, and the secret scan are
-# REAL and verified. Every production URL remains `TBD` until Stage 14 deploys.
+# REAL and verified. Render/release/recovery configuration now exists, but every production URL
+# remains `TBD` until a credentialed deployment passes all five live checks.
 #
 # Stage 13 also corrected this file, which had been describing Stage 7 while the repository was at
 # Stage 12: three probe endpoints were still `TBD` after the stages that built them, and all six
@@ -53,9 +54,8 @@ commands:
   seed:
     command: npm run seed
     description: >-
-      Verifies the MongoDB connection and reports whether transactions are
-      available. There is no domain data to seed until Stage 2; the command
-      exists now so later stages extend it rather than invent it.
+      Apply migrations, then reset and reseed only the explicitly synthetic
+      public DemoService workspace. Never creates or edits an ordinary workspace.
   test:
     command: npm run test
     description: >-
@@ -76,7 +76,7 @@ commands:
     command: npm run test:e2e
     description: >-
       Browser journeys plus axe accessibility checks against WCAG 2.2 AA,
-      driven through the real UI (158 tests as of Stage 12b). Playwright starts
+      driven through the real UI (164 tests as of Stage 14 preparation). Playwright starts
       the API, the dashboard, and the separate-origin demo itself; the same
       Docker services must be up.
   lint:
@@ -92,6 +92,28 @@ commands:
     description: >-
       Apply committed migrations and explicit indexes. Repeatable: a second run
       applies nothing. Never runs implicitly on server boot.
+  release:
+    command: npm run release
+    description: >-
+      Run the compiled migration and synthetic-sandbox seed entrypoints. Render
+      runs this explicit, repeatable release step before the production process.
+  backup_export:
+    command: npm run backup:export
+    description: >-
+      Stream a MongoDB gzip archive through authenticated AES-256-GCM encryption.
+      Requires the Stage 14 operator variables documented in .env.example.
+  backup_restore_rehearsal:
+    command: npm run backup:restore
+    description: >-
+      Restore only into a distinct database ending in _restore_rehearsal. The
+      command authenticates the complete backup before mutation and refuses the
+      source database as a target.
+  deployment_public_checks:
+    command: npm run verify:deployment
+    description: >-
+      Verify deployed readiness, React and API-doc surfaces, the separate demo,
+      cross-origin widget configuration, and a real sandbox submission. Requires
+      PRODUCTION_URL and DEMO_URL.
 
 # -----------------------------------------------------------------------------
 # Base URLs. Local values are the planned Stage 1 topology; production values
@@ -111,6 +133,7 @@ base_urls:
     landing: http://localhost:5173/
     product_docs: http://localhost:5173/docs/install
   production:
+    status: awaiting_provider_credentials_and_live_gates
     app: TBD # filled_in_by: Stage 14
     demo_origin: TBD # filled_in_by: Stage 14
     api_docs: TBD # filled_in_by: Stage 14 (built in Stage 12a)

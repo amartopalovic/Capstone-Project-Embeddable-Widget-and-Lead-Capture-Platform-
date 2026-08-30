@@ -44,6 +44,13 @@ const FORBIDDEN_FIELDS: readonly string[] = [
   'webhooksecret',
   'signingsecret',
   'encryptionkey',
+  'encryptionmasterkey',
+  'encryptionkeyring',
+  'iphmacsecret',
+  'sessionsecret',
+  'brevoapikey',
+  'headers',
+  'cookies',
   'apikey',
   'emailbody',
   'body',
@@ -52,6 +59,26 @@ const FORBIDDEN_FIELDS: readonly string[] = [
   'submissionvalues',
   'totpsecret',
   'recoverycode',
+  'email',
+  'emails',
+  'normalizedemail',
+  'name',
+  'fullname',
+  'firstname',
+  'lastname',
+  'address',
+  'values',
+  'query',
+  'url',
+  'pageurl',
+  'referrer',
+  // Provider/driver error text is not an operational enum: it can contain a
+  // duplicate-key value, connection URI, email address, or captured content.
+  // The stable event name, error class, IDs, counts and result remain useful.
+  'error',
+  'message',
+  'reason',
+  'detail',
 ];
 
 export const REDACTED = '[redacted]';

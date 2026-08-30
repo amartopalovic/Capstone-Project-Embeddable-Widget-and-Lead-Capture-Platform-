@@ -64,6 +64,10 @@ export class RedisEventHub {
     this.#keys = keys;
     this.#logger = logger;
 
+    this.#subscriber.on('error', () => {
+      this.#logger.warn('events.subscriber_error', { result: 'degraded' });
+    });
+
     this.#subscriber.on('message', (channel: string, payload: string) => {
       this.#deliver(channel, payload);
     });

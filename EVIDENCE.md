@@ -2705,3 +2705,48 @@ by `widget-bundle.test.ts`, which fails the build rather than reporting a number
   `npm audit` and the secret scan - do.
 
 ---
+
+## Stage 14 - production-demo deployment and recovery rehearsal (in progress)
+
+### Repository-side evidence
+
+| Requirement                                            | Evidence now present                                        | Actual result                                                      |
+| ------------------------------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------ |
+| One Render process for React, API, widget, SSE, worker | `apps/server/src/http/app.ts`; `render.yaml`                | Compiled production smoke passed on port 3100                      |
+| Separate demo origin with static security headers      | `render.yaml`; built meta CSP in `apps/demo`                | Production-origin build has CSP/link and contains no localhost URL |
+| CI-gated deploy from `main`                            | `autoDeployTrigger: checksPass` in `render.yaml`            | Configured; GitHub remote and first CI run absent                  |
+| Migration/seed release                                 | `npm run release`; Render deploy build                      | 11 migrations plus 3-widget synthetic seed passed locally          |
+| Encrypted export/restore                               | `scripts/backup-*.mjs`; `docs/deployment-recovery.md`       | Crypto round-trip/wrong-key test passed; Database Tools absent     |
+| Cold-start/delayed queue                               | 65-minute sandbox-scheduler procedure in deployment runbook | Immediate restart preserved `seededAt`; live 65-minute gate open   |
+
+### Local verification completed
+
+| Check                                   | Result                                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Production builds                       | contracts, database, test-utils, UI, widget runtime, server, web, and demo passed          |
+| Formatting / lint / strict TypeScript   | passed; generated Playwright reports are now explicitly excluded from ESLint               |
+| Unit tests                              | 17 files, 385 tests passed                                                                 |
+| MongoDB/Redis/Mailpit integration tests | 17 files, 328 tests passed                                                                 |
+| Browser E2E                             | 164 tests passed in 22.6 minutes                                                           |
+| Backup crypto self-test                 | AES-256-GCM round-trip passed; wrong passphrase was rejected                               |
+| Compiled production smoke               | readiness ready; React root and SPA fallback 200; API miss JSON 404; dashboard CSP present |
+| Immediate production-process restart    | readiness returned and sandbox `seededAt` stayed `2026-08-30T18:54:45Z`                    |
+
+The full browser run exposed two real races. Instantaneous Playwright `fill` exercised the
+intentional sub-1.5-second bot-discard path, so the human journey now types sequentially instead of
+sleeping. Separately, a late impression could cancel the demo's feed polling burst before the
+submission appeared; the burst now stops only after the submission total increases. Production
+artifact inspection also found and removed a literal localhost footer link from the demo build.
+
+### Deployed exit gate
+
+| Check             | Result                                                 |
+| ----------------- | ------------------------------------------------------ |
+| Smoke             | NOT RUN - no production URL                            |
+| Cross-origin      | NOT RUN - no production/demo URLs                      |
+| Auth              | NOT RUN - no verified Brevo sender or deployed account |
+| Queue side effect | NOT RUN - no deployed queue/provider credentials       |
+| Encrypted restore | NOT RUN - no Atlas rehearsal credentials/database      |
+
+The exit gate is **open**. These `NOT RUN` rows are evidence of the credential boundary, not failures
+silently omitted and not passes inferred from local tests.

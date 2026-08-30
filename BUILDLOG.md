@@ -3290,3 +3290,51 @@ violations under `script-src 'self'`, which no automated test covers - recorded 
 5. **Automated accessibility scanning is a floor.** Zero critical and serious violations across every
    page and the widget, and keyboard operation tested separately - but nobody has used this product
    with a screen reader.
+
+## Stage 14 - production-demo deployment and recovery rehearsal (in progress)
+
+Repository preparation completed on 2026-08-30. This is not a deployment-complete entry: no provider
+account, credential, URL, or live result existed in the workspace, so the Stage 14 stop condition was
+honoured rather than replacing those facts with placeholders.
+
+Implemented:
+
+- production Express static serving and SPA fallback, with server/API paths excluded and the strict
+  dashboard CSP applied to built assets;
+- a Render Blueprint for one Frankfurt Free Web Service plus one separate free Static Site,
+  auto-deploying `main` only after GitHub checks pass;
+- an explicit compiled release command (migrate then synthetic-sandbox seed) that runs once in the
+  deploy build; this placement is required because Render's pre-deploy command, shell, and one-off
+  jobs are unavailable on a Free Web Service, and it keeps cold wakes from masking the delayed-job
+  rehearsal by reseeding the sandbox;
+- streamed `mongodump --archive --gzip` encryption using scrypt plus AES-256-GCM, a two-pass
+  authenticated restore, namespace mapping to a guarded `_restore_rehearsal` database, and restored
+  collection/document verification;
+- public deployed checks for readiness, React, Swagger UI, demo origin, cross-origin widget config,
+  and an actual sandbox submission;
+- a provider-accurate deployment/recovery/cold-start runbook.
+
+Provider documentation checked because these settings change over time: Render Blueprint fields,
+free-service sleep and feature limits, outbound CIDR ranges and paid pre-deploy availability; Atlas
+Free-cluster and backup limits plus Database Tools config-file handling; Upstash BullMQ/TLS,
+persistence, eviction and the current 500,000-command monthly allowance; Brevo's 300/day Free limit
+and verified-sender requirement; Sentry's ESM initialization guidance.
+
+Local verification completed: all production builds, formatting, lint, and strict TypeScript;
+385 unit tests; 328 real-infrastructure integration tests; the backup crypto round-trip and
+wrong-passphrase rejection; and 164/164 Playwright tests in 22.6 minutes. A compiled production
+process then passed MongoDB/Redis/migration readiness, React root and SPA fallback, API JSON 404,
+and dashboard CSP checks. Restarting that process preserved the sandbox `seededAt`, distinguishing
+normal process startup from the persisted scheduler job that must advance it after the live sleep.
+
+The gate found three deployment-relevant defects rather than merely confirming the code: the demo
+footer had a literal localhost link in its production artifact; an unrelated impression could stop
+the post-submit feed polling burst; and the browser journey's instantaneous synthetic form fill was
+correctly classified as sub-1.5-second bot traffic. The production link is now built from the same
+validated origin as CSP/API calls, the feed waits for the submission count, and the journey types
+sequentially without a timing-only sleep. Host-run Mailpit also needed `127.0.0.1` because Windows
+resolved `localhost` to an IPv6 socket that connected but never produced an SMTP greeting.
+
+Open by design: GitHub remote and first CI run; Atlas, Upstash, Brevo, Sentry and Render account
+configuration; real URLs; all five deployed results; encrypted restore against a real isolated Atlas
+database; and the 65-minute sleep/wake/delayed-scheduler rehearsal. Stage 15 is not ready to request.

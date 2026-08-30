@@ -72,7 +72,7 @@ export default defineConfig({
         REDIS_URL: 'redis://localhost:6379',
         REDIS_KEY_PREFIX: 'lcp:e2e',
         EMAIL_PROVIDER: 'mailpit',
-        MAILPIT_SMTP_HOST: 'localhost',
+        MAILPIT_SMTP_HOST: '127.0.0.1',
         MAILPIT_SMTP_PORT: '1025',
       },
     },

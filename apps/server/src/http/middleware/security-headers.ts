@@ -5,6 +5,7 @@ import {
   DOCS_CSP,
   HSTS_MAX_AGE_SECONDS,
   STATIC_SECURITY_HEADERS,
+  dashboardCsp,
   serializeCsp,
   type CspDirectives,
 } from '@lcp/contracts';
@@ -91,6 +92,18 @@ export function withCsp(directives: CspDirectives): RequestHandler {
 }
 
 export const docsCsp = (): RequestHandler => withCsp(DOCS_CSP);
+
+/** The policy for React documents served by Express in production. */
+export function dashboardPageCsp(): {
+  readonly set: (response: Response) => void;
+} {
+  const value = serializeCsp(dashboardCsp());
+  return {
+    set(response: Response): void {
+      response.setHeader('Content-Security-Policy', value);
+    },
+  };
+}
 
 /**
  * Mark a surface as legitimately readable from another origin.

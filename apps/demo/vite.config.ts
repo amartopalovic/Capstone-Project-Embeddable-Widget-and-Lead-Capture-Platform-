@@ -28,7 +28,8 @@ import {
  * nothing from `@lcp/contracts` reaches the browser bundle, which still shares
  * no package with the product it demonstrates.
  */
-const apiOrigin = process.env['VITE_API_ORIGIN'] ?? 'http://localhost:5173';
+const rawApiOrigin = process.env['VITE_API_ORIGIN'] ?? 'http://localhost:5173';
+const apiOrigin = new URL(rawApiOrigin).origin;
 
 /**
  * The demo deliberately has no React dependency and runs on its own port, so
@@ -41,6 +42,15 @@ const apiOrigin = process.env['VITE_API_ORIGIN'] ?? 'http://localhost:5173';
 export default defineConfig({
   define: { __PLATFORM_ORIGIN__: JSON.stringify(apiOrigin) },
   plugins: [
+    {
+      name: 'demo-platform-link',
+      transformIndexHtml: {
+        order: 'pre',
+        handler(html): string {
+          return html.replaceAll('__PLATFORM_ORIGIN__', apiOrigin);
+        },
+      },
+    },
     securityHeaders({
       csp: serializeCsp(sandboxCsp({ apiOrigin })),
       devCsp: serializeCsp(sandboxCsp({ apiOrigin, devServer: true })),

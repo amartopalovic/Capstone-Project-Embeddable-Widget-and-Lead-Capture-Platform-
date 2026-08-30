@@ -16,7 +16,7 @@ function readPort(name: string, fallback: number): number {
   if (raw === undefined || raw === '') return fallback;
   const parsed = Number.parseInt(raw, 10);
   if (Number.isNaN(parsed) || parsed < 0 || parsed > 65535) {
-    throw new Error(`Environment variable ${name} must be a valid port number, received: ${raw}`);
+    throw new Error(`Environment variable ${name} must be a valid port number`);
   }
   return parsed;
 }
@@ -113,7 +113,7 @@ export function loadEnv(): ServerEnv {
   return {
     nodeEnv: readString('NODE_ENV', 'development'),
     port: readPort('PORT', 3000),
-    release: readString('RELEASE', 'local-dev'),
+    release: readString('RELEASE', readString('RENDER_GIT_COMMIT', 'local-dev')),
     mongoUri: readString(
       'MONGODB_URI',
       'mongodb://localhost:27017/leadcapture?directConnection=true',
@@ -131,7 +131,11 @@ export function loadEnv(): ServerEnv {
     brevoApiKey: readString('BREVO_API_KEY', ''),
     brevoSenderEmail: readString('BREVO_SENDER_EMAIL', 'no-reply@example.invalid'),
     brevoSenderName: readString('BREVO_SENDER_NAME', 'Lead Capture Platform'),
-    mailpitHost: readString('MAILPIT_SMTP_HOST', 'localhost'),
+    // IPv4 is deliberate: Windows commonly resolves localhost to ::1 first,
+    // while Docker Desktop's published SMTP port can accept that connection
+    // without ever completing the SMTP greeting. Compose overrides this with
+    // the service name `mailpit`; host-run tests use the reliable loopback.
+    mailpitHost: readString('MAILPIT_SMTP_HOST', '127.0.0.1'),
     mailpitPort: readNumber('MAILPIT_SMTP_PORT', 1025),
     breachCheckRemote: readString('BREACH_CHECK_REMOTE', 'false') === 'true',
     encryptionMasterKey: readEncryptionMasterKey(),
@@ -267,7 +271,7 @@ function readNumber(name: string, fallback: number): number {
   if (raw === undefined || raw === '') return fallback;
   const parsed = Number(raw);
   if (Number.isNaN(parsed)) {
-    throw new Error(`Environment variable ${name} must be a number, received: ${raw}`);
+    throw new Error(`Environment variable ${name} must be a number`);
   }
   return parsed;
 }
@@ -275,7 +279,7 @@ function readNumber(name: string, fallback: number): number {
 function readEmailProvider(): 'mailpit' | 'brevo' | 'capture' {
   const raw = readString('EMAIL_PROVIDER', 'mailpit');
   if (raw === 'mailpit' || raw === 'brevo' || raw === 'capture') return raw;
-  throw new Error(`EMAIL_PROVIDER must be mailpit, brevo, or capture, received: ${raw}`);
+  throw new Error('EMAIL_PROVIDER must be mailpit, brevo, or capture');
 }
 
 /**

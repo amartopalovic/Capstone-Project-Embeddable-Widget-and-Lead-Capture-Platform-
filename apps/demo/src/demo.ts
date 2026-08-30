@@ -170,6 +170,7 @@ function renderSpecimen(widget: DemoWidget): HTMLLIElement {
 // --------------------------------------------------------------------- feed
 
 let lastSeenTop: string | null = null;
+let lastSubmissionTotal: number | null = null;
 
 function renderFeed(feed: DemoFeed): void {
   const list = document.getElementById('feed');
@@ -224,6 +225,7 @@ function renderFeed(feed: DemoFeed): void {
   if (totals !== null) {
     totals.textContent = `${String(feed.totals.submissions)} submission${feed.totals.submissions === 1 ? '' : 's'} · ${String(feed.totals.views)} view${feed.totals.views === 1 ? '' : 's'} · all of it deleted on the hour`;
   }
+  lastSubmissionTotal = feed.totals.submissions;
 }
 
 async function refreshFeed(): Promise<void> {
@@ -316,19 +318,19 @@ async function start(): Promise<void> {
    * Stage 12b checked twice, at 1.2 and 4 seconds, which closed the window on
    * an idle machine and not on a loaded one - a browser test failed against
    * exactly that in Stage 13. The delays now stretch to fourteen seconds and
-   * stop early the moment something new arrives, so the burst costs one request
-   * in the common case and covers a slow write in the uncommon one.
+   * stop early the moment the submission total increases, so unrelated view
+   * events cannot cancel the checks that are still waiting for a stored lead.
    */
   let chase: number[] = [];
 
   document.addEventListener('click', () => {
     for (const timer of chase) window.clearTimeout(timer);
-    const before = lastSeenTop;
+    const submissionsBeforeClick = lastSubmissionTotal;
     chase = [1000, 2500, 5000, 9000, 14_000].map((delay) =>
       window.setTimeout(() => {
-        // Something newer than the top entry we had at click time has arrived;
-        // the rest of the burst has nothing left to look for.
-        if (lastSeenTop !== before) return;
+        // A view event can arrive between the click and the submission. Only a
+        // higher submission total proves that the burst found what it wanted.
+        if (lastSubmissionTotal !== submissionsBeforeClick) return;
         void refreshFeed();
       }, delay),
     );

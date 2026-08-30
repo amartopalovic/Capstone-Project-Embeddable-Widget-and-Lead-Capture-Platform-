@@ -1,0 +1,103 @@
+services:
+  - type: web
+    name: lead-capture-platform
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: main
+    autoDeployTrigger: checksPass
+    buildCommand: >-
+      npm ci && VITE_RELEASE=$RENDER_GIT_COMMIT npm run build &&
+      RELEASE=$RENDER_GIT_COMMIT npm run release
+    startCommand: npm run start:production
+    healthCheckPath: /health/ready
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APP_BASE_URL
+        sync: false
+      - key: DEMO_ORIGIN
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        value: leadcapture
+      - key: REDIS_URL
+        sync: false
+      - key: REDIS_KEY_PREFIX
+        value: lcp:prod
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SESSION_COOKIE_NAME
+        value: lcp.sid
+      - key: ENCRYPTION_MASTER_KEY
+        sync: false
+      - key: ENCRYPTION_KEY_VERSION
+        value: '1'
+      - key: IP_HMAC_SECRET
+        generateValue: true
+      - key: EMAIL_PROVIDER
+        value: brevo
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        sync: false
+      - key: BREVO_SENDER_NAME
+        value: Lead Capture Platform
+      - key: BREACH_CHECK_REMOTE
+        value: 'true'
+      - key: GEO_ENABLED
+        value: 'true'
+      - key: GEO_TIMEOUT_MS
+        value: '1500'
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: '0.1'
+      - key: VITE_SENTRY_DSN
+        sync: false
+      - key: VITE_SENTRY_TRACES_SAMPLE_RATE
+        value: '0.1'
+      - key: VITE_ENVIRONMENT
+        value: production
+      - key: VITE_API_ORIGIN
+        sync: false
+      - key: PLATFORM_OPERATOR_EMAILS
+        sync: false
+
+  - type: web
+    name: lead-capture-demo
+    runtime: static
+    branch: main
+    autoDeployTrigger: checksPass
+    buildCommand: >-
+      npm ci && npm run build:packages && npm run build -w @lcp/demo
+    staticPublishPath: apps/demo/dist
+    envVars:
+      - key: VITE_API_ORIGIN
+        sync: false
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: frame-ancestors 'none'
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=63072000; includeSubDomains
+      - path: /*
+        name: Permissions-Policy
+        value: >-
+          accelerometer=(), camera=(), display-capture=(), geolocation=(),
+          gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin

@@ -276,7 +276,7 @@ describe('PROBE 2: malformed and oversized input', () => {
     const huge = 'x'.repeat(40 * 1024);
     const response = await submit(
       publicId,
-      submissionBody({ values: { email: 'a@b.co', message: huge } }),
+      submissionBody({ values: { email: 'malformed@example.invalid', message: huge } }),
     );
 
     expect(response.status).toBeGreaterThanOrEqual(400);
@@ -291,7 +291,7 @@ describe('PROBE 2: malformed and oversized input', () => {
 
     const response = await submit(
       publicId,
-      submissionBody({ values: { email: 'a@b.co', message: long } }),
+      submissionBody({ values: { email: 'malformed@example.invalid', message: long } }),
     );
     expect(response.status).toBe(400);
     expect((response.body as { error: { code: string } }).error.code).toBe('validation_failed');
@@ -299,7 +299,7 @@ describe('PROBE 2: malformed and oversized input', () => {
 
   it('rejects more than 20 fields with a clean 4xx', async () => {
     const { publicId } = await publishedWidget('sub-manyfields');
-    const values: Record<string, string> = { email: 'a@b.co', message: 'hi' };
+    const values: Record<string, string> = { email: 'malformed@example.invalid', message: 'hi' };
     for (let index = 0; index < 25; index += 1) values[`extra${String(index)}`] = 'x';
 
     const response = await submit(publicId, submissionBody({ values }));
@@ -313,7 +313,9 @@ describe('PROBE 2: malformed and oversized input', () => {
 
     const response = await submit(
       publicId,
-      submissionBody({ values: { email: 'a@b.co', message: 'hi', ssn: '123-45-6789' } }),
+      submissionBody({
+        values: { email: 'malformed@example.invalid', message: 'hi', ssn: 'not-a-real-ssn' },
+      }),
     );
     expect(response.status).toBe(400);
     expect(JSON.stringify(response.body)).toContain('does not have that field');
@@ -323,11 +325,16 @@ describe('PROBE 2: malformed and oversized input', () => {
     const { publicId } = await publishedWidget('sub-malformed');
 
     // Missing the required message field.
-    const missing = await submit(publicId, submissionBody({ values: { email: 'a@b.co' } }));
+    const missing = await submit(
+      publicId,
+      submissionBody({ values: { email: 'malformed@example.invalid' } }),
+    );
     expect(missing.status).toBe(400);
 
     // Missing the idempotency key entirely.
-    const noKey = await submit(publicId, { values: { email: 'a@b.co', message: 'hi' } });
+    const noKey = await submit(publicId, {
+      values: { email: 'malformed@example.invalid', message: 'hi' },
+    });
     expect(noKey.status).toBe(400);
 
     // A syntactically broken body.

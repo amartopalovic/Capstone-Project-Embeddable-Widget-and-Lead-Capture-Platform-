@@ -65,6 +65,8 @@ redis-data/
 dump.rdb
 *.dump
 *.bson
+backups/
+*.lcpbak
 
 # ---------------------------------------------------------------------------
 # Logs and runtime debris

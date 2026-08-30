@@ -143,7 +143,9 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-main().catch((error: unknown) => {
-  console.error('[server] Failed to start:', error instanceof Error ? error.message : error);
+main().catch(() => {
+  console.error(
+    '[server] Failed to start; sensitive driver details suppressed. Check configuration and service availability.',
+  );
   process.exitCode = 1;
 });

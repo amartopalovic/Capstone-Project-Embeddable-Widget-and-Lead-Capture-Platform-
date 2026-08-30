@@ -7,7 +7,14 @@ import globals from 'globals';
 import shared from '@lcp/config/eslint';
 
 export default defineConfig([
-  globalIgnores(['**/dist/**', '**/build/**', '**/coverage/**', '**/node_modules/**']),
+  globalIgnores([
+    '**/dist/**',
+    '**/build/**',
+    '**/coverage/**',
+    '**/node_modules/**',
+    '**/playwright-report/**',
+    '**/test-results/**',
+  ]),
   shared,
   {
     // Repository scripts are Node programs run directly by a person or by CI,

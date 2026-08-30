@@ -23,7 +23,7 @@
     "format:check": "prettier --check .",
     "test": "npm run build:packages && vitest run --project unit-contracts --project unit-runtime --project unit-server",
     "test:watch": "vitest",
-    "seed": "npm run seed -w @lcp/server",
+    "seed": "npm run migrate && npm run seed -w @lcp/server",
     "dev": "docker compose up --build",
     "dev:down": "docker compose down",
     "dev:clean": "docker compose down -v",
@@ -35,7 +35,15 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "typecheck:e2e": "tsc -p e2e/tsconfig.json",
-    "scan:secrets": "node scripts/scan-secrets.mjs"
+    "scan:secrets": "node scripts/scan-secrets.mjs",
+    "scan:privacy": "node scripts/audit-private-information.mjs",
+    "test:security-tools": "node --test scripts/security-audit.test.mjs",
+    "start:production": "node apps/server/dist/index.js",
+    "release": "node apps/server/dist/scripts/migrate.js && node apps/server/dist/scripts/seed.js",
+    "backup:export": "node scripts/backup-export.mjs",
+    "backup:restore": "node scripts/backup-restore.mjs",
+    "backup:self-test": "node scripts/backup-crypto-self-test.mjs",
+    "verify:deployment": "node scripts/verify-deployment.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

@@ -79,6 +79,31 @@ describe('structured log record shape', () => {
 });
 
 describe('forbidden fields are redacted', () => {
+  it('scrubs success and failure metadata including provider text and lead values', () => {
+    const { records, sink } = collect();
+    const logger = createLogger({
+      bindings: { service: 'audit', environment: 'test', release: 'test' },
+      sink,
+    });
+    for (const level of ['info', 'warn', 'error'] as const) {
+      logger[level]('audit.event', {
+        email: 'AUDIT_PRIVATE_SENTINEL@example.invalid',
+        normalizedEmail: 'AUDIT_PRIVATE_SENTINEL',
+        name: 'AUDIT_PRIVATE_SENTINEL',
+        values: { message: 'AUDIT_PRIVATE_SENTINEL' },
+        reason: 'driver: AUDIT_PRIVATE_SENTINEL',
+        error: 'AUDIT_PRIVATE_SENTINEL',
+        detail: 'AUDIT_PRIVATE_SENTINEL',
+        query: 'AUDIT_PRIVATE_SENTINEL',
+        url: 'AUDIT_PRIVATE_SENTINEL',
+        message: 'AUDIT_PRIVATE_SENTINEL',
+        correlationId: 'safe-correlation',
+        result: 'server_error',
+      });
+    }
+    expect(JSON.stringify(records)).not.toContain('AUDIT_PRIVATE_SENTINEL');
+    expect(records.every((record) => record.correlationId === 'safe-correlation')).toBe(true);
+  });
   it('redacts every category named in blueprint section 16.1', () => {
     const { records, sink } = collect();
     const logger = createLogger({

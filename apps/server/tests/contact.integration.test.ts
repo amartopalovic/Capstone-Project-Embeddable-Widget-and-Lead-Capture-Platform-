@@ -1099,9 +1099,17 @@ describe('GATE 2: export matches the active filter (blueprint 4.7)', () => {
 
     await owner.api.get('/api/v1/contacts/export?format=csv');
 
-    const audit = (await harness.db
-      .collection(COLLECTIONS.auditEvents)
-      .findOne({ type: 'contact.exported' })) as {
+    // The route writes the audit record AFTER the response stream completes.
+    // Receiving the last CSV byte does not imply that Mongo write has finished.
+    const auditFilter = { type: 'contact.exported', workspaceId: new ObjectId(workspaceId) };
+    await expect
+      .poll(
+        async () => harness.db.collection(COLLECTIONS.auditEvents).countDocuments(auditFilter),
+        { timeout: 5000 },
+      )
+      .toBe(1);
+
+    const audit = (await harness.db.collection(COLLECTIONS.auditEvents).findOne(auditFilter)) as {
       actorUserId: ObjectId;
       correlationId: string;
       metadata: { rowCount: number; format: string };

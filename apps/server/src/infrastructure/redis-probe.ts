@@ -18,6 +18,8 @@ export class RedisDependencyProbe implements DependencyProbe {
       connectTimeout: 2000,
       retryStrategy: () => null,
     });
+    // Report a safe error class from check(), not ioredis's raw stderr fallback.
+    this.#client.on('error', () => undefined);
   }
 
   async check(): Promise<DependencyProbeResult> {

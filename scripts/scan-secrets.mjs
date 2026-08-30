@@ -18,17 +18,19 @@
  *     `replace-me-…` placeholders. A generic scanner either misses a real
  *     credential among those or drowns the signal in them.
  *
- * Scans tracked files only, so `node_modules` and build output are out of scope
- * by construction rather than by an ignore list that could drift.
+ * Scans tracked and untracked non-ignored files. For ignored first-party files
+ * and all reachable history, also run audit-private-information.mjs.
  *
- * Exit code 1 on any finding. Prints the file, the line, and a redacted excerpt
- * - never the matched value, because a scanner that echoes secrets into CI logs
+ * Exit code 1 on any finding. Prints the file, line, rule and fingerprint only
+ * - never source text, because a scanner that echoes secrets into CI logs
  * has moved the problem rather than solved it.
  */
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { extname } from 'node:path';
+import { createHash } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 
 /**
  * Patterns worth failing a build over.
@@ -75,8 +77,6 @@ const ALLOWED = [
   /test-only-insecure-key/,
   // `.env.example` placeholders.
   /replace-me-with-/,
-  // Every address in every fixture, per RFC 2606.
-  /@example\.invalid\b/,
   // Documented example shapes in the runbook and the API reference.
   /<the key that is currently/,
   /base64key/,
@@ -108,14 +108,27 @@ const SKIP_EXTENSIONS = new Set([
 const LOCKFILE = 'package-lock.json';
 
 function trackedFiles() {
-  const output = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8', maxBuffer: 1 << 26 });
-  return output.split('\0').filter((path) => path !== '');
+  const output = execFileSync(
+    'git',
+    ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+    { encoding: 'utf8', maxBuffer: 1 << 26 },
+  );
+  return [...new Set(output.split('\0').filter((path) => path !== ''))];
 }
 
-function redact(line) {
-  const trimmed = line.trim();
-  const head = trimmed.slice(0, 24);
-  return trimmed.length > 24 ? `${head}… (${String(trimmed.length)} chars)` : head;
+export function inspectLine(line) {
+  const findings = [];
+  for (const rule of RULES) {
+    for (const match of line.matchAll(new RegExp(rule.pattern.source, 'g'))) {
+      // A placeholder elsewhere on the line must not exempt a real credential.
+      if (ALLOWED.some((allowed) => allowed.test(match[0]))) continue;
+      findings.push({
+        rule: rule.name,
+        fingerprint: createHash('sha256').update(match[0]).digest('hex').slice(0, 12),
+      });
+    }
+  }
+  return findings;
 }
 
 function main() {
@@ -134,13 +147,9 @@ function main() {
 
     const lines = contents.split('\n');
     for (const [index, line] of lines.entries()) {
-      if (ALLOWED.some((allowed) => allowed.test(line))) continue;
-
-      for (const rule of RULES) {
-        if (file === LOCKFILE && rule.name === 'connection string with a password') continue;
-        if (rule.pattern.test(line)) {
-          findings.push({ file, line: index + 1, rule: rule.name, excerpt: redact(line) });
-        }
+      for (const finding of inspectLine(line)) {
+        if (file === LOCKFILE && finding.rule === 'connection string with a password') continue;
+        findings.push({ file, line: index + 1, ...finding });
       }
     }
   }
@@ -152,9 +161,12 @@ function main() {
 
   console.error(`secret scan: ${String(findings.length)} finding(s)`);
   for (const finding of findings) {
-    console.error(`  ${finding.file}:${String(finding.line)}  ${finding.rule}  ${finding.excerpt}`);
+    console.error(
+      `  ${finding.file}:${String(finding.line)}  ${finding.rule}  sha256:${finding.fingerprint}`,
+    );
   }
   process.exitCode = 1;
 }
 
-main();
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href)
+  main();

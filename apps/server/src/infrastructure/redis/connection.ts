@@ -27,6 +27,9 @@ export class RedisConnection {
       maxRetriesPerRequest: 2,
       connectTimeout: 5000,
     });
+    // ioredis otherwise writes unhandled errors (including raw driver details)
+    // directly to stderr. Connect/command promises and readiness expose failure.
+    this.#client.on('error', () => undefined);
     this.#keys = new RedisKeyBuilder(options.keyPrefix);
   }
 

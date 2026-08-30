@@ -70,10 +70,10 @@ describe('PII scrubbing before transmission - EXIT GATE', () => {
       }),
     );
 
-    expect(scrubbed.request?.query_string).toContain('token=%5Bredacted%5D');
+    expect(scrubbed.request?.query_string).toBeUndefined();
     expect(scrubbed.request?.url).not.toContain('live-single-use-token');
-    // The rest of the query survives, or the report stops being diagnosable.
-    expect(scrubbed.request?.query_string).toContain('id=7');
+    // Arbitrary query keys can carry lead values too; only the route survives.
+    expect(scrubbed.request?.url).toBe('/public/unsubscribe');
   });
 
   it('runs attached context through the same redaction the logger uses', () => {
@@ -120,6 +120,7 @@ class RecordingReporter implements ErrorReporter {
  */
 function buildErrorApp(reporter: ErrorReporter): express.Express {
   const app = express();
+  app.set('env', 'production');
   const logger = createLogger({
     bindings: { service: 'test', environment: 'test', release: 'test' },
     minLevel: 'error',
@@ -150,7 +151,9 @@ function buildErrorApp(reporter: ErrorReporter): express.Express {
     response.status(200).json({ ok: true });
   });
   app.get('/broken', () => {
-    throw new Error('a driver said something we do not understand');
+    throw new Error(
+      'a driver said something we do not understand: AUDIT_PRIVATE_SENTINEL@example.invalid /srv/private/driver.js values=AUDIT_PRIVATE_SENTINEL',
+    );
   });
 
   app.use(errorHandler(logger, reporter));
@@ -212,5 +215,6 @@ describe('expected responses are never reported as crashes - EXIT GATE', () => {
     };
     expect(body.error.message).toBe('An unexpected error occurred');
     expect(body.error.requestId).toBe('test-correlation');
+    expect(JSON.stringify(body)).not.toMatch(/AUDIT_PRIVATE_SENTINEL|driver|\/srv\/|stack/);
   });
 });

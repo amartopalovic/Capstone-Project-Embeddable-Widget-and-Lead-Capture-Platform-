@@ -1,15 +1,17 @@
 /**
  * Seed entrypoint.
  *
- * Stage 2 applies migrations and reports the resulting schema state. There is
- * still no domain data to seed: the foundation records exist as shapes and
- * repositories, but populating a demo workspace needs the onboarding rules from
- * Stage 4. This command must never invent placeholder business records.
+ * (Re)creates the deliberately synthetic public sandbox after migrations have
+ * run. The sandbox is the only domain data this command owns; ordinary
+ * workspaces are always created through onboarding and are never fabricated by
+ * a release.
  */
 
-import { MongoConnection, appliedMigrationIds, runMigrations } from '@lcp/database';
+import { MongoConnection } from '@lcp/database';
 import { createLogger } from '@lcp/contracts';
 import { loadEnv } from '../config/env.js';
+import { DemoService } from '../application/demo/demo-service.js';
+import { systemClock } from '../ports/clock.js';
 
 async function seed(): Promise<void> {
   const env = loadEnv();
@@ -34,20 +36,25 @@ async function seed(): Promise<void> {
         : '[seed] WARNING: not connected to a replica set. Transactions will not work.',
     );
 
-    const outcome = await runMigrations(connection.db, logger);
-    const applied = await appliedMigrationIds(connection.db);
-
+    const demo = new DemoService({
+      db: connection.db,
+      clock: systemClock,
+      logger,
+      apiBaseUrl: env.appBaseUrl,
+      allowedOrigins: [env.demoOrigin],
+    });
+    const seeded = await demo.reset();
     console.log(
-      `[seed] Migrations: ${String(outcome.applied.length)} applied, ${String(outcome.skipped.length)} already present.`,
+      `[seed] Public sandbox reset: ${String(seeded.widgets)} widgets seeded, ${String(seeded.cleared)} prior records cleared.`,
     );
-    console.log(`[seed] Schema at: ${applied.join(', ')}`);
-    console.log('[seed] No domain data to seed yet. Workspace seed fixtures arrive in Stage 4.');
   } finally {
     await connection.close();
   }
 }
 
-seed().catch((error: unknown) => {
-  console.error('[seed] Failed:', error instanceof Error ? error.message : error);
+seed().catch(() => {
+  console.error(
+    '[seed] Failed; sensitive driver details suppressed. Check configuration and service availability.',
+  );
   process.exitCode = 1;
 });

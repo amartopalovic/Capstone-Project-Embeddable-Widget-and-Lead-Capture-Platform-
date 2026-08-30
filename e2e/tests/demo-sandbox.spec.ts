@@ -86,8 +86,20 @@ test.describe('GATE: the sandbox works with no account - EXIT GATE', () => {
     const host = page.locator(`[data-lcp-widget="${form?.publicId ?? ''}"]`);
     await expect(host.locator('form')).toBeVisible({ timeout: 15_000 });
 
-    await host.getByLabel(/email/i).fill('sandbox-visitor@example.invalid');
-    await host.getByLabel(/message/i).fill('Just trying the sandbox out.');
+    /**
+     * Type as a visitor rather than using Playwright's instantaneous `fill`.
+     * The public path deliberately discards forms completed inside 1.5 seconds
+     * as bot traffic while returning the same generic acknowledgement. A
+     * zero-duration synthetic fill therefore tests the abuse branch, not this
+     * human submission journey. Sequential typing crosses that contract
+     * naturally without a timing-only `waitForTimeout`.
+     */
+    await host
+      .getByLabel(/email/i)
+      .pressSequentially('sandbox-visitor@example.invalid', { delay: 35 });
+    await host
+      .getByLabel(/message/i)
+      .pressSequentially('Just trying the sandbox out.', { delay: 35 });
     await host.getByRole('button', { name: /send/i }).click();
 
     // The widget's own confirmation, which says what did and did not happen.
