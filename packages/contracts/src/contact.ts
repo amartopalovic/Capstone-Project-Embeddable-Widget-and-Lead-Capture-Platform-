@@ -8,6 +8,7 @@
  */
 
 import * as z from 'zod';
+import type { ConsentStateValue } from './privacy.js';
 import { MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE } from './pagination.js';
 // The same address rule the auth surface uses, so an edited contact email and a
 // registered account email cannot disagree about what is valid.
@@ -193,6 +194,15 @@ export interface ContactSummary {
   readonly firstSubmissionAt: string;
   readonly lastSubmissionAt: string;
   readonly submissionCount: number;
+  /**
+   * Marketing consent (blueprint 4.8), added in Stage 11.
+   *
+   * On the summary rather than only the detail, because a team looking at a
+   * lead needs to know whether they may email it before they open anything -
+   * and because "did they unsubscribe" is the question that gets a company in
+   * trouble when it is one click away rather than in view.
+   */
+  readonly consentState: ConsentStateValue;
   /** The value a canonical edit must echo back (blueprint 9.3). */
   readonly version: number;
   /** Which canonical fields a human has edited, so the UI can mark them. */

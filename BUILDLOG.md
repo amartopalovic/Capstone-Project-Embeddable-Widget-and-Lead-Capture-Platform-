@@ -2590,3 +2590,187 @@ address in the new tests is `@example.invalid`.
    dismissed, because an unhandled database error reaching the request handler is worth a look
    before Stage 13's resilience work.
 6. **CI has still never run**, because no remote is configured.
+
+## Stage 11 - Consent, unsubscribe, privacy, and retention automation (2026-08-30)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Blueprint Stage 11 in full. The data-rights and deletion promises the
+blueprint has been assuming since Stage 2.
+
+### What was done
+
+- `packages/database`: `SuppressionRecord` and `PrivacyRequestRecord` with their repositories;
+  consent state, a retention anchor, and an opt-in mode added to existing records; migration
+  `010_privacy` with the backfills that let those fields stay non-optional.
+- `apps/server/src/domain/privacy/`: the consent state machine, the signed-link construction, and
+  the suppression key - all pure.
+- `apps/server/src/domain/workspace/retention.ts`: extended with `isPurgeable`,
+  `retentionDeadline`, and `isBeyondRetention`, so every window in the 9.5 table is computed in one
+  place.
+- `apps/server/src/application/privacy/`: `ConsentService`, `PrivacyRequestService`,
+  `RetentionService`, `AccountLifecycleService`, and `PrivacyWorkers`.
+- `POST /public/v1/consent/{unsubscribe,confirm}` and `/public/v1/privacy/requests{,/complete}` -
+  the first routes in this product reached by somebody with no session at all.
+- `GET`/`PUT /api/v1/workspaces/privacy`, and `DELETE`/`POST /api/v1/auth/account{,/recover}`.
+- Two new BullMQ queue families per 12.1: marketing opt-in email, and retention and purge.
+- `apps/web`: the public unsubscribe, opt-in, privacy-request, and export pages, plus the consent
+  and retention settings panel and a consent chip on the contact record.
+
+### Key decisions
+
+**Suppression is a separate record, keyed by a hash.** Blueprint 4.8 lets "minimal suppression
+data" survive a deletion so the unsubscribe keeps being honoured. It therefore cannot live on the
+Contact, which is the thing being deleted - otherwise the next submission from that address would
+rebuild the record and start mailing it again. And it cannot store the address, or "deletion" would
+leave a deleted person's email in a table. A workspace-salted HMAC answers the only question that
+matters, for an address the asker already has, and cannot be listed back into a mailing list.
+
+**Unsubscribe links are signed, not stored; privacy links are stored, not signed.** An unsubscribe
+link sits in every marketing email forever and has to keep working, so it carries its own claims
+and a MAC over them - no expiry to get wrong, no table growing with send volume, and replay handled
+by the state machine rather than by consuming a token. An export or deletion link authorizes
+reading or destroying somebody's data, so it gets the account-verification construction verbatim:
+random, hashed at rest, single-use, expiring.
+
+**Withdrawal outranks a later ticked box, and an unticked box is not a withdrawal.** Both are the
+conservative reading of 4.8, and both are stated in the state machine rather than left implicit.
+
+**Anonymise actors; never cascade-delete history.** 9.5 says "historical actor references
+anonymized". A reserved actor id rather than `null`, so the non-nullable fields anonymise the same
+way as the nullable ones. `ownerUserId` is deliberately excluded - it is not history, and a
+workspace with an anonymous owner is one nobody can administer, which is also why deleting an
+account that still owns an active workspace is refused rather than allowed to orphan a tenant.
+
+**Retention is measured from a deliberate anchor, not `updatedAt`.** 9.5 says "the latest retained
+submission or intentional workspace activity". `updatedAt` moves on any write, so a bulk re-tag
+would quietly grant every touched lead another twelve months. `retentionAnchorAt` moves on a new
+submission and on deliberate human work, and nothing else.
+
+**The retention setting is Owner-only, on `workspace.delete`.** Section 11 has no retention row, and
+the table in `capabilities.ts` is a line-by-line transcription of it so the two can be diffed by
+eye - adding an eighteenth row would break that. Reusing the one existing capability that already
+means "you may decide this tenant's data is destroyed" is also right on the merits: choosing 30-day
+retention schedules the destruction of every lead older than a month.
+
+**The public pages are a statement, not a card.** Everything else in this product is an operator's
+console. Nobody who reaches an unsubscribe page has an account, most will never see another page
+here, and they want to know it is done and be finished. So: one sentence set large, left-aligned,
+with the app's existing mount-bracket ticks reused as the one piece of chrome and their colour
+carrying the outcome. The colour is never the sole carrier - the sentence says what happened.
+
+**Every failure answers identically.** An unknown token, an expired one, a deleted contact, and a
+wrong signature all produce the same words; a privacy request for an address that is not a lead
+produces the same response as one for an address that is. Anything else turns these endpoints into
+a way to test addresses against a customer's lead list one at a time.
+
+### Where AI failed or was corrected
+
+- **I nearly shipped a tenant purge that skipped memberships.** The workspace-owned collection list
+  is derived from `COLLECTIONS` minus an exclusion set, and I had put `memberships` in the
+  exclusions while writing the account purge, which deletes memberships by user. A tenant purge that
+  misses a collection is a tenancy leak with a delay on it. Caught before the tests ran; there is
+  now an assertion that a purged workspace leaves no memberships.
+- **The first version of `expirePrivacyRequests` ignored its own `limit`.** It took the parameter,
+  did an unbounded `updateMany`, and had `void limit` in the body - the exact shape of a bound that
+  is documented but not enforced. Rewritten to select ids first.
+- **Three doc comments described code I had already changed.** One claimed contacts end in a
+  `purged` status that does not exist, one described a `$unset` of MFA fields that were not the real
+  field names, and one said both sweeps select on a deadline when only one does.
+- **I wrote a test that asserted the wrong mechanism.** "Sends no marketing mail to a suppressed
+  address" was passing through the consent-state guard, not the suppression list, because a
+  withdrawn contact is refused before the list is consulted. Split honestly: that test now proves
+  the first guard, and the resurrection test proves the second - the only case where the two can
+  disagree.
+- **The settings panel offered controls before it knew the saved values.** The warning about
+  shortening retention compares the choice against the saved value, so an early click got no
+  warning at all. Found as a flaky E2E, but it is a real defect: the panel now shows nothing to
+  click until it has loaded.
+- **The Vite dev proxy did not forward `/public`**, so every public page's POST hit the dev server
+  and failed with "Something went wrong". The E2E found it; a human clicking through would have
+  found it immediately, which is the point of having the E2E.
+- **The visual pass found three more.** Radio buttons on two-line option cards were vertically
+  centred against the whole card rather than aligned to the title. The "Delete my data" description
+  was an entire paragraph in danger red, which shouts at everyone equally rather than being read.
+  And the export's field labels were raw storage keys - `email`, `message` - handing somebody their
+  own data in the vocabulary of the database, on the one page that exists not to do that. The
+  export also presented this system's own description of an emailed-link action in a column headed
+  "the wording you were shown", which is a small lie in the one document that has to be exact.
+- **`typescript-lsp` returned a stale symbol table** for `retention-service.ts`, reporting two
+  dependency fields and a `$unset` clause I had removed. Verified against disk with `grep`;
+  `tsc` was treated as the authority for diagnostics. The same staleness Stage 10a saw.
+- **The export page spent its own single-use token and then reported it invalid.** React runs
+  effects twice in development, and the effect that completes a privacy request had no guard - so
+  the first pass consumed the token, the second was correctly refused, and the second response won
+  the render. The person's export completed on the server while they were shown "this link is no
+  longer valid", with the link now genuinely spent. It surfaced as a full-suite-only failure
+  because in isolation the two responses happened to land the other way round, which is exactly the
+  kind of bug that gets dismissed as a flaky test. Both token-consuming pages now record which
+  token they have already acted on.
+- **And the same shape again in the settings panel**, found by the next full-suite run. A second
+  settings load arriving after the person had chosen a new retention value overwrote their
+  selection with the saved one, leaving Save disabled as though they had never touched anything.
+  Two instances of one mistake - assuming an effect runs once - in code written on the same day,
+  which is the argument for treating a full-suite-only failure as a real defect rather than noise.
+  The form is now seeded exactly once.
+- **A Stage 10b test was racing its own backoff ceiling.** The analytics reconnect test waited 30
+  seconds for a value to arrive after forcing an SSE reconnect - and 30 seconds is exactly the
+  client's MAXIMUM reconnect backoff. If the reconnect landed on a long step, which happens when
+  the server is busy and therefore only under a full-suite run, the assertion expired before the
+  stream could possibly have re-opened. Not introduced here, but surfaced by this stage making the
+  E2E server busier, and it is a test defect rather than an intermittent: it was asserting a
+  deadline the product never promised. Widened to 45 seconds, above the ceiling.
+
+### Verification performed
+
+Every command run directly through `node`, because README 5.4's `&`-in-path issue breaks `npm run`
+in this checkout.
+
+```
+tsc (9 projects, incl. e2e)          no errors
+eslint .                             clean
+prettier --check .                   All matched files use Prettier code style!
+vitest unit    (3 projects)          Test Files 15 passed (15)   Tests 347 passed (347)
+vitest integration (2 projects)      Test Files 13 passed (13)   Tests 297 passed (297)
+playwright (privacy specs)           16 passed
+playwright (full suite)              117 passed
+migrate (e2e database)               applied 1, skipped 9
+vite build widget-runtime            15.12 kB raw / 5.98 kB gzip  (budgets 20 KB / 8 KB)
+```
+
+Secret scan of the staged diff: no credentials or tokens; every address in the new tests is
+`@example.invalid`. `IP_HMAC_SECRET` appears only as a config field name being read from the
+environment, and `.env.example` now records that two more derived values depend on it.
+
+### Plugin usage this stage
+
+- **`typescript-lsp` - worked, with one caveat.** Document symbols and hover resolved correctly
+  across the new domain and route modules, and `findReferences` on `ConsentService` confirmed it is
+  wired into ten sites across five files. Its symbol table for `retention-service.ts` was stale by
+  one edit, which is worth recording because a clean LSP pass is not by itself a diagnostics pass.
+- **`context7` - consulted once, and it changed the design.** The question was whether a BullMQ job
+  scheduler backfills occurrences missed while a process is asleep, because that decides whether the
+  startup catch-up sweep is a requirement or belt-and-braces. The documentation showed a scheduler
+  enqueues one delayed iteration at a time and re-arms from the upsert, so it does not backfill: a
+  week asleep produces one late run, not seven, and a boot-time upsert can move the next slot past
+  a deadline already passed. That is now the stated reason the startup sweep exists, rather than
+  "the blueprint asked for it".
+- **`frontend-design` - used substantively.** The brief named the existing tokens and asked it to
+  extend the system rather than invent one. Its most useful pressure was on who these pages are
+  actually for - somebody with no account, on a page they did not choose, often annoyed - which is
+  what produced the statement-not-a-card direction and the decision to treat the export as a record
+  a person reads rather than a payload a developer parses.
+
+### Open questions for a human
+
+1. **There is no UI for account deletion or recovery.** The routes exist and are tested; the
+   account page does not offer them. Deliberate - the stage brief listed the minimal UI and this
+   was not on it - but it means a documented capability has no button.
+2. **A lost marketing opt-in job has no outbox row.** The contact stays `pending` and is asked again
+   on their next submission. Safe, but weaker than the guarantee the delivery families have, and
+   worth revisiting if double opt-in ever carries more weight.
+3. **The suppression list cannot be listed.** That is the privacy property working as intended, and
+   it also means a support question about one address can only be answered by testing that address.
+4. **The public pages have no link back to anything.** A stranger who lands on the unsubscribe page
+   sees no product, no company, and no way to learn what this is. Stage 12's public site is the
+   natural place to fix that, and it is a deliberate hole rather than an oversight.
+5. **CI has still never run**, because no remote is configured.

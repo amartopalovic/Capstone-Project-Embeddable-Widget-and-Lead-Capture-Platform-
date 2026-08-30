@@ -34,6 +34,24 @@ export const QUEUE_NAMES = {
    * aggregator is mid-day.
    */
   analyticsAggregation: 'analytics-aggregation',
+  /**
+   * Marketing opt-in email (blueprint 12.1), added in Stage 11.
+   *
+   * Its own family rather than a variant of visitor confirmation, because the
+   * two are governed by different rules: a confirmation is transactional and
+   * always sent, while anything in here is marketing and is checked against the
+   * workspace suppression list before it goes. Keeping them apart means the
+   * suppression check has one place to live rather than a flag to remember.
+   */
+  marketingOptIn: 'marketing-opt-in',
+  /**
+   * Retention and purge (blueprint 12.1), added in Stage 11.
+   *
+   * Concurrency 1, and separate from analytics: this family deletes records
+   * that the analytics sweep reads, and two sweeps interleaving over the same
+   * tenant is the kind of race that only shows up in production.
+   */
+  retentionPurge: 'retention-purge',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

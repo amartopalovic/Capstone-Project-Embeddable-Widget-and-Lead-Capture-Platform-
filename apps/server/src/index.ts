@@ -32,7 +32,19 @@ async function main(): Promise<void> {
   const redis = new RedisConnection({ url: env.redisUrl, keyPrefix: env.redisKeyPrefix });
   await redis.connect();
 
-  const deps = buildDependencies(env, mongo.db, redis.client);
+  /**
+   * The in-process worker (blueprint 12.1, 9.5).
+   *
+   * "In production, the worker starts inside the same Render process as the web
+   * server." Until Stage 11 this flag was never set outside the tests, so the
+   * delivery, reconciliation, and analytics schedules Stage 9 and 10a built
+   * existed but never actually ran in a deployed process - and Stage 11's
+   * startup catch-up sweep would have been dead code for the same reason.
+   *
+   * Tests still start without workers, deliberately: they drive the queue by
+   * hand so an outcome is a stated fact rather than a race with a poller.
+   */
+  const deps = buildDependencies(env, mongo.db, redis.client, { startWorkers: true });
   const app = createApp({ env, healthService, deps });
 
   const server = app.listen(env.port, () => {

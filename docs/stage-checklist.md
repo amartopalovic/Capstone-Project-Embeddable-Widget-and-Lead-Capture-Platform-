@@ -234,7 +234,22 @@ test results, remaining limitations, and confirmation of the exit gate.
       behind the traffic it reports.
     - **No new capability names**; `capabilities.ts` is unchanged.
 
-- [ ] **Stage 11 — Consent, unsubscribe, privacy, and retention automation**
+- [x] **Stage 11 — Consent, unsubscribe, privacy, and retention automation** _(2026-08-30)_
+  - A consent state machine with workspace-selectable single or double opt-in, defaulting to
+    double, evidenced by immutable events carrying the wording, a fingerprint of it, the source,
+    the widget revision, and a pseudonym.
+  - Workspace-wide marketing suppression that outlives the contact it belonged to, keyed by a
+    workspace-salted HMAC so an unsubscribe keeps being honoured after a deletion without the
+    address being stored. Transactional mail is never gated by it.
+  - Email-verified self-service export and deletion, on the account-verification token
+    construction: single-use, hashed at rest, 24-hour expiry, and no other way in.
+  - Workspace-configurable active-contact retention, measured from a deliberate anchor rather than
+    `updatedAt`, so a bulk re-tag cannot silently grant another twelve months.
+  - All four 30-day windows of the 9.5 table now actually fire — contact, widget, workspace, and
+    account — with actor references anonymised rather than cascade-deleted, and a bounded startup
+    catch-up sweep so a sleeping instance delays retention rather than skipping it.
+  - Account deletion and recovery, which had no route at all before this stage.
+  - **No new capability names**; the section 11 table is unchanged.
   - **Goal:** Complete the data-rights and deletion promises.
   - **Exit gate:** Time-controlled tests prove every recovery window, permanent purge, suppression
     rule, and privacy verification boundary.

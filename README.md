@@ -1,6 +1,6 @@
 # Embeddable Widget & Lead-Capture Platform
 
-> **Project status: Stage 10 of 16 complete, Stage 11 next.**
+> **Project status: Stage 11 of 16 complete, Stage 12 next.**
 > Authentication and the multi-workspace user model both work end to end through a real
 > accessible interface: onboarding, the workspace switcher, the full role matrix, invitations,
 > ownership transfer, and workspace delete/recover. Proven by 125 unit, 110 integration, and 37
@@ -11,10 +11,13 @@
 > the leads land in a role-aware inbox, side effects actually happen — notification and confirmation
 > email, signed webhooks, retry with dead-letter and replay — and the widget now records funnel
 > events that aggregate into durable daily counters — now read back by eight analytics dashboards
-> that update live and never report a rate they cannot compute. **All six acceptance probes pass
-> locally.** Proven by 317 unit, 266 integration, and 101 browser end-to-end tests. There is no
-> unsubscribe or retention automation yet (Stage 11). Every command, link, and proof marked
-> _planned_ or _TBD_ below does not work today.
+> that update live and never report a rate they cannot compute. Consent, unsubscribe, and the
+> data-rights promises are real too: double opt-in, workspace-wide suppression that outlives the
+> contact, email-verified export and deletion, and every 30-day recovery window actually firing
+> on a schedule. **All six acceptance probes pass locally.** Proven by 347 unit, 297 integration,
+> and 117 browser end-to-end tests. The public site, policy pages, and anonymous demo are still
+> to come (Stage 12). Every command, link, and proof marked _planned_ or _TBD_ below does not
+> work today.
 
 ---
 
@@ -245,19 +248,19 @@ later stages extend it rather than invent it.
 
 Run these on the host after `npm ci`:
 
-| Command                    | What it does                                                                                                             | Status    |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------- |
-| `npm run lint`             | ESLint across every workspace (25 files today)                                                                           | Real      |
-| `npm run format:check`     | Prettier formatting check                                                                                                | Real      |
-| `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                                             | Real      |
-| `npm run test`             | Unit tests, no infrastructure needed (317 tests, incl. the role matrix and widget rules)                                 | Real      |
-| `npm run test:integration` | Tenancy, auth, RBAC, widgets, submissions, inbox, delivery, and analytics against real MongoDB/Redis/Mailpit (266 tests) | Real      |
-| `npm run test:e2e`         | Browser journeys plus axe accessibility checks, driven through the real UI (101 tests)                                   | Real      |
-| `npm run migrate`          | Apply committed migrations and indexes; repeatable                                                                       | Real      |
-| `npm run build`            | Production build of every workspace                                                                                      | Real      |
-| BullMQ queue tests         | Background job integration                                                                                               | _Stage 9_ |
-| Widget E2E journeys        | Cross-origin widget rendering and submission                                                                             | _Stage 6_ |
-| Acceptance probes          | The six mandatory probes                                                                                                 | _Stage 7_ |
+| Command                    | What it does                                                                                                                      | Status    |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `npm run lint`             | ESLint across every workspace (25 files today)                                                                                    | Real      |
+| `npm run format:check`     | Prettier formatting check                                                                                                         | Real      |
+| `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                                                      | Real      |
+| `npm run test`             | Unit tests, no infrastructure needed (317 tests, incl. the role matrix and widget rules)                                          | Real      |
+| `npm run test:integration` | Tenancy, auth, RBAC, widgets, submissions, inbox, delivery, analytics, and privacy against real MongoDB/Redis/Mailpit (297 tests) | Real      |
+| `npm run test:e2e`         | Browser journeys plus axe accessibility checks, driven through the real UI (117 tests)                                            | Real      |
+| `npm run migrate`          | Apply committed migrations and indexes; repeatable                                                                                | Real      |
+| `npm run build`            | Production build of every workspace                                                                                               | Real      |
+| BullMQ queue tests         | Background job integration                                                                                                        | _Stage 9_ |
+| Widget E2E journeys        | Cross-origin widget rendering and submission                                                                                      | _Stage 6_ |
+| Acceptance probes          | The six mandatory probes                                                                                                          | _Stage 7_ |
 
 `npm run test:integration` and `npm run test:e2e` need MongoDB, Redis, and Mailpit
 running. Start them with `docker compose up -d --wait mongo redis mailpit`, or the full

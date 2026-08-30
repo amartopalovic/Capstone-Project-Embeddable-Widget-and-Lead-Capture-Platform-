@@ -23,6 +23,12 @@ import {
   type WidgetType,
   type WorkspaceSummary,
   type WorkspaceUsage,
+  type ConsentLinkResult,
+  type PrivacyRequestCompleted,
+  type PrivacyRequestStarted,
+  type PrivacySettingsInput,
+  type StartPrivacyRequestInput,
+  type WorkspacePrivacySettings,
 } from '@lcp/contracts';
 
 /**
@@ -430,4 +436,67 @@ export const deliveryApi = {
  */
 export const analyticsApi = {
   overview: (range: AnalyticsRange) => api.get<AnalyticsOverview>(`/analytics?range=${range}`),
+};
+
+// ---------------------------------------------------------------------------
+// Public consent and privacy endpoints (Stage 11 API, blueprint 4.8)
+// ---------------------------------------------------------------------------
+
+/**
+ * The one client that does NOT send a CSRF token.
+ *
+ * Every call here is made by somebody with no account and no session, following
+ * a link out of an email. A CSRF token is bound to a session identifier, so
+ * there is nothing for one to be bound to - requiring it would make an
+ * unsubscribe impossible to complete, which is the one thing an unsubscribe
+ * must never be.
+ *
+ * What replaces it is stronger than a same-site cookie would have been: the
+ * signed or stored token in the body IS the authorization, and the server
+ * verifies it before doing anything.
+ */
+async function publicPost<T>(path: string, body: unknown): Promise<ApiResult<T>> {
+  const response = await fetch(`/public/v1${path}`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  const text = await response.text();
+  let parsed: unknown = null;
+  if (text !== '') {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = null;
+    }
+  }
+
+  if (response.ok) return { ok: true, status: response.status, data: parsed as T };
+
+  const payload = parsed as ApiErrorPayload | null;
+  return {
+    ok: false,
+    status: response.status,
+    code: payload?.error.code ?? 'internal_error',
+    message: payload?.error.message ?? 'Something went wrong. Try again.',
+    fieldErrors: payload?.error.details ?? [],
+  };
+}
+
+export const consentApi = {
+  unsubscribe: (token: string) => publicPost<ConsentLinkResult>('/consent/unsubscribe', { token }),
+  confirm: (token: string) => publicPost<ConsentLinkResult>('/consent/confirm', { token }),
+};
+
+export const privacyApi = {
+  start: (input: StartPrivacyRequestInput) =>
+    publicPost<PrivacyRequestStarted>('/privacy/requests', input),
+  complete: (token: string) =>
+    publicPost<PrivacyRequestCompleted>('/privacy/requests/complete', { token }),
+
+  /** Workspace-side settings. Session-authenticated, unlike the two above. */
+  settings: () => api.get<WorkspacePrivacySettings>('/workspaces/privacy'),
+  saveSettings: (input: PrivacySettingsInput) =>
+    api.put<WorkspacePrivacySettings>('/workspaces/privacy', input),
 };

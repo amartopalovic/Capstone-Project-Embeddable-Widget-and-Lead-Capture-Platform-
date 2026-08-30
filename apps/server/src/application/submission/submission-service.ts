@@ -6,6 +6,7 @@ import {
   type ConsentEventRecord,
   type ContactRecord,
   type GeoSnapshot,
+  type OptInMode,
   type OutboxEventRecord,
   type SubmissionEventRecord,
   type WidgetRecord,
@@ -28,6 +29,7 @@ import type { EventPublisher } from '../../ports/event-publisher.js';
 import { classifySubmission, type AbuseReason } from '../../domain/submission/heuristics.js';
 import { ipPseudonym } from '../../domain/submission/ip-pseudonym.js';
 import { monthStartInZone, submissionQuota } from '../../domain/submission/quota.js';
+import { consentTextVersion, nextConsent } from '../../domain/privacy/consent.js';
 import { GeoChain } from '../../infrastructure/geo/providers.js';
 
 /**
@@ -98,6 +100,15 @@ export interface SubmissionServiceDeps {
    * the same rule blueprint 12.2 states for the queue.
    */
   readonly events: EventPublisher;
+  /**
+   * Ask for a double opt-in confirmation email (blueprint 4.8, 12.1).
+   *
+   * A port, and one that never throws - same contract as `events`. It runs
+   * after the commit, so a queue failure cannot reverse an accepted
+   * submission; the contact simply stays `pending` and is asked again the next
+   * time they submit with the box ticked.
+   */
+  readonly requestOptInConfirmation: (workspaceId: ObjectId, contactId: ObjectId) => Promise<void>;
   /**
    * Side-effect dispatch (blueprint 12.2), added in Stage 9.
    *
@@ -211,6 +222,7 @@ export class SubmissionService {
       widget,
       config: published.config,
       revisionNumber: published.revisionNumber,
+      optInMode: workspace.optInMode,
       payload: request.payload,
       origin: request.origin,
       geo,
@@ -257,6 +269,17 @@ export class SubmissionService {
      * makes "forced provider failures never fail a submission" structural.
      */
     await this.#deps.dispatchOutbox(scope.workspaceId, committed.outboxId);
+
+    /**
+     * The double opt-in confirmation, if the consent machine asked for one.
+     *
+     * After the commit, like every other side effect (blueprint 12.2): the
+     * contact is already `pending` on disk, so the request to send is a promise
+     * about a fact that exists rather than part of establishing it.
+     */
+    if (committed.confirmationNeeded) {
+      await this.#deps.requestOptInConfirmation(scope.workspaceId, committed.contactId);
+    }
 
     /**
      * The submissions meter moved (blueprint 13.1, 4.10).
@@ -311,7 +334,18 @@ export class SubmissionService {
   async #writeAll(input: CommitInput, session: ClientSession | null): Promise<CommitOutcome> {
     const db = this.#deps.db;
     const options = session === null ? {} : { session };
-    const { scope, widget, config, revisionNumber, payload, origin, geo, pseudonym, now } = input;
+    const {
+      scope,
+      widget,
+      config,
+      revisionNumber,
+      optInMode,
+      payload,
+      origin,
+      geo,
+      pseudonym,
+      now,
+    } = input;
 
     const email = (payload.values['email'] ?? '').trim();
     const normalizedEmail = email.toLowerCase();
@@ -342,6 +376,15 @@ export class SubmissionService {
           firstSubmissionAt: now,
           lastSubmissionAt: now,
           submissionCount: 1,
+          /**
+           * Consent starts at `none` and is decided below, once the widget's
+           * consent field and the workspace's opt-in mode are both known
+           * (blueprint 4.8).
+           */
+          consentState: 'none',
+          consentUpdatedAt: null,
+          /** Retention counts from this submission (blueprint 9.5). */
+          retentionAnchorAt: now,
           version: 0,
           recordStatus: 'active',
           deletedAt: null,
@@ -367,6 +410,9 @@ export class SubmissionService {
       const refreshed: Record<string, unknown> = {
         lastSubmissionAt: now,
         submissionCount: existing.submissionCount + 1,
+        // A new submission is exactly what blueprint 9.5 measures retention
+        // from, so the clock on this contact starts again.
+        retentionAnchorAt: now,
         updatedAt: now,
       };
       for (const field of ['name', 'phone', 'company'] as const) {
@@ -408,15 +454,32 @@ export class SubmissionService {
     );
 
     /**
-     * Consent evidence, when the widget asked for it.
+     * Consent evidence, when the widget asked for it (blueprint 4.8).
      *
      * The wording is snapshotted from the published revision's consent field
      * label, because proving consent later means proving what the visitor
-     * agreed TO - a boolean on its own proves nothing.
+     * agreed TO - a boolean on its own proves nothing. The version beside it is
+     * a fingerprint of that wording, so two contacts who saw the same sentence
+     * are provably in the same cohort.
+     *
+     * The state transition is decided by the pure machine in
+     * `domain/privacy/consent`, not here: whether a ticked box means subscribed
+     * or merely pending depends on the workspace's opt-in mode, and whether it
+     * can override an earlier unsubscribe is a policy question that belongs
+     * somewhere testable without a database.
      */
+    let confirmationNeeded = false;
     const consentField = config.fields.find((field) => field.type === 'consent');
     if (consentField !== undefined) {
       const granted = (payload.values['consent'] ?? '').toLowerCase() === 'true';
+      const currentState = existing?.consentState ?? 'none';
+      const outcome = nextConsent(
+        currentState,
+        { kind: granted ? 'form_opt_in' : 'form_declined' },
+        optInMode,
+      );
+      confirmationNeeded = outcome.sendConfirmation;
+
       await db.collection<ConsentEventRecord>(COLLECTIONS.consentEvents).insertOne(
         {
           _id: new ObjectId(),
@@ -426,11 +489,22 @@ export class SubmissionService {
           type: 'opt_in',
           granted,
           text: consentField.label,
+          textVersion: consentTextVersion(consentField.label),
+          source: 'widget_form',
           widgetRevisionNumber: revisionNumber,
+          ipPseudonym: pseudonym.value,
           occurredAt: now,
         },
         options,
       );
+
+      if (outcome.state !== currentState) {
+        await contacts.updateOne(
+          { _id: contactId, workspaceId: scope.workspaceId },
+          { $set: { consentState: outcome.state, consentUpdatedAt: now } },
+          options,
+        );
+      }
     }
 
     /**
@@ -466,7 +540,13 @@ export class SubmissionService {
       options,
     );
 
-    return { contactId, submissionId, outboxId, contactCreated: existing === null };
+    return {
+      contactId,
+      submissionId,
+      outboxId,
+      contactCreated: existing === null,
+      confirmationNeeded,
+    };
   }
 
   /** Minimal evidence only (blueprint 7.4): never a captured field value. */
@@ -529,6 +609,11 @@ interface CommitOutcome {
   readonly outboxId: ObjectId;
   /** True when this submission created the Contact rather than updating one. */
   readonly contactCreated: boolean;
+  /**
+   * True when double opt-in put the contact into `pending` and a confirmation
+   * email is now owed to them (blueprint 4.8, 12.1).
+   */
+  readonly confirmationNeeded: boolean;
 }
 
 interface CommitInput {
@@ -536,6 +621,8 @@ interface CommitInput {
   readonly widget: WithId<WidgetRecord>;
   readonly config: WidgetConfig;
   readonly revisionNumber: number;
+  /** The workspace's single/double opt-in setting (blueprint 4.8). */
+  readonly optInMode: OptInMode;
   readonly payload: SubmissionPayload;
   readonly origin: string;
   readonly geo: GeoSnapshot | null;

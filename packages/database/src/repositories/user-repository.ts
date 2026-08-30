@@ -36,6 +36,21 @@ export class UserRepository {
     });
   }
 
+  /**
+   * Find a SOFT-DELETED account by address (blueprint 9.5).
+   *
+   * Separate from `findByEmail`, which filters to active users so a deleted
+   * account cannot sign in, cannot reset its password, and cannot be found by
+   * anything that has not deliberately asked for it. Account recovery is the
+   * one flow that has - and it still proves the password before restoring.
+   */
+  async findDeletedByEmail(email: string): Promise<WithId<UserRecord> | null> {
+    return this.#collection.findOne({
+      normalizedEmail: UserRepository.normalizeEmail(email),
+      status: 'deleted',
+    });
+  }
+
   async insert(
     document: Omit<UserRecord, '_id'> & { _id?: ObjectId },
   ): Promise<WithId<UserRecord>> {

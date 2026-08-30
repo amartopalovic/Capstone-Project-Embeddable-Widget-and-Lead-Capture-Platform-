@@ -91,3 +91,75 @@ If you did not expect this, you can ignore this email.`,
     html: layout(heading, body, acceptUrl, 'Accept invitation'),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Consent and privacy - Stage 11 (blueprint 4.8, 5.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * The double opt-in confirmation (blueprint 4.8).
+ *
+ * `side_effect` priority, deliberately. Blueprint 5.3 reserves 100 messages a
+ * day for "authentication and privacy-critical flows", and asking somebody to
+ * confirm a marketing subscription is neither - if the allowance is tight, this
+ * is exactly the mail that should wait. The privacy REQUEST email below is the
+ * opposite case and is marked critical.
+ */
+export function optInConfirmationEmail(
+  to: string,
+  workspaceName: string,
+  confirmUrl: string,
+  unsubscribeUrl: string,
+): OutboundEmail {
+  const heading = 'Confirm your subscription';
+  const body = `You asked to hear from ${workspaceName}. Confirm this address and you are on the list. If you do not confirm, nothing further will be sent.`;
+  return {
+    to,
+    subject: heading,
+    priority: 'side_effect',
+    text: `${heading}
+
+${body}
+
+${confirmUrl}
+
+Not you? Ignore this email, or unsubscribe: ${unsubscribeUrl}`,
+    html: `${layout(heading, body, confirmUrl, 'Confirm subscription')}`.replace(
+      '</body></html>',
+      `<p style="color:#666;font-size:13px"><a href="${escapeHtml(unsubscribeUrl)}">Unsubscribe</a></p></body></html>`,
+    ),
+  };
+}
+
+/**
+ * The verification link for a self-service export or deletion (blueprint 4.8).
+ *
+ * `critical`: 5.3 names "privacy-critical flows" alongside authentication as
+ * the reserved allowance, and somebody exercising a data right should not be
+ * queued behind marketing.
+ */
+export function privacyRequestEmail(
+  to: string,
+  workspaceName: string,
+  kind: 'export' | 'deletion',
+  confirmUrl: string,
+): OutboundEmail {
+  const heading = kind === 'export' ? 'Confirm your data request' : 'Confirm deleting your data';
+  const body =
+    kind === 'export'
+      ? `Confirm this address and we will show you everything ${workspaceName} holds about you. The link expires in 24 hours and works once.`
+      : `Confirm this address and ${workspaceName} will permanently delete your data. This cannot be undone. The link expires in 24 hours and works once.`;
+  return {
+    to,
+    subject: heading,
+    priority: 'critical',
+    text: `${heading}
+
+${body}
+
+${confirmUrl}
+
+If you did not request this, ignore this email and nothing will happen.`,
+    html: layout(heading, body, confirmUrl, kind === 'export' ? 'Show my data' : 'Delete my data'),
+  };
+}

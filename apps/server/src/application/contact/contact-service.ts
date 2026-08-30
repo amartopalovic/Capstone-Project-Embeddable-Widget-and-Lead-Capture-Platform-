@@ -109,6 +109,7 @@ export function toSummary(contact: WithId<ContactRecord>): ContactSummary {
     firstSubmissionAt: contact.firstSubmissionAt.toISOString(),
     lastSubmissionAt: contact.lastSubmissionAt.toISOString(),
     submissionCount: contact.submissionCount,
+    consentState: contact.consentState,
     version: contact.version,
     manuallyEditedFields: contact.manuallyEditedFields,
   };

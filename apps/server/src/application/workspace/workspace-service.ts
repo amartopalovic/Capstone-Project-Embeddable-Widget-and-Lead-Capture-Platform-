@@ -1,5 +1,11 @@
 import type { ObjectId } from 'mongodb';
-import { workspaceScope, DEFAULT_RETENTION_DAYS, type WorkspaceScope } from '@lcp/database';
+import {
+  workspaceScope,
+  DEFAULT_OPT_IN_MODE,
+  DEFAULT_RETENTION_DAYS,
+  type OptInMode,
+  type WorkspaceScope,
+} from '@lcp/database';
 import {
   WORKSPACE_LIMITS,
   type Logger,
@@ -114,6 +120,7 @@ export class WorkspaceService {
         ownerUserId: owner._id,
         timezone,
         retentionDays: DEFAULT_RETENTION_DAYS,
+        optInMode: DEFAULT_OPT_IN_MODE,
         status: 'active',
         deletedAt: null,
         purgeAfter: null,
@@ -324,6 +331,54 @@ export class WorkspaceService {
    * quietly assert the first. Stage 5a made the widget meter real; Stages 7
    * and 10 do the same for the other two.
    */
+  /**
+   * Change the consent and retention settings (blueprint 4.8, 9.5).
+   *
+   * Audited like every other settings change, and audited with BOTH the old and
+   * the new retention value. That detail matters more here than elsewhere:
+   * shortening retention is the one setting in this product that schedules the
+   * destruction of data already collected, and an audit line saying only what it
+   * became would leave nobody able to answer "how long did we used to keep
+   * things" after the fact.
+   *
+   * Nothing is destroyed by this call. The new setting takes effect on the next
+   * retention sweep, which is what keeps the decision reversible for as long as
+   * the sweep has not run.
+   */
+  async updatePrivacySettings(
+    scope: WorkspaceScope,
+    settings: { readonly retentionDays: number; readonly optInMode: OptInMode },
+    actorUserId: ObjectId,
+    correlationId: string,
+  ): Promise<{ retentionDays: number; optInMode: OptInMode } | null> {
+    const { workspaces, audit, clock } = this.#deps;
+
+    const workspace = await workspaces.findInScope(scope);
+    if (workspace === null || workspace.status !== 'active') return null;
+
+    const now = clock.now();
+    const updated = await workspaces.updateInScope(scope, {
+      retentionDays: settings.retentionDays,
+      optInMode: settings.optInMode,
+      updatedAt: now,
+    });
+    if (!updated) return null;
+
+    await audit.record(scope, {
+      type: 'workspace.privacy_settings_changed',
+      actorUserId,
+      correlationId,
+      metadata: {
+        retentionDaysFrom: workspace.retentionDays,
+        retentionDaysTo: settings.retentionDays,
+        optInModeFrom: workspace.optInMode,
+        optInModeTo: settings.optInMode,
+      },
+    });
+
+    return { retentionDays: settings.retentionDays, optInMode: settings.optInMode };
+  }
+
   /**
    * The four usage meters (blueprint 4.10).
    *

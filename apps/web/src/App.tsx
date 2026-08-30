@@ -21,6 +21,9 @@ import { DeliveryPage } from './pages/DeliveryPage.jsx';
 import { MembersPage } from './pages/MembersPage.jsx';
 import { AuditLogPage } from './pages/AuditLogPage.jsx';
 import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage.jsx';
+import { ConsentPage } from './pages/ConsentPage.jsx';
+import { PrivacyRequestPage } from './pages/PrivacyRequestPage.jsx';
+import { PrivacyConfirmPage } from './pages/PrivacyConfirmPage.jsx';
 
 /**
  * Application routes.
@@ -42,8 +45,13 @@ import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage.jsx';
  * at once if the dashboard warrants it.
  *
  * Paths match the links the server puts in its emails (`/auth/verify?token=`,
- * `/auth/reset?token=`, and `/invitations/accept?token=`), so those links
- * resolve.
+ * `/auth/reset?token=`, `/invitations/accept?token=`, and Stage 11's
+ * `/consent/*` and `/privacy/confirm?token=`), so those links resolve.
+ *
+ * The catch-all redirects to sign-in, which is right for a stray dashboard URL
+ * and wrong for a stranger who mistyped a consent link - they have no account
+ * to sign in to. That is why the consent pages handle a missing token
+ * themselves rather than relying on the route to be exact.
  */
 const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/workspace" replace /> },
@@ -57,6 +65,19 @@ const router = createBrowserRouter([
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
   { path: '/auth/reset', element: <ResetPasswordPage /> },
   { path: '/account', element: <AccountPage /> },
+
+  /*
+   * --- public consent and privacy surface (Stage 11) ---
+   *
+   * Outside every guard, and deliberately not under the workspace shell. Nobody
+   * who lands here has an account: they followed a link out of an email, and
+   * the token in the query string is the only thing identifying them. Paths
+   * match the links the server puts in its emails.
+   */
+  { path: '/consent/unsubscribe', element: <ConsentPage purpose="unsubscribe" /> },
+  { path: '/consent/confirm', element: <ConsentPage purpose="confirm" /> },
+  { path: '/privacy', element: <PrivacyRequestPage /> },
+  { path: '/privacy/confirm', element: <PrivacyConfirmPage /> },
 
   // --- workspace surface (Stage 4b) ---
   { path: '/onboarding', element: <OnboardingPage /> },

@@ -157,7 +157,12 @@ export async function linkFromEmail(messageId: string): Promise<string> {
   const response = await fetch(`${MAILPIT_API}/api/v1/message/${messageId}`);
   const body = (await response.json()) as { Text?: string; HTML?: string };
   const content = `${body.Text ?? ''}\n${body.HTML ?? ''}`;
-  const match = /(https?:\/\/[^\s"'<>]*[?&]token=[A-Za-z0-9_-]+)/.exec(content);
+  /**
+   * Tokens come in two shapes, and the character class has to admit both: the
+   * random base64url token used for verification and privacy requests, and
+   * Stage 11's dotted `payload.signature` consent-link token.
+   */
+  const match = /(https?:\/\/[^\s"'<>]*[?&]token=[A-Za-z0-9_.-]+)/.exec(content);
   if (match?.[1] === undefined) throw new Error('No tokenised link found in email');
   return match[1];
 }

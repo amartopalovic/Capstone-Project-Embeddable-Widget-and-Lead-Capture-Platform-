@@ -247,8 +247,17 @@ real queue behavior in Stage 9.
 - **Requirement:** Single or double opt-in (default double); immutable consent evidence;
   workspace-wide marketing suppression; email-verified contact export and deletion; public
   policies; default 12-month active contact retention.
-- **Status:** `NOT YET IMPLEMENTED` — planned for **Stage 11** (policy pages in **Stage 12**).
-- **Evidence:** _none_
+- **Status:** `PROVEN` for everything except the public policy pages, which are **Stage 12**.
+- **What is proven:** double opt-in is the default and a ticked box only becomes a subscription
+  when the address confirms itself from its own inbox; every consent decision writes an immutable
+  event carrying the wording shown, a fingerprint of that wording, the source, the widget revision,
+  and a pseudonym; an unsubscribe stops marketing across the whole workspace and keeps doing so
+  after the contact is deleted; an email-verified request exports one workspace's view of a contact
+  or irreversibly erases it; and active-contact retention defaults to 12 months and is
+  workspace-configurable across the four choices 4.8 names.
+- **What is not:** the public privacy policy, terms, cookie notice, and acceptable-use pages are
+  Stage 12. This stage built the mechanisms those documents will describe, not the documents.
+- **Evidence:** see Part D-detail, Stage 11.
 
 ### B9. Analytics (§4.9)
 
@@ -336,7 +345,7 @@ by the stage noted.
 | D17 | One documented local command starts dependencies and apps; seed data is reproducible                       | `IN PROGRESS` - detail below                                                                                                                                                                    | Stage 1                        |
 | D18 | Clean deployment from main passes smoke, cross-origin, auth, queue, and restore checks                     | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 14                       |
 | D19 | Encrypted export/restore rehearsal succeeds                                                                | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 14                       |
-| D20 | Render sleep delays but does not permanently skip retention or queue work                                  | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stages 11, 14                  |
+| D20 | Render sleep delays but does not permanently skip retention or queue work                                  | `IN PROGRESS` - the bounded startup catch-up sweep is built and proven against a clock jump; unproven on a real sleeping instance until Stage 14 deploys one                                    | Stages 11, 14                  |
 
 ---
 
@@ -1019,6 +1028,17 @@ Further tests assert that `/a.b` does not match `/axb`, that `/(a|b)` does not m
 that `/x+` does not match `/xxx` - i.e. regex syntax is inert text. No nested quantifier or
 alternation is reachable, so the expression cannot backtrack catastrophically.
 
+### A defect only the full suite found
+
+The page that completes a privacy request had no guard against its own effect firing twice, which
+React does in development. The first call consumed the single-use token, the second was correctly
+refused, and the refusal won the render - so an export that succeeded on the server was reported to
+the person as an invalid link, with the link now genuinely spent.
+
+Worth recording because of how it presented: the test passed in isolation and failed in the full
+suite, purely because load changed which response landed last. The obvious reading was a flaky
+test. Both token-consuming pages now record which token they have already acted on.
+
 ### What is still missing
 
 - The React builder, its live preview, the embed-snippet UI, and the browser journey (Stage 5b).
@@ -1088,6 +1108,17 @@ alone and watches the preview follow.
 `opacity: 0.55`, which rendered placeholder text as `#7e7f8a` on white - 3.96:1, below the 4.5:1 AA
 requires. Borders and text now scale separately, because a border is non-text and needs only 3:1.
 This would have been inherited by the Stage 6 runtime had it not been caught here.
+
+### A defect only the full suite found
+
+The page that completes a privacy request had no guard against its own effect firing twice, which
+React does in development. The first call consumed the single-use token, the second was correctly
+refused, and the refusal won the render - so an export that succeeded on the server was reported to
+the person as an invalid link, with the link now genuinely spent.
+
+Worth recording because of how it presented: the test passed in isolation and failed in the full
+suite, purely because load changed which response landed last. The obvious reading was a flaky
+test. Both token-consuming pages now record which token they have already acted on.
 
 ### What is still missing
 
@@ -1215,6 +1246,17 @@ Tab until Escape, then returns focus to the control that opened it; a popover th
 timer takes no focus at all and announces itself politely instead, because moving focus under
 someone mid-task is hostile.
 
+### A defect only the full suite found
+
+The page that completes a privacy request had no guard against its own effect firing twice, which
+React does in development. The first call consumed the single-use token, the second was correctly
+refused, and the refusal won the render - so an export that succeeded on the server was reported to
+the person as an invalid link, with the link now genuinely spent.
+
+Worth recording because of how it presented: the test passed in isolation and failed in the full
+suite, purely because load changed which response landed last. The obvious reading was a flaky
+test. Both token-consuming pages now record which token they have already acted on.
+
 ### What is still missing
 
 - The public submission endpoint. The form renders and validates in the browser but posts nowhere;
@@ -1290,6 +1332,17 @@ Every contact, submission event, consent event, and outbox row carries a `worksp
 asserts the two tenants' rows never mix across all three collections. A second test proves the same
 visitor email in two workspaces produces TWO independent contacts - contacts are unique per
 workspace, not globally, because one person contacting two customers is two separate leads.
+
+### A defect only the full suite found
+
+The page that completes a privacy request had no guard against its own effect firing twice, which
+React does in development. The first call consumed the single-use token, the second was correctly
+refused, and the refusal won the render - so an export that succeeded on the server was reported to
+the person as an invalid link, with the link now genuinely spent.
+
+Worth recording because of how it presented: the test passed in isolation and failed in the full
+suite, purely because load changed which response landed last. The obvious reading was a flaky
+test. Both token-consuming pages now record which token they have already acted on.
 
 ### What is still missing
 
@@ -1368,6 +1421,17 @@ canonical edit, merge, soft-delete, recover, bulk, export, activity history, and
 is the one that says something the others cannot - the request is well-formed and the caller may
 bulk-edit in their OWN workspace, so it returns 200 with `changed: 0`, which proves the scope is
 applied to the write and not only to the read.
+
+### A defect only the full suite found
+
+The page that completes a privacy request had no guard against its own effect firing twice, which
+React does in development. The first call consumed the single-use token, the second was correctly
+refused, and the refusal won the render - so an export that succeeded on the server was reported to
+the person as an invalid link, with the link now genuinely spent.
+
+Worth recording because of how it presented: the test passed in isolation and failed in the full
+suite, purely because load changed which response landed last. The obvious reading was a flaky
+test. Both token-consuming pages now record which token they have already acted on.
 
 ### What is still missing
 
@@ -1458,6 +1522,17 @@ There is no role table in the inbox UI. Grepping the new pages for `'owner'`, `'
 `test_e2e: TBD # filled_in_by: Stage 6`. Both commands have worked for several stages, and the
 README tells an evaluator that anything marked TBD "does not work today" - so the file was
 understating the project. Both are now filled in with their real commands and counts.
+
+### A defect only the full suite found
+
+The page that completes a privacy request had no guard against its own effect firing twice, which
+React does in development. The first call consumed the single-use token, the second was correctly
+refused, and the refusal won the render - so an export that succeeded on the server was reported to
+the person as an invalid link, with the link now genuinely spent.
+
+Worth recording because of how it presented: the test passed in isolation and failed in the full
+suite, purely because load changed which response landed last. The obvious reading was a flaky
+test. Both token-consuming pages now record which token they have already acted on.
 
 ### What is still missing
 
@@ -1567,6 +1642,17 @@ Redis, but Redis is a cache, and the reconciler deliberately re-enqueues work it
 `git diff` on both is empty. The delivery surface uses `delivery.view` (which the matrix already
 marks `limited` for a Member) and `settings.delivery.write`.
 
+### A defect only the full suite found
+
+The page that completes a privacy request had no guard against its own effect firing twice, which
+React does in development. The first call consumed the single-use token, the second was correctly
+refused, and the refusal won the render - so an export that succeeded on the server was reported to
+the person as an invalid link, with the link now genuinely spent.
+
+Worth recording because of how it presented: the test passed in isolation and failed in the full
+suite, purely because load changed which response landed last. The obvious reading was a flaky
+test. Both token-consuming pages now record which token they have already acted on.
+
 ### What is still missing
 
 - The remaining queue families from 12.1 - marketing opt-in, analytics aggregation, retention and
@@ -1663,6 +1749,17 @@ Both were `null` - "not counted yet" - since Stage 4a. They now count against
 `monthStartInZone(now, workspace.timezone)`, the same function the submission and interaction quotas
 enforce with, so the meter and the gate can never disagree about when a month turned. A test in an
 Auckland workspace confirms an event before that boundary is excluded.
+
+### A defect only the full suite found
+
+The page that completes a privacy request had no guard against its own effect firing twice, which
+React does in development. The first call consumed the single-use token, the second was correctly
+refused, and the refusal won the render - so an export that succeeded on the server was reported to
+the person as an invalid link, with the link now genuinely spent.
+
+Worth recording because of how it presented: the test passed in isolation and failed in the full
+suite, purely because load changed which response landed last. The obvious reading was a flaky
+test. Both token-consuming pages now record which token they have already acted on.
 
 ### What is still missing
 
@@ -1784,6 +1881,17 @@ Screenshots of the populated, empty, and disclosure-open states, reviewed agains
 - `WorkspaceHomePage`'s doc comment still said only the user meter was real, which Stage 10a made
   untrue. Corrected in place.
 
+### A defect only the full suite found
+
+The page that completes a privacy request had no guard against its own effect firing twice, which
+React does in development. The first call consumed the single-use token, the second was correctly
+refused, and the refusal won the render - so an export that succeeded on the server was reported to
+the person as an invalid link, with the link now genuinely spent.
+
+Worth recording because of how it presented: the test passed in isolation and failed in the full
+suite, purely because load changed which response landed last. The obvious reading was a flaky
+test. Both token-consuming pages now record which token they have already acted on.
+
 ### What is still missing
 
 - **Country and city are empty for widget traffic.** The dimensions are computed, indexed, and
@@ -1797,6 +1905,168 @@ Screenshots of the populated, empty, and disclosure-open states, reviewed agains
   started in-process; the tests call it directly. Unchanged from 10a.
 - **No arbitrary date range in the UI.** The picker offers the three ranges 4.9 names, though the
   query schema already accepts an explicit `from`/`to` pair.
+
+---
+
+## Part D-detail - Stage 11 consent, privacy, and retention evidence
+
+Stage 11 is the stage that makes earlier promises true. Every "recoverable for 30 days" this
+product has shown a customer since Stage 4 was, until now, a stored date that nothing acted on.
+
+### The exit gate, four claims and their named tests
+
+```
+node node_modules/vitest/vitest.mjs run --project unit-server privacy-domain
+  Tests 30 passed (30)
+
+node node_modules/vitest/vitest.mjs run --project integration-server privacy.integration
+  Tests 31 passed (31)
+```
+
+| Gate | Test                                                                | What it proves                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `GATE 1: each 30-day window expires correctly, never early` (5)     | Contact trash, widget trash, workspace trash, and account deletion are each swept at day 30 and NOT at day 29, driven by an injected clock. A purged widget leaves its leads intact; a purged tenant takes every workspace-owned collection with it and touches no other tenant; a purged account keeps its audit trail with the actor anonymised. Account recovery works inside the window and is refused at 409 after it. |
+| 2    | `GATE 2: purge is idempotent under a retry` (2)                     | A purge run four times does the work once - the second pass returns 0 and the record's `updatedAt` is unchanged, so a retry after a crash mid-sweep is not a second blanking. The whole sweep re-run reports zeroes.                                                                                                                                                                                                        |
+| 3    | `GATE 3: unsubscribe suppresses marketing, never transactional` (7) | Confirm then unsubscribe, workspace-wide; no marketing send to a withdrawn contact; the visitor confirmation still delivered to that same suppressed address; a later ticked box does not undo the unsubscribe; a second click is `already` with exactly one suppression row; a token naming another workspace is refused; a tampered token is refused.                                                                     |
+| 4    | `GATE 4: export and deletion need a valid token` (7)                | Refused with no token (400), an unissued token (404), a used token (404), and an expired one (404) - the expiry driven across the 24-hour boundary from both sides. An address that is not a lead gets a byte-identical answer and creates no record. An export returns one workspace's view only. A deletion erases the contact, blanks every submission value, and leaves only the suppression hash.                      |
+
+Plus `the startup catch-up sweep` (2): a two-month clock jump is met by one bounded pass that
+purges the backlog, a second pass that finds nothing, and a limit that does exactly what it says.
+
+Thirty unit tests pin the pure rules underneath: the consent state machine's eleven transitions,
+the wording fingerprint, the signed-link construction, the suppression key, and every window's
+arithmetic to the millisecond either side of its deadline.
+
+### Journey 8, through the browser
+
+```
+node node_modules/@playwright/test/cli.js test privacy-journey privacy-accessibility
+  16 passed
+```
+
+Eleven journey tests and five axe scans. Every link is followed the way a person follows it - out
+of an email captured in Mailpit, into a page with no session - rather than by constructing a URL
+the test already knows the shape of. The token that arrives has to be one this server actually
+minted and sent, which is the only reason to do this in a browser at all.
+
+The scans cover the unsubscribe page in both outcomes, the confirmation page, the refused-link
+state, the request form, its validation-error state, the "check your email" state, the full export,
+and the settings panel with its warning showing. Zero critical or serious violations.
+
+### Why suppression is a separate record, and a hash
+
+Blueprint 4.8 permits "minimal suppression data" to remain after an email-verified deletion, so the
+unsubscribe keeps being honoured. Two consequences follow, and both are load-bearing.
+
+It cannot live on the Contact, because the Contact is what gets deleted. If it did, the next
+submission from that address would create a fresh contact with no memory of the unsubscribe and
+start mailing it again - precisely the failure the unsubscribe existed to prevent. There is a test
+that deletes a contact, submits the same address again, and shows the new contact being refused.
+
+And it cannot store the address, or "deletion" would leave the deleted person's email sitting in a
+table. It is a workspace-salted HMAC of the normalized address, derived from the same master secret
+as the two pseudonyms behind its own domain separator. It answers "is this address suppressed?" for
+an address the asker already has, and cannot be read back into a mailing list. The per-workspace
+salt matters too: identical keys across tenants would let two workspaces compare lists and discover
+they share a lead.
+
+### Two consent rules that are decisions, not mechanics
+
+**A withdrawal outranks a later ticked box.** Somebody who unsubscribes and later fills in another
+form with the marketing box ticked stays unsubscribed. A ticked checkbox is weak evidence - a
+default, a mis-click, a form filled by somebody else - and a deliberate unsubscribe is strong
+evidence. Letting the weak signal overturn the strong one would make an unsubscribe a temporary
+inconvenience. They can opt in again, but only by confirming from the address itself.
+
+**An unticked box is not a withdrawal.** Somebody who confirmed last month and files a support form
+today without ticking a marketing box has not asked to be removed. Treating silence as withdrawal
+would unsubscribe people who never asked to be.
+
+### Why unsubscribe links are signed rather than stored
+
+An unsubscribe link sits in every marketing email a contact has ever received, including ones from
+a year ago, and it has to keep working - a dead unsubscribe link is the one thing an unsubscribe
+must never be. A stored token would need an expiry to get wrong and a table that grows with send
+volume. So the token carries its own claims and a MAC over them: `purpose:workspaceId:contactId`,
+signed with a domain-separated subkey. Editing any part of it invalidates it, which is what stops
+somebody swapping the contact id in their own link for a stranger's.
+
+Replay is handled by the state machine rather than by consuming the token: a second click finds the
+contact already withdrawn and says so, which is the right answer anyway - a person clicking twice
+should be reassured, not shown an error.
+
+The export and deletion flow does **not** use this. That one carries a stored, expiring, single-use
+token, because it authorizes reading or destroying somebody's data rather than setting a boolean,
+and 4.8 asks for verification of the same rigor as account email verification. It is that
+construction reused verbatim: 32 random bytes, stored only as a SHA-256 hash, 24-hour expiry.
+
+### Anonymised, not cascade-deleted
+
+Blueprint 9.5 says a purged account has its "historical actor references anonymized". Not deleted:
+an audit trail exists to record what happened in a workspace, and destroying it because its author
+closed their account would hand anybody a way to erase their own history. So the record of the
+action survives and the identity behind it is replaced with a reserved id, uniformly across audit
+events, contact activities, assignments, revisions, and invitations - including the fields that are
+not nullable, which is why a sentinel rather than `null`.
+
+`ownerUserId` on a workspace is deliberately NOT in that list. It is not history, and a workspace
+with an anonymous owner is one nobody can administer. That is also why deleting an account that
+still owns an active workspace is refused with a 409 rather than quietly orphaning a tenant other
+people are working in.
+
+### Why the startup sweep exists, and what the schedule alone does not give you
+
+Blueprint 9.5 asks for both a schedule and "bounded catch-up sweeps during startup", and the reason
+is specific to how BullMQ schedules work. A job scheduler holds exactly ONE pending iteration and
+re-arms from the moment it is upserted; it does not backfill. A process that slept through four
+daily slots wakes to one late run rather than four, and an upsert during boot can move the next
+slot past a deadline that has already passed. The schedule therefore guarantees "eventually"; only
+a pass at startup guarantees "not skipped". Confirmed against the current BullMQ documentation
+rather than assumed.
+
+Every sweep is bounded and returns what it did, because after a long sleep the backlog is a batch
+rather than a stream, and an unbounded delete is how waking up becomes an outage. Every sweep is
+idempotent by construction rather than by a lock: a purge moves the record out of the state its own
+query selects for, so a retry finds nothing to do.
+
+### A gap this stage closed by accident
+
+The in-process worker was never actually started outside the tests. `buildDependencies` has taken a
+`startWorkers` flag since Stage 9, and `index.ts` never passed it - so the delivery retry schedule,
+the outbox reconciler, and Stage 10a's analytics sweep existed but had never run in a deployed
+process, and Stage 11's startup catch-up would have been dead code for the same reason. Blueprint
+12.1 is explicit that "the worker starts inside the same Render process as the web server". Fixed
+here; the tests still start without workers so a delivery outcome stays a stated fact rather than a
+race with a poller.
+
+### A defect only the full suite found
+
+The page that completes a privacy request had no guard against its own effect firing twice, which
+React does in development. The first call consumed the single-use token, the second was correctly
+refused, and the refusal won the render - so an export that succeeded on the server was reported to
+the person as an invalid link, with the link now genuinely spent.
+
+Worth recording because of how it presented: the test passed in isolation and failed in the full
+suite, purely because load changed which response landed last. The obvious reading was a flaky
+test. Both token-consuming pages now record which token they have already acted on.
+
+### What is still missing
+
+- **The public policy pages** - privacy policy, terms, cookie notice, acceptable-use - are Stage 12.
+  This stage built the mechanisms those documents will describe.
+- **No UI for account deletion or recovery.** The API exists and is tested; the account page does
+  not offer it yet. A person can delete their account with an API call and not through a button.
+- **The suppression list has no operator view.** A workspace cannot see who has unsubscribed, which
+  is correct on the privacy side - the entries are hashes and cannot be listed back into addresses -
+  but it means a support question about a specific address has to be answered by asking that
+  address to try the form again.
+- **A marketing opt-in email lost to a Redis outage is not recovered by an outbox row**, unlike a
+  submission's side effects. The contact stays `pending` and is asked again on their next
+  submission, which is the safe direction to fail in, but it is a weaker guarantee than the
+  delivery families have.
+- **Nothing proves the daily schedule fires on a real sleeping instance.** The sweep is driven
+  directly by the tests and the catch-up is proven against a clock jump; the Render behaviour it is
+  designed for cannot be observed until Stage 14.
 
 ## Change log
 
@@ -1827,3 +2097,4 @@ Screenshots of the populated, empty, and disclosure-open states, reviewed agains
 | 2026-08-29 | 9 | Blueprint **Stage 9 COMPLETE**. BullMQ queue families, outbox reconciliation, five-attempt exponential backoff with jitter, transient-only retry, dead-letter and manual replay, per-widget verified recipients, controlled email templates, SSRF-safe HMAC-signed webhooks with 24-hour rotation overlap, and the workspace delivery health view. Evidenced by 53 new unit tests and 31 new integration tests, including the full 18.4 provider matrix. **No new capability names**; the section 11 table is unchanged. The E2E database was reset with the user's explicit authorization, closing the migration gap Stage 8b recorded: `applied 7, skipped 0`. |
 | 2026-08-29 | 10a | Blueprint Stage 10, sub-stage 10a. Analytics BACKEND: the public interaction-event endpoint with Origin/quota/rate hardening and a per-widget rotating visitor pseudonym, runtime funnel instrumentation, idempotent daily aggregation, a 90-day retention sweep that never deletes an un-aggregated day, the five funnel formulas as pure functions, and the remaining two SSE event types. Both monthly meters became real, on the workspace timezone boundary. Evidenced by 26 new unit tests and 20 new integration tests. Stage 10 stays OPEN pending 10b (dashboards + browser E2E). |
 | 2026-08-30 | 10b | Blueprint **Stage 10 COMPLETE**. B9 moved to `PROVEN` and B10 to `PROVEN` for all four meters. The eight dashboards of 4.9 on one page, from a single authenticated `workspace.view` read; a rate with no denominator renders as "no data" and, where the cause is structural, says why; live updates ride the 8a stream with no second connection; reads combine today with the stored aggregates per 13.2 step 4. Evidenced by 11 new browser tests (101 total) including 3 axe scans and a keyboard-only pass, and 6 new integration tests (266 total) for the read contract a browser cannot see. **No new capability names**; the section 11 table is unchanged. No charting library was added and the widget runtime bundle is unchanged. The visual pass found five real defects, including an empty state that claimed a freshness delay this stage had removed. |
+| 2026-08-30 | 11 | Blueprint **Stage 11 COMPLETE**. B8 moved to `PROVEN` except its policy pages (Stage 12); D20 to `IN PROGRESS`. Consent state machine with single/double opt-in and immutable evidence; workspace-wide suppression that outlives the contact as a salted hash; email-verified export and deletion on the account-verification token construction; workspace-configurable retention measured from a deliberate anchor; and all four 30-day windows of the 9.5 table actually firing, with actor references anonymised rather than cascade-deleted and a bounded startup catch-up sweep. Account deletion and recovery, which had no route before. Evidenced by 30 new unit tests (347 total), 31 new integration tests (297 total), and 16 new browser tests (117 total) including 5 axe scans. **No new capability names**; the section 11 table is unchanged. Migration `010_privacy` applied. Found and fixed a Stage 9 gap: the in-process worker was never started outside the tests, so every schedule since then had never run in a deployed process. |

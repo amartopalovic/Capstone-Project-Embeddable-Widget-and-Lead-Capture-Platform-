@@ -7,6 +7,7 @@ import {
   UserRepository,
   WorkspaceRepository,
   workspaceScope,
+  DEFAULT_OPT_IN_MODE,
   DEFAULT_RETENTION_DAYS,
   type WorkspaceScope,
 } from '@lcp/database';
@@ -106,6 +107,7 @@ async function seedTenant(db: Db, label: string): Promise<SeededTenant> {
     ownerUserId: owner._id,
     timezone: 'Europe/Berlin',
     retentionDays: DEFAULT_RETENTION_DAYS,
+    optInMode: DEFAULT_OPT_IN_MODE,
     status: 'active',
     deletedAt: null,
     purgeAfter: null,

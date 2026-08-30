@@ -13,6 +13,21 @@ export const WORKSPACE_ROLES = ['owner', 'admin', 'member'] as const;
 export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
 
 /** Soft-deletion lifecycle shared by tenant-facing records (blueprint 9.5). */
+/**
+ * The actor a deleted account's history points at (blueprint 9.5).
+ *
+ * "memberships/profile removed and historical actor references anonymized" -
+ * anonymized, not deleted and not left dangling. Cascade-deleting an audit
+ * trail because its author closed their account would destroy the workspace's
+ * accountability record; leaving the id would keep identifying them.
+ *
+ * A reserved id rather than null, so every actor field - including the ones
+ * that are not nullable, like a revision's creator - anonymizes the same way
+ * and nothing has to distinguish "system did this" from "a person who has since
+ * left did this".
+ */
+export const ANONYMOUS_ACTOR_HEX = '000000000000000000000000';
+
 export const RECORD_STATUSES = ['active', 'deleted'] as const;
 export type RecordStatus = (typeof RECORD_STATUSES)[number];
 
@@ -146,12 +161,30 @@ export interface WorkspaceRecord extends Timestamped {
   readonly timezone: string;
   /** Active contact retention in days. Default 12 months (blueprint 4.8). */
   readonly retentionDays: number;
+  /** Single or double opt-in for marketing consent. Default double (4.8). */
+  readonly optInMode: OptInMode;
   readonly status: RecordStatus;
   readonly deletedAt: Date | null;
   readonly purgeAfter: Date | null;
 }
 
 export const DEFAULT_RETENTION_DAYS = 365;
+
+/**
+ * The retention choices a workspace may pick (blueprint 4.8).
+ *
+ * "Recommended retention choices exposed to the workspace are 30 days, 90 days,
+ * 12 months, or indefinite." A closed list rather than a free number, so a typo
+ * cannot set retention to three days and quietly destroy a lead database.
+ *
+ * Indefinite is 0, not a very large number and not null: the field is
+ * `retentionDays: number`, and a sweep asking "has this passed its deadline?"
+ * should get a clear "there is no deadline" rather than arithmetic on a
+ * sentinel that happens to be far away.
+ */
+export const RETENTION_INDEFINITE = 0;
+export const RETENTION_PRESET_DAYS = [30, 90, 365, RETENTION_INDEFINITE] as const;
+export type RetentionPreset = (typeof RETENTION_PRESET_DAYS)[number];
 
 // ---------------------------------------------------------------------------
 // Workspace-owned records
@@ -371,6 +404,24 @@ export interface ContactRecord extends WorkspaceOwned, Timestamped {
   readonly lastSubmissionAt: Date;
   readonly submissionCount: number;
 
+  // --- consent and retention (blueprint 4.8, 9.5) -------------------------
+
+  /** Marketing consent state. Enforcement lives in the suppression list. */
+  readonly consentState: ConsentState;
+  readonly consentUpdatedAt: Date | null;
+
+  /**
+   * What active-contact retention counts from (blueprint 9.5).
+   *
+   * "measured from the latest retained submission or intentional workspace
+   * activity on that Contact" - so it is NOT `updatedAt`, which a bulk re-tag
+   * or a merge bookkeeping write would push forward, quietly granting another
+   * twelve months to a record nobody actually touched. It moves on a new
+   * submission and on deliberate human work: status, assignment, tags, notes,
+   * and canonical edits.
+   */
+  readonly retentionAnchorAt: Date;
+
   /**
    * Optimistic-concurrency token (blueprint 9.3: "Contact canonical values use
    * optimistic concurrency to prevent silent overwrites by teammates").
@@ -534,7 +585,23 @@ export interface ConsentEventRecord extends WorkspaceOwned {
   readonly granted: boolean;
   /** The consent wording as displayed, snapshotted at the moment of consent. */
   readonly text: string;
+  /**
+   * A stable fingerprint of that wording (blueprint 4.8: "text/version").
+   *
+   * Derived from the text rather than typed by a human, so two contacts who saw
+   * the same sentence always share a version and a reworded sentence always
+   * gets a new one. A hand-maintained version number would drift the moment
+   * somebody edited the label without thinking about consent.
+   */
+  readonly textVersion: string;
+  readonly source: ConsentSource;
   readonly widgetRevisionNumber: number;
+  /**
+   * The rotating visitor pseudonym, when the event came from a widget
+   * (blueprint 4.8: "relevant pseudonymous metadata", 9.4). Null for events
+   * raised from an emailed link, which has no visitor session behind it.
+   */
+  readonly ipPseudonym: string | null;
   readonly occurredAt: Date;
 }
 
@@ -832,4 +899,109 @@ export interface AbuseEventRecord extends WorkspaceOwned {
   /** Coarse source only: the origin host. Never a page URL or field value. */
   readonly domain: string | null;
   readonly occurredAt: Date;
+}
+
+// ---------------------------------------------------------------------------
+// Consent and contact privacy - Stage 11 (blueprint 4.8, 9.2, 9.5)
+// ---------------------------------------------------------------------------
+
+/**
+ * How a workspace collects marketing consent (blueprint 4.8).
+ *
+ * "Workspace-selectable single or double opt-in; default double." Double means
+ * a ticked box is a REQUEST to be contacted, not permission: the address has to
+ * confirm itself before anything marketing is sent to it.
+ */
+export const OPT_IN_MODES = ['single', 'double'] as const;
+export type OptInMode = (typeof OPT_IN_MODES)[number];
+export const DEFAULT_OPT_IN_MODE: OptInMode = 'double';
+
+/**
+ * A Contact's marketing consent state.
+ *
+ * `none`   - never asked, or asked and declined the box.
+ * `pending` - ticked the box under double opt-in; not yet confirmed.
+ * `confirmed` - may receive marketing mail.
+ * `withdrawn` - unsubscribed. Terminal for marketing purposes: a later
+ *   submission does not silently re-subscribe them, because a ticked box on a
+ *   form is weaker evidence than a deliberate unsubscribe.
+ */
+export const CONSENT_STATES = ['none', 'pending', 'confirmed', 'withdrawn'] as const;
+export type ConsentState = (typeof CONSENT_STATES)[number];
+
+/** Where a consent event came from (blueprint 4.8: "source"). */
+export const CONSENT_SOURCES = ['widget_form', 'double_opt_in_email', 'unsubscribe_link'] as const;
+export type ConsentSource = (typeof CONSENT_SOURCES)[number];
+
+/**
+ * Workspace-wide marketing suppression (blueprint 4.8).
+ *
+ * Deliberately a SEPARATE record from the Contact, and deliberately keyed by a
+ * hash rather than the address itself. Both follow from one sentence in 4.8:
+ * an email-verified deletion removes the contact's PII, but "minimal
+ * suppression data may remain when necessary to honor an unsubscribe". If
+ * suppression lived on the Contact it would die with it, and the next
+ * submission from that address would start sending again - which is the exact
+ * failure the unsubscribe existed to prevent.
+ *
+ * The hash is what makes what remains minimal: it answers "is this address
+ * suppressed?" for an address someone already has, and cannot be read back into
+ * a mailing list.
+ */
+export interface SuppressionRecord extends WorkspaceOwned {
+  readonly _id: ObjectId;
+  /** SHA-256 of the normalized address, workspace-salted. Never the address. */
+  readonly emailHash: string;
+  readonly suppressedAt: Date;
+  /** Kept so a support question can be answered without storing the address. */
+  readonly reason: 'unsubscribed' | 'privacy_deletion';
+}
+
+/** What a verified privacy request is asking for (blueprint 4.8). */
+export const PRIVACY_REQUEST_KINDS = ['export', 'deletion'] as const;
+export type PrivacyRequestKind = (typeof PRIVACY_REQUEST_KINDS)[number];
+
+/**
+ * The lifecycle of a self-service privacy request.
+ *
+ * `pending_verification` - created, email sent, nothing proven yet.
+ * `verified` - the address proved control; the request may now be acted on.
+ * `completed` - the export was served, or the deletion was carried out.
+ * `expired` - the token ran out before it was used.
+ */
+export const PRIVACY_REQUEST_STATUSES = [
+  'pending_verification',
+  'verified',
+  'completed',
+  'expired',
+] as const;
+export type PrivacyRequestStatus = (typeof PRIVACY_REQUEST_STATUSES)[number];
+
+/**
+ * A contact's own export or deletion request (blueprint 4.8, 9.2).
+ *
+ * The verification step is the account-verification flow's, not a lighter one:
+ * a single-use token, stored only as a hash, with an expiry. Anything weaker
+ * would let a stranger who guesses an address export somebody else's lead
+ * record - so the token IS the authorization, and there is no other way in.
+ */
+export interface PrivacyRequestRecord extends WorkspaceOwned, Timestamped {
+  readonly _id: ObjectId;
+  readonly contactId: ObjectId;
+  /**
+   * The address as it was when the request was made.
+   *
+   * Present while the request is live because the confirmation email has to go
+   * somewhere; cleared when a deletion completes, since keeping it would defeat
+   * the deletion it was created to perform.
+   */
+  readonly email: string | null;
+  readonly normalizedEmail: string;
+  readonly kind: PrivacyRequestKind;
+  readonly status: PrivacyRequestStatus;
+  /** SHA-256 of the single-use token. The plaintext lives only in the email. */
+  readonly tokenHash: string;
+  readonly expiresAt: Date;
+  readonly verifiedAt: Date | null;
+  readonly completedAt: Date | null;
 }

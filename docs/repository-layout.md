@@ -1,6 +1,6 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 10b.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+**Status: Stage 11.** All nine workspaces exist. `packages/config`, `packages/contracts`,
 `packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
 rest remain deliberate shells until the stage that fills them.
 
@@ -321,6 +321,29 @@ numbers, so there is no visually-hidden duplicate that can drift out of step wit
 
 **Reads aggregate today first** (13.2 step 4), so a dashboard is never a day behind its traffic.
 
+### What Stage 11 added
+
+| Path                                        | Contents                                                                        |
+| ------------------------------------------- | ------------------------------------------------------------------------------- |
+| `apps/server/src/domain/privacy/`           | The consent state machine, the signed-link construction, the suppression key    |
+| `apps/server/src/application/privacy/`      | Consent, privacy requests, retention sweeps, account lifecycle, and two workers |
+| `apps/server/src/http/routes/privacy.ts`    | `/public/v1` - the first routes reached with no session at all                  |
+| `apps/web/src/components/PublicNotice.tsx`  | The layout for pages a stranger sees: a statement, not a console                |
+| `apps/web/src/pages/ConsentPage.tsx`        | Unsubscribe and double opt-in, one component, four outcomes                     |
+| `apps/web/src/pages/PrivacyRequestPage.tsx` | The two-step self-service request                                               |
+| `apps/web/src/pages/PrivacyConfirmPage.tsx` | The verified export, rendered as a record rather than a payload                 |
+
+**Suppression outlives the contact**, which is why it is its own collection and why it stores a
+workspace-salted HMAC rather than an address: 4.8 permits minimal suppression data to survive a
+deletion, and neither of those properties is optional for that to work.
+
+**All four 30-day windows are computed in `domain/workspace/retention`** and nowhere else, so the
+recovery UI, the API's "recoverable until" field, and the purge sweep cannot disagree.
+
+**A startup catch-up sweep runs alongside the daily schedule** (9.5, 5.2). A BullMQ job scheduler
+holds one pending iteration and re-arms from the upsert, so it does not backfill - the schedule
+guarantees "eventually" and only the boot-time pass guarantees "not skipped".
+
 ### End-to-end tests
 
 `e2e/` holds the Playwright suite: `fixtures.ts` (shared axe scanner, Mailpit
@@ -329,7 +352,8 @@ helpers, throttle isolation, and the post-sign-in landing constants),
 a second browser context), and `tests/` (`auth-journey.spec.ts`,
 `accessibility.spec.ts`, `workspace-journey.spec.ts`,
 `workspace-accessibility.spec.ts`, `analytics-journey.spec.ts`,
-`analytics-accessibility.spec.ts`). `playwright.config.ts` at the root starts the
+`analytics-accessibility.spec.ts`, `privacy-journey.spec.ts`,
+`privacy-accessibility.spec.ts`). `playwright.config.ts` at the root starts the
 API and web servers itself and expects Mongo, Redis, and Mailpit to be up.
 
 ### What `apps/server` gained in Stage 4

@@ -16,6 +16,7 @@ import { createEventsRouter } from './routes/events.js';
 import { createDeliveriesRouter } from './routes/deliveries.js';
 import { createAnalyticsRouter } from './routes/analytics.js';
 import { PUBLIC_WIDGET_PREFIX, createPublicWidgetRouter } from './routes/public-widget.js';
+import { PUBLIC_PRIVACY_PREFIX, createPrivacyRouter } from './routes/privacy.js';
 import { correlationMiddleware } from './middleware/correlation.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { sessionMiddleware, type SessionCookieOptions } from './middleware/session.js';
@@ -77,6 +78,7 @@ export function createApp(options: CreateAppOptions): Express {
 
   const authRouter = createAuthRouter({
     auth: deps.authService,
+    accountLifecycle: deps.accountLifecycleService,
     sessions: deps.sessionService,
     mfa: deps.mfaService,
     mfaChallenges: deps.mfaChallengeStore,
@@ -152,6 +154,12 @@ export function createApp(options: CreateAppOptions): Express {
     logger: deps.logger,
   });
 
+  const privacyRouter = createPrivacyRouter({
+    consent: deps.consentService,
+    privacyRequests: deps.privacyRequestService,
+    logger: deps.logger,
+  });
+
   const eventsRouter = createEventsRouter({
     hub: deps.eventHub,
     memberships: deps.membershipService,
@@ -206,6 +214,18 @@ export function createApp(options: CreateAppOptions): Express {
    * both enforced server-side (blueprint 7.2 step 5).
    */
   app.use(PUBLIC_WIDGET_PREFIX, publicWidgetRouter);
+
+  /**
+   * The public consent and privacy surface (blueprint 4.8).
+   *
+   * Outside the CSRF-protected `/api/v1` block on purpose. Every route under it
+   * is reached by somebody with no session and no cookie, from a link in an
+   * email - there is no session for a CSRF token to be bound to, and requiring
+   * one would make an unsubscribe impossible to complete. The signed or stored
+   * token in the body is the authorization instead, which is a stronger check
+   * than a same-site cookie would have been.
+   */
+  app.use(PUBLIC_PRIVACY_PREFIX, privacyRouter);
 
   app.get(API_PREFIX, (_request, response) => {
     response.status(200).json({ api: API_PREFIX, status: 'ok' });

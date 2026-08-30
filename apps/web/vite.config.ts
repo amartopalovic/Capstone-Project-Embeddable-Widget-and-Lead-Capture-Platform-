@@ -16,6 +16,10 @@ import tailwindcss from '@tailwindcss/vite';
  * the dashboard. Proxying here reproduces that topology locally, which is what
  * lets a customer-facing snippet be tested without inventing a second base URL
  * that production would never use.
+ *
+ * `/public` joins them in Stage 11: the unsubscribe, opt-in, and privacy pages
+ * are served by this app but post to the API, and they are reached by people
+ * with no session at all. Same origin, same reason.
  */
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -31,6 +35,10 @@ export default defineConfig({
         target: process.env['VITE_API_TARGET'] ?? 'http://localhost:3000',
         changeOrigin: false,
       },
+      '/public': {
+        target: process.env['VITE_API_TARGET'] ?? 'http://localhost:3000',
+        changeOrigin: false,
+      },
     },
   },
   preview: {
@@ -42,6 +50,10 @@ export default defineConfig({
         changeOrigin: false,
       },
       '/widget': {
+        target: process.env['VITE_API_TARGET'] ?? 'http://localhost:3000',
+        changeOrigin: false,
+      },
+      '/public': {
         target: process.env['VITE_API_TARGET'] ?? 'http://localhost:3000',
         changeOrigin: false,
       },

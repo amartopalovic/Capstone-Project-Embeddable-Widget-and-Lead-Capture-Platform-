@@ -16,3 +16,5 @@ export * from './abuse-event-repository.js';
 export * from './delivery-repository.js';
 export * from './webhook-endpoint-repository.js';
 export * from './analytics-repository.js';
+export * from './suppression-repository.js';
+export * from './privacy-request-repository.js';

@@ -292,8 +292,18 @@ test.describe('GATE 3: live updates never cross tenants - EXIT GATE', () => {
       message: 'Mine.',
     });
 
-    // Exactly one - ours. A leaked event would show two.
-    await expect(page.getByTestId('stat-submissions')).toHaveText('1', { timeout: 30_000 });
+    /**
+     * Exactly one - ours. A leaked event would show two.
+     *
+     * Given longer than the client's MAXIMUM reconnect backoff, which is 30
+     * seconds. Waiting exactly 30 was racing the ceiling: if the reconnect
+     * landed on a long backoff step - which it does when the server is busy,
+     * so only under a full-suite run - the assertion expired before the stream
+     * could possibly have re-opened. What is being tested is that the
+     * reconnect delivers this tenant's data and nobody else's, not how quickly
+     * the backoff happens to resolve.
+     */
+    await expect(page.getByTestId('stat-submissions')).toHaveText('1', { timeout: 45_000 });
     await expect(page.locator('body')).not.toContainText('other-tenant@example.invalid');
 
     await outsiderContext.close();

@@ -27,7 +27,7 @@ project:
   authoritative_reference: Embeddable_Widget_Lead_Capture_Blueprint.md
   license: MIT
   repository: TBD # filled_in_by: Stage 14
-  stage_completed: 10
+  stage_completed: 11
   stages_total: 16
 
 # -----------------------------------------------------------------------------
@@ -53,7 +53,7 @@ commands:
   test:
     command: npm run test
     description: >-
-      Unit tests, no infrastructure required (317 tests as of Stage 10b),
+      Unit tests, no infrastructure required (347 tests as of Stage 11),
       including the complete section 11 authorization matrix. Integration and
       browser E2E are separate commands.
   test_unit:
@@ -62,14 +62,14 @@ commands:
     command: npm run test:integration
     description: >-
       Tenancy, auth, workspace/RBAC, widgets, submissions, and the contact
-      inbox, delivery, and analytics against real MongoDB, Redis, and Mailpit
-      (266 tests as of Stage 10b).
+      inbox, delivery, analytics, consent, and retention against real MongoDB,
+      Redis, and Mailpit (297 tests as of Stage 11).
       Needs `docker compose up -d --wait mongo redis mailpit`.
   test_e2e:
     command: npm run test:e2e
     description: >-
       Browser journeys plus axe accessibility checks against WCAG 2.2 AA,
-      driven through the real UI (101 tests as of Stage 10b). Playwright starts
+      driven through the real UI (117 tests as of Stage 11). Playwright starts
       the API, the dashboard, and the separate-origin demo itself; the same
       Docker services must be up.
   lint:

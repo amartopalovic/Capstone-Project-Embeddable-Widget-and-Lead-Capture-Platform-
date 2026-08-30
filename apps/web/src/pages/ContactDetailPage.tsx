@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
+  CONSENT_STATE_LABELS,
   CONTACT_STATUS_VALUES,
   type ContactDetail,
   type ContactStatusValue,
@@ -100,6 +101,19 @@ export function ContactDetailPage(): React.JSX.Element {
             {contact.name ?? contact.email}
           </h1>
           <ContactStatusChip status={contact.status} />
+          {/*
+           * Consent beside workflow status, because they are the two facts that
+           * govern what a team may do with a lead: one says where it is in the
+           * pipeline, the other says whether they are allowed to email it.
+           * Chipped rather than buried in the timeline - "did they unsubscribe"
+           * should never be a click away.
+           */}
+          <span
+            data-testid="consent-state"
+            className="border border-edge px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted"
+          >
+            {CONSENT_STATE_LABELS[contact.consentState]}
+          </span>
         </div>
         <p className="mt-2 font-mono text-[11px] tracking-[0.02em] text-muted">
           {contact.email}

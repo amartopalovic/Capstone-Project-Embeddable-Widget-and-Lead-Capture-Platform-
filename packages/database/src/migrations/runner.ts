@@ -11,6 +11,7 @@ import { migration006Submissions } from './006-submissions.js';
 import { migration007ContactInbox } from './007-contact-inbox.js';
 import { migration008Delivery } from './008-delivery.js';
 import { migration009Analytics } from './009-analytics.js';
+import { migration010Privacy } from './010-privacy.js';
 
 /**
  * Ordered migration list. Append only; never reorder or reuse an id.
@@ -25,6 +26,7 @@ export const MIGRATIONS: readonly Migration[] = [
   migration007ContactInbox,
   migration008Delivery,
   migration009Analytics,
+  migration010Privacy,
 ];
 
 interface MigrationLedgerEntry {

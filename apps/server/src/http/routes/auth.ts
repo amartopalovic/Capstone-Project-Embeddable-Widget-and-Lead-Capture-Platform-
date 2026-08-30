@@ -14,6 +14,7 @@ import {
   type AuthenticatedUser,
   type Logger,
 } from '@lcp/contracts';
+import type { AccountLifecycleService } from '../../application/privacy/account-lifecycle-service.js';
 import type { AuthService } from '../../application/auth/auth-service.js';
 import type { SessionService } from '../../application/auth/session-service.js';
 import type { MfaService } from '../../application/auth/mfa-service.js';
@@ -43,6 +44,7 @@ import type { WithIdUser } from '../../application/auth/types.js';
 
 export interface AuthRouterDeps {
   readonly auth: AuthService;
+  readonly accountLifecycle: AccountLifecycleService;
   readonly sessions: SessionService;
   readonly mfa: MfaService;
   readonly invitations: InvitationService;
@@ -80,6 +82,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
     logger,
     cookie,
     generateCsrfToken,
+    accountLifecycle,
   } = deps;
 
   /** Issue a session cookie and a fresh CSRF token bound to it. */
@@ -395,6 +398,80 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
       return;
     }
     response.status(200).json({ user: toAuthenticatedUser(user) });
+  });
+
+  // -------------------------------------------- account deletion (9.5, 10.2)
+
+  /**
+   * Delete your own account, recoverable for 30 days (blueprint 9.5).
+   *
+   * No capability check: this is account-level rather than workspace-level, and
+   * the section 11 matrix governs what somebody may do INSIDE a workspace. The
+   * authorization is simply that you are signed in as the account being
+   * deleted - the same basis as signing out.
+   */
+  router.delete('/account', requireAuth(), async (request, response, next) => {
+    try {
+      const user = request.currentUser;
+      if (user === undefined) throw new ApiError(ERROR_CODES.UNAUTHENTICATED, 'Sign in first');
+
+      const outcome = await accountLifecycle.deleteOwnAccount(user, request.correlationId);
+      switch (outcome.kind) {
+        case 'deleted':
+          response.clearCookie(cookie.name, { path: '/' });
+          response.status(200).json({
+            status: 'deleted',
+            recoverableUntil: outcome.recoverableUntil.toISOString(),
+          });
+          return;
+        case 'owns_workspace':
+          throw new ApiError(
+            ERROR_CODES.CONFLICT,
+            'Transfer ownership of your workspace, or delete it, before deleting your account.',
+          );
+        case 'not_found':
+          throw new ApiError(ERROR_CODES.NOT_FOUND, 'Not available');
+      }
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * Restore an account inside its window.
+   *
+   * Reached by signing in, which is why this takes credentials rather than a
+   * session: a deleted account has none. The password check is the whole
+   * authorization, and it is the same check `login` performs - recovery must
+   * not be an easier door into an account than the front one.
+   */
+  router.post('/account/recover', async (request, response, next) => {
+    try {
+      const parsed = validate(loginRequestSchema, request.body);
+      if (!parsed.ok) {
+        throw new ApiError(ERROR_CODES.VALIDATION_FAILED, 'Check the submitted fields');
+      }
+
+      const recovered = await accountLifecycle.recoverByCredentials(
+        parsed.data.email,
+        parsed.data.password,
+        request.correlationId,
+      );
+      switch (recovered.kind) {
+        case 'recovered':
+          response.status(200).json({ status: 'recovered' });
+          return;
+        case 'window_expired':
+          throw new ApiError(
+            ERROR_CODES.CONFLICT,
+            'The 30-day recovery window for this account has closed.',
+          );
+        case 'not_found':
+          throw new ApiError(ERROR_CODES.NOT_FOUND, 'Nothing to restore for those details.');
+      }
+    } catch (error) {
+      next(error);
+    }
   });
 
   /** Mint a CSRF token for the current session, for the Stage 3b UI to read. */

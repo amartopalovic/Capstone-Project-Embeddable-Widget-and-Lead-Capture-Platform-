@@ -12,7 +12,9 @@ import {
   MembershipRepository,
   NotificationRecipientRepository,
   OutboxRepository,
+  PrivacyRequestRepository,
   SubmissionEventRepository,
+  SuppressionRepository,
   UserRepository,
   WebhookEndpointRepository,
   WidgetRepository,
@@ -37,6 +39,12 @@ import { AnalyticsService } from './application/analytics/analytics-service.js';
 import { DeliveryService } from './application/delivery/delivery-service.js';
 import { DeliveryAdminService } from './application/delivery/delivery-admin-service.js';
 import { DeliveryWorkers } from './application/delivery/delivery-worker.js';
+import { AccountLifecycleService } from './application/privacy/account-lifecycle-service.js';
+import { ConsentService } from './application/privacy/consent-service.js';
+import { PrivacyRequestService } from './application/privacy/privacy-request-service.js';
+import { PrivacyWorkers } from './application/privacy/privacy-worker.js';
+import { RetentionService } from './application/privacy/retention-service.js';
+import { privacyRequestEmail } from './infrastructure/email/templates.js';
 import { OutboxReconciler } from './application/delivery/outbox-reconciler.js';
 import { QueueRegistry } from './infrastructure/queue/queues.js';
 import { HttpWebhookClient } from './infrastructure/webhook/http-webhook-client.js';
@@ -105,6 +113,11 @@ export interface AppDependencies {
   readonly deliveryService: DeliveryService;
   readonly deliveryAdminService: DeliveryAdminService;
   readonly deliveryWorkers: DeliveryWorkers;
+  readonly consentService: ConsentService;
+  readonly privacyRequestService: PrivacyRequestService;
+  readonly retentionService: RetentionService;
+  readonly privacyWorkers: PrivacyWorkers;
+  readonly accountLifecycleService: AccountLifecycleService;
   readonly outboxReconciler: OutboxReconciler;
   readonly queues: QueueRegistry;
   readonly eventHub: RedisEventHub;
@@ -413,6 +426,58 @@ export function buildDependencies(
     resolver,
   });
 
+  // ------------------------------------- consent, privacy, retention (11)
+
+  const consentService = new ConsentService({
+    db,
+    suppressions: new SuppressionRepository(db),
+    // The link signature and the suppression key derive from the same master
+    // secret as the two pseudonyms, each behind its own domain separator.
+    ipHmacSecret: env.ipHmacSecret,
+    clock,
+    logger,
+  });
+
+  const privacyRequestService = new PrivacyRequestService({
+    db,
+    privacyRequests: new PrivacyRequestRepository(db),
+    consent: consentService,
+    sendVerification: async ({ to, token, kind, workspaceName }) => {
+      const url = `${env.appBaseUrl}/privacy/confirm?token=${encodeURIComponent(token)}`;
+      await emailSender.send(privacyRequestEmail(to, workspaceName, kind, url));
+    },
+    clock,
+    logger,
+  });
+
+  const retentionService = new RetentionService({ db, clock, logger });
+
+  const accountLifecycleService = new AccountLifecycleService({
+    users: userRepository,
+    auditEvents,
+    hasher: passwordHasher,
+    revokeSessions: async (userId) => {
+      await sessionStore.destroyAllForUser(userId);
+    },
+    /**
+     * The one-owned-workspace invariant, read straight from Workspace data
+     * (blueprint 9.2) rather than from a count this service keeps.
+     */
+    ownsWorkspace: async (userId) => (await workspaceRepository.findOwnedBy(userId)) !== null,
+    clock,
+    logger,
+  });
+
+  const privacyWorkers = new PrivacyWorkers({
+    db,
+    registry: queues,
+    emailSender,
+    consent: consentService,
+    retention: retentionService,
+    appUrl: env.appBaseUrl,
+    logger,
+  });
+
   const deliveryWorkers = new DeliveryWorkers({
     registry: queues,
     deliveries: deliveryService,
@@ -444,6 +509,22 @@ export function buildDependencies(
     deliveryWorkers.start(outboxReconciler);
     void deliveryWorkers.scheduleReconciliation();
     void deliveryWorkers.scheduleAnalytics();
+
+    privacyWorkers.start();
+    void privacyWorkers.scheduleRetention();
+
+    /**
+     * The startup catch-up sweep (blueprint 9.5, 5.2).
+     *
+     * "Cleanup jobs run on a schedule when the service is active and also run
+     * bounded catch-up sweeps during startup, so Render sleep delays but does
+     * not permanently skip retention work."
+     *
+     * Not awaited: a retention backlog must not hold up a web process coming
+     * up, and the sweep swallows its own failures precisely so that starting
+     * cannot be made to fail by data.
+     */
+    void retentionService.catchUp();
   }
 
   const submissionService = new SubmissionService({
@@ -466,6 +547,9 @@ export function buildDependencies(
     events: eventHub,
     dispatchOutbox: async (workspaceId, outboxEventId) => {
       await outboxReconciler.dispatchNow(workspaceId, outboxEventId);
+    },
+    requestOptInConfirmation: async (workspaceId, contactId) => {
+      await privacyWorkers.requestConfirmation(workspaceId, contactId);
     },
     clock,
     logger,
@@ -520,6 +604,11 @@ export function buildDependencies(
     submissionService,
     contactService,
     analyticsService,
+    consentService,
+    privacyRequestService,
+    retentionService,
+    privacyWorkers,
+    accountLifecycleService,
     deliveryService,
     deliveryAdminService,
     deliveryWorkers,

@@ -4,11 +4,13 @@ import {
   CAPABILITIES,
   ERROR_CODES,
   onboardWorkspaceSchema,
+  privacySettingsSchema,
   switchWorkspaceSchema,
   transferOwnershipSchema,
   validate,
   type AuditEntrySummary,
   type Logger,
+  type WorkspacePrivacySettings,
   type WorkspaceSummary,
 } from '@lcp/contracts';
 import { workspaceScope } from '@lcp/database';
@@ -215,6 +217,88 @@ export function createWorkspacesRouter(deps: WorkspacesRouterDeps): Router {
           } satisfies WorkspaceSummary,
           capabilities,
         });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  // -------------------------------------------------- privacy and retention
+
+  /**
+   * Read and write the workspace's consent and retention settings
+   * (blueprint 4.8, 9.5).
+   *
+   * Gated on `workspace.delete`, which is Owner-only. That needs saying out
+   * loud, because the capability's NAME does not obviously cover a settings
+   * form.
+   *
+   * Blueprint section 11 has no row for retention. Section 10.2 puts it in the
+   * Workspaces group beside "usage, retention, delete/recover", so it is
+   * clearly a workspace-level control, but the matrix never says who may change
+   * it. Rather than invent an eighteenth row - the table here is a line-by-line
+   * transcription of section 11 so the two can be diffed by eye - this reuses
+   * the one existing capability that already means "you may decide this
+   * tenant's data is destroyed".
+   *
+   * That is also the right answer on the merits. Setting retention to 30 days
+   * schedules the destruction of every lead older than a month, across the
+   * whole workspace. An Admin may delete an individual contact; deciding the
+   * fate of all of them is the same class of decision as deleting the
+   * workspace, which section 11 gives to the Owner alone.
+   */
+  router.get(
+    '/privacy',
+    withWorkspace,
+    requireCapability('workspace.view'),
+    async (request, response, next) => {
+      try {
+        const scope = request.workspaceScope;
+        if (scope === undefined) throw new ApiError(ERROR_CODES.NOT_FOUND, 'Not available');
+
+        const workspace = await workspaces.findActive(scope);
+        if (workspace === null) throw new ApiError(ERROR_CODES.NOT_FOUND, 'Not available');
+
+        response.status(200).json({
+          retentionDays: workspace.retentionDays,
+          optInMode: workspace.optInMode,
+        } satisfies WorkspacePrivacySettings);
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.put(
+    '/privacy',
+    withWorkspace,
+    requireCapability('workspace.delete'),
+    async (request, response, next) => {
+      try {
+        const scope = request.workspaceScope;
+        const user = request.currentUser;
+        if (scope === undefined || user === undefined) {
+          throw new ApiError(ERROR_CODES.NOT_FOUND, 'Not available');
+        }
+
+        const parsed = validate(privacySettingsSchema, request.body);
+        if (!parsed.ok) {
+          throw new ApiError(
+            ERROR_CODES.VALIDATION_FAILED,
+            'Check the submitted fields',
+            parsed.errors,
+          );
+        }
+
+        const updated = await workspaces.updatePrivacySettings(
+          scope,
+          parsed.data,
+          user._id,
+          request.correlationId,
+        );
+        if (updated === null) throw new ApiError(ERROR_CODES.NOT_FOUND, 'Not available');
+
+        response.status(200).json(updated);
       } catch (error) {
         next(error);
       }

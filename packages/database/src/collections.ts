@@ -24,6 +24,8 @@ export const COLLECTIONS = {
   deliveries: 'deliveries',
   webhookEndpoints: 'webhook_endpoints',
   notificationRecipients: 'notification_recipients',
+  suppressions: 'suppressions',
+  privacyRequests: 'privacy_requests',
   migrations: 'migrations',
 } as const;
 

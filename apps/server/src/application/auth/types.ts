@@ -14,6 +14,8 @@ export type WithIdUser = WithId<UserRecord>;
 export interface UserRepository {
   findById(id: ObjectId): Promise<WithIdUser | null>;
   findByEmail(email: string): Promise<WithIdUser | null>;
+  /** Soft-deleted accounts only; used by recovery (blueprint 9.5). */
+  findDeletedByEmail(email: string): Promise<WithIdUser | null>;
   insert(document: Omit<UserRecord, '_id'> & { _id?: ObjectId }): Promise<WithIdUser>;
   updateById(id: ObjectId, set: Partial<Omit<UserRecord, '_id'>>): Promise<boolean>;
   findByEmailVerificationTokenHash(tokenHash: string): Promise<WithIdUser | null>;

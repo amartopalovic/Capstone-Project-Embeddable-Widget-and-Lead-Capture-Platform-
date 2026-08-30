@@ -289,3 +289,42 @@ export async function openAnalytics(page: Page): Promise<void> {
     page.getByRole('heading', { level: 1, name: 'How your widgets are doing' }),
   ).toBeVisible();
 }
+
+// ---------------------------------------------------------------------------
+// Consent and privacy (Stage 11)
+// ---------------------------------------------------------------------------
+
+/**
+ * Publish a lead-collecting widget that also asks for marketing consent.
+ *
+ * The consent field is added through the real builder select rather than
+ * seeded, because whether a workspace asks for consent at all is a creator's
+ * decision and this is the control they make it with.
+ */
+export async function publishWidgetWithConsent(page: Page, label: string): Promise<string> {
+  await createWidget(page, 'Contact form', `${label} widget`);
+  await addAllowedDomain(page, 'localhost');
+  await page.getByTestId('add-field').selectOption('consent');
+  await expect(page.getByTestId('field-list')).toContainText('consent');
+  await saveDraft(page);
+  await publishWidget(page);
+
+  const publicId = (await page.locator('main p.font-mono').first().innerText())
+    .split('\u00b7')[0]
+    ?.trim();
+  expect(publicId).toMatch(/^w_[a-z2-9]{16}$/);
+  return publicId ?? '';
+}
+
+/**
+ * Open the consent and retention settings panel, and wait for it to load.
+ *
+ * Waiting for the radios rather than the heading: the panel deliberately shows
+ * nothing to click until it knows the saved values, because the warning about
+ * shortening retention compares the choice against them.
+ */
+export async function openPrivacySettings(page: Page): Promise<void> {
+  await page.goto('/workspace/settings');
+  await expect(page.getByRole('heading', { name: 'Consent and retention' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: '12 months' })).toBeVisible();
+}
