@@ -12,6 +12,7 @@ export * from './validation.js';
 export * from './pagination.js';
 export * from './concurrency.js';
 export * from './logging.js';
+export * from './security.js';
 export * from './auth.js';
 export * from './workspace.js';
 export * from './contact.js';

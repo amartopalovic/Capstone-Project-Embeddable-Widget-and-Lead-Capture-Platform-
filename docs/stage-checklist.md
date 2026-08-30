@@ -282,11 +282,19 @@ test results, remaining limitations, and confirmation of the exit gate.
       and unmistakably not real at the same time.
     - Required wiring the widget runtime's submission seam, open since Stage 7.
 
-- [ ] **Stage 13 — Security, accessibility, resilience, and observability hardening**
+- [x] **Stage 13 — Security, accessibility, resilience, and observability hardening**
   - **Goal:** Verify cross-cutting requirements before deployment rather than treating them as
     polish.
   - **Exit gate:** The security checklist is evidenced, critical accessibility violations are zero,
     and degraded optional providers do not break primary requests.
+  - **Met.** `EVIDENCE.md` Part C now names the enforcing code and the proving test for all nineteen
+    §17 items. Sentry and the Content Security Policy existed nowhere before this stage and now cover
+    both sides of the wire; readiness gained migration compatibility and a separate report for
+    degraded optional providers that can never change the answer; blueprint 16.4's platform-operator
+    diagnostics surface exists, gated on a person rather than a shared token and closed by default.
+    The widget runtime could not previously be installed on a site with an ordinary Content Security
+    Policy - two separate defects, both found in a browser - and now can, which the sandbox's own
+    strict policy proves on every run.
 
 - [ ] **Stage 14 — Production-demo deployment and recovery rehearsal**
   - **Goal:** Deploy the exact tested architecture to the selected free providers.

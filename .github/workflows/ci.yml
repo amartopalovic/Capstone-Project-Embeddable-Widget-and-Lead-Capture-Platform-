@@ -202,14 +202,23 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  audit:
-    name: Dependency audit
+  supply-chain:
+    name: Dependencies, lockfile, vulnerabilities, and secrets
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # dependency-review reads the pull request's dependency diff.
+      pull-requests: read
 
     steps:
       - name: Check out the repository
+        # Full history: the secret scan below walks commits, and a shallow
+        # clone would only ever see the tip - which is exactly the commit a
+        # leaked credential has usually already been removed from.
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -218,27 +227,77 @@ jobs:
           cache: npm
 
       - name: Install dependencies from the lockfile
+        # This IS the lockfile-integrity check: `npm ci` refuses to run when
+        # package.json and package-lock.json disagree, and installs nothing
+        # that the lockfile does not pin.
         run: npm ci
 
-      - name: Audit production dependencies
-        # Lockfile integrity is enforced by `npm ci` itself, which fails when
-        # package.json and package-lock.json disagree.
-        run: npm audit --audit-level=high
+      - name: Verify the registry signatures of every installed package
+        # The other half of lockfile integrity. `npm ci` proves the tree matches
+        # what was committed; this proves what was committed matches what the
+        # registry actually published and signed, which is the check that
+        # notices a tampered or substituted tarball.
+        run: npm audit signatures
+
+      - name: Audit runtime dependencies
+        # Runtime only, and it FAILS the build. Development dependencies are
+        # audited separately below without failing it: a vulnerability in a test
+        # runner is worth knowing about and is not worth blocking a deployment
+        # over, and conflating the two is how a real finding ends up ignored.
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Audit development dependencies (reported, not blocking)
+        continue-on-error: true
+        run: npm audit --audit-level=critical
+
+      - name: Review dependency changes in this pull request
+        # Blocks a pull request that ADDS a vulnerable or badly licensed
+        # dependency, which is the moment it is cheapest to reject.
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          license-check: true
+          # This repository is MIT. A copyleft dependency would change what the
+          # project can be published as.
+          deny-licenses: AGPL-3.0, GPL-2.0, GPL-3.0
+
+      - name: Scan the working tree for credentials
+        # Runs identically on a developer's machine: `node scripts/scan-secrets.mjs`.
+        # A check that can only be observed by pushing is a check whose result
+        # nobody sees until after the mistake is public.
+        run: node scripts/scan-secrets.mjs
+
+      - name: Scan the full history for credentials
+        # The half the script above cannot do: a credential that was committed
+        # and then deleted is still in the history, and still leaked.
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --results=verified,unknown
 
 # -----------------------------------------------------------------------------
 # NOT YET WIRED - required by blueprint section 15.3 but not achievable today.
 # Each is added by the stage that first makes it real. None of these is stubbed
 # as a passing step.
 #
-#   - BullMQ queue integration tests                               -> Stage 9
-#   - Browser E2E for the widget runtime and submission journeys   -> Stage 6
-#   - PDF acceptance probes                                        -> Stage 7
-#   - Widget bundle-size budgets and artifact checks               -> Stage 6
-#   - Full browser matrix and the manual WCAG 2.2 AA audit         -> Stage 13
-#   - Secret scanning and vulnerability gating                     -> Stage 13
+#   - Full browser matrix; Chromium only today                     -> Stage 15
 #   - Deployment gate to the protected main branch                 -> Stage 14
+#
+# Stage 13 pruned four entries from this list that had been sitting here after
+# the stages that wired them: BullMQ queue tests, widget-runtime browser
+# journeys, the PDF acceptance probes, and the bundle-size budgets all run
+# today. A list of missing checks that names checks which are not missing is
+# the same problem as a step that passes without doing anything.
 #
 # Wired in Stage 2: the `integration` job runs real Mongo/Redis tests.
 # Wired in Stage 3b: the `e2e` job runs browser journeys plus axe accessibility
 # checks on every auth page.
+# Wired in Stages 6 to 9: the widget-runtime journeys, the six acceptance
+# probes, the bundle-size budgets, and the BullMQ queue tests, all inside the
+# `quality`, `integration`, and `e2e` jobs above.
+# Wired in Stage 13: the `supply-chain` job adds registry-signature verification,
+# a blocking runtime audit, pull-request dependency review with a licence gate,
+# a repository secret scan that also runs locally, and a full-history one.
+# Accessibility is not a separate job: axe runs inside the `e2e` job against
+# every critical page and the widget itself, which is where the pages are.
 # -----------------------------------------------------------------------------

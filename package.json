@@ -34,7 +34,8 @@
     "migrate": "npm run migrate -w @lcp/server",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "typecheck:e2e": "tsc -p e2e/tsconfig.json"
+    "typecheck:e2e": "tsc -p e2e/tsconfig.json",
+    "scan:secrets": "node scripts/scan-secrets.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
@@ -44,6 +45,7 @@
     "@types/node": "^24.10.1",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.11.0",
     "otpauth": "^9.5.1",
     "prettier": "^3.6.2",
     "tsx": "^4.20.6",

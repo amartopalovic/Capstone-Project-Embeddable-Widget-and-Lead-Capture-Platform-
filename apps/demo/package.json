@@ -15,6 +15,7 @@
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@fontsource-variable/space-grotesk": "^5.3.0",
     "@lcp/config": "*",
+    "@lcp/contracts": "*",
     "typescript": "^5.9.3",
     "vite": "^8.2.2"
   }

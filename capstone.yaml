@@ -2,10 +2,16 @@
 # capstone.yaml - machine-readable evaluation manifest
 # =============================================================================
 #
-# STATUS: Stage 7 complete (hardened public submission path). All six acceptance probes now
-# pass locally. Install, run, seed,
-# migrate, lint, typecheck, build, unit, integration, and browser E2E commands below are REAL
-# and verified. The six acceptance probes and every production URL remain `TBD`.
+# STATUS: Stage 13 complete (security, accessibility, resilience, and observability hardening).
+# All six acceptance probes pass locally and each names the command that runs it. Install, run,
+# seed, migrate, lint, typecheck, build, unit, integration, browser E2E, and the secret scan are
+# REAL and verified. Every production URL remains `TBD` until Stage 14 deploys.
+#
+# Stage 13 also corrected this file, which had been describing Stage 7 while the repository was at
+# Stage 12: three probe endpoints were still `TBD` after the stages that built them, and all six
+# acceptance probes still read `not_implemented` while EVIDENCE.md documented them passing. A
+# machine-readable manifest that understates what works is the same defect as one that overstates
+# it - both mean nobody can trust it without checking the code.
 #
 # A `TBD` value means the value does not exist - it is NOT a command that will
 # silently fail, and it must not be executed or reported as passing.
@@ -27,7 +33,7 @@ project:
   authoritative_reference: Embeddable_Widget_Lead_Capture_Blueprint.md
   license: MIT
   repository: TBD # filled_in_by: Stage 14
-  stage_completed: 12
+  stage_completed: 13
   stages_total: 16
 
 # -----------------------------------------------------------------------------
@@ -53,9 +59,10 @@ commands:
   test:
     command: npm run test
     description: >-
-      Unit tests, no infrastructure required (347 tests as of Stage 11),
-      including the complete section 11 authorization matrix. Integration and
-      browser E2E are separate commands.
+      Unit tests, no infrastructure required (385 tests as of Stage 13),
+      including the complete section 11 authorization matrix and the Content
+      Security Policy property assertions. Integration and browser E2E are
+      separate commands.
   test_unit:
     command: npm run test
   test_integration:
@@ -63,7 +70,7 @@ commands:
     description: >-
       Tenancy, auth, workspace/RBAC, widgets, submissions, and the contact
       inbox, delivery, analytics, consent, retention, and the OpenAPI contract
-      against real MongoDB, Redis, and Mailpit (312 tests as of Stage 12b).
+      against real MongoDB, Redis, and Mailpit (328 tests as of Stage 13).
       Needs `docker compose up -d --wait mongo redis mailpit`.
   test_e2e:
     command: npm run test:e2e
@@ -109,8 +116,7 @@ base_urls:
     api_docs: TBD # filled_in_by: Stage 14 (built in Stage 12a)
 
 # -----------------------------------------------------------------------------
-# Probe endpoints. Health probes are implemented and verified; the public
-# widget, submission, and event endpoints are still planned.
+# Probe endpoints. Every one of these is implemented and verified.
 # -----------------------------------------------------------------------------
 probe_endpoints:
   liveness:
@@ -121,62 +127,99 @@ probe_endpoints:
   readiness:
     path: /health/ready
     description: >-
-      Mongo and Redis connectivity. Returns 200 when ready and 503 otherwise,
-      with per-dependency detail. Migration compatibility is added in Stage 2;
-      optional-provider degraded-state reporting is Stage 13.
+      Mongo connectivity, Redis connectivity, and migration compatibility.
+      Returns 200 when ready and 503 otherwise, with per-dependency detail.
+      Degraded optional providers - email, geo, error monitoring - are reported
+      in a separate `optional` section and can never change the status.
   widget_config:
-    path: TBD # filled_in_by: Stage 6
-    description: Published widget config with Origin check, ETag, 60s cache.
+    path: /widget/v1/config/{publicId}
+    description: >-
+      Published widget config with a strict Origin allowlist check, an ETag, and
+      a 60-second cache. Answers cross-origin only for an allowlisted Origin.
   submission:
-    path: TBD # filled_in_by: Stage 7
-    description: Hardened public cross-origin submission endpoint.
+    path: /widget/v1/submit/{publicId}
+    description: >-
+      Hardened public cross-origin submission endpoint. Origin allowlist,
+      platform-owned schema, 32 KB body cap, honeypot, timing heuristic, rate
+      limits, workspace quota, and 24-hour idempotency.
   interaction_events:
-    path: TBD # filled_in_by: Stage 10
-    description: Anonymous funnel event ingestion.
+    path: /widget/v1/events/{publicId}
+    description: Anonymous funnel event ingestion; no raw IP is ever persisted.
+  api_reference:
+    path: /api-reference
+    description: >-
+      Swagger UI rendering the OpenAPI document the API generates about itself.
+      Public and unauthenticated; describes shapes, never a tenant's data.
+  operator_diagnostics:
+    path: /api/v1/diagnostics
+    description: >-
+      Platform-operator view (blueprint 16.4): queue depths and oldest waiting
+      age, dead letters, the Brevo daily budget, the Redis command counter,
+      Mongo migration state, the last retention sweep, and the sandbox reset
+      schedule. Restricted to PLATFORM_OPERATOR_EMAILS and closed to everybody
+      when that list is empty; a caller who is not on it gets 404, not 403.
 
 # -----------------------------------------------------------------------------
-# The six mandatory acceptance probes. All are currently unproven.
-# Detailed status and future transcripts live in EVIDENCE.md.
+# The six mandatory acceptance probes. All six pass; each names the command
+# that runs it. Transcripts live in EVIDENCE.md Part A.
+#
+# Each command builds the workspace packages first, because the integration
+# tests import them from `dist` - on a fresh clone the bare vitest invocation
+# would fail for a reason that has nothing to do with the probe. They also need
+# `docker compose up -d --wait mongo redis mailpit`.
 # -----------------------------------------------------------------------------
 acceptance_probes:
   - id: valid-second-origin-submission
     required_proof: >-
       2xx response, durable Submission Event, visible Contact and dashboard result.
-    status: not_implemented
-    planned_stage: 7
-    command: TBD
+    status: passing
+    completed_stage: 7
+    command: >-
+      npm run build:packages && npx vitest run --project integration-server
+      submission.integration -t "PROBE 1"
   - id: malformed-and-oversized-input
     required_proof: Clean 4xx JSON errors, never a 500.
-    status: not_implemented
-    planned_stage: 7
-    command: TBD
+    status: passing
+    completed_stage: 7
+    command: >-
+      npm run build:packages && npx vitest run --project integration-server
+      submission.integration -t "PROBE 2"
   - id: burst-traffic
     required_proof: >-
       429 responses appear while a later legitimate request still succeeds.
-    status: not_implemented
-    planned_stage: 7
-    command: TBD
+    status: passing
+    completed_stage: 7
+    command: >-
+      npm run build:packages && npx vitest run --project integration-server
+      submission.integration -t "PROBE 3"
   - id: geo-fallback
     required_proof: >-
       Provider A down and B enriches; both down and the submission is still
       stored without geo.
-    status: not_implemented
-    planned_stage: 7
-    command: TBD
+    status: passing
+    completed_stage: 7
+    command: >-
+      npm run build:packages && npx vitest run --project integration-server
+      submission.integration -t "PROBE 4"
   - id: side-effect-failure
     required_proof: >-
       Email or webhook throws and the primary submission remains successful
-      and stored.
-    status: not_implemented
-    planned_stage: 7
+      and stored. Extended in Stage 9 by delivery.integration GATE 1, which
+      forces a webhook 500, a timeout, a 4xx, a blocked SSRF destination, an
+      email-provider failure, and an unreachable Redis at enqueue time.
+    status: passing
     completed_stage: 9
-    command: TBD
+    command: >-
+      npm run build:packages && npx vitest run --project integration-server
+      submission.integration -t "PROBE 5"
   - id: honeypot
     required_proof: >-
       Bot-like submission receives a generic outcome but creates no Contact.
-    status: not_implemented
-    planned_stage: 7
-    command: TBD
+    status: passing
+    completed_stage: 7
+    command: >-
+      npm run build:packages && npx vitest run --project integration-server
+      submission.integration -t "PROBE 6"
 
 # -----------------------------------------------------------------------------
 # Honest posture of the hosted deployment.

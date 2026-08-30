@@ -964,6 +964,22 @@ const paths: Json = {
     }),
   },
 
+  // ------------------------------------------------------------ diagnostics
+  [`${A}/diagnostics`]: {
+    get: op({
+      tags: ['Operations'],
+      summary: 'Platform operator diagnostics',
+      description:
+        'Queue depths and the oldest waiting job, dead-letter counts, the Brevo daily budget, the Redis command counter, Mongo migration state, the last retention sweep, and the sandbox reset schedule (blueprint 16.4). Restricted to an allowlist of platform operators, and closed to everybody when that allowlist is empty. A caller who is not on it gets 404 rather than 403, so the endpoint cannot be confirmed to exist. Nothing here names a tenant, a contact, or a captured value; every figure is an aggregate across the whole platform.',
+      security: SESSION_READ,
+      responses: {
+        '200': json('A platform-wide snapshot.'),
+        '401': ERROR_RESPONSE,
+        '404': json('No such resource, or you are not an operator.', ref('ErrorEnvelope')),
+      },
+    }),
+  },
+
   // ------------------------------------------------------------ deliveries
   [`${A}/deliveries`]: {
     get: op({

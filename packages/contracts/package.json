@@ -15,6 +15,10 @@
     "./rules": {
       "types": "./dist/widget-rules.d.ts",
       "default": "./dist/widget-rules.js"
+    },
+    "./security": {
+      "types": "./dist/security.d.ts",
+      "default": "./dist/security.js"
     }
   },
   "files": [

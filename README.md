@@ -251,19 +251,17 @@ later stages extend it rather than invent it.
 
 Run these on the host after `npm ci`:
 
-| Command                    | What it does                                                                                                                                                     | Status    |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| `npm run lint`             | ESLint across every workspace (25 files today)                                                                                                                   | Real      |
-| `npm run format:check`     | Prettier formatting check                                                                                                                                        | Real      |
-| `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                                                                                     | Real      |
-| `npm run test`             | Unit tests, no infrastructure needed (317 tests, incl. the role matrix and widget rules)                                                                         | Real      |
-| `npm run test:integration` | Tenancy, auth, RBAC, widgets, submissions, inbox, delivery, analytics, privacy, the API contract, and the sandbox against real MongoDB/Redis/Mailpit (312 tests) | Real      |
-| `npm run test:e2e`         | Browser journeys plus axe accessibility checks, driven through the real UI (158 tests)                                                                           | Real      |
-| `npm run migrate`          | Apply committed migrations and indexes; repeatable                                                                                                               | Real      |
-| `npm run build`            | Production build of every workspace                                                                                                                              | Real      |
-| BullMQ queue tests         | Background job integration                                                                                                                                       | _Stage 9_ |
-| Widget E2E journeys        | Cross-origin widget rendering and submission                                                                                                                     | _Stage 6_ |
-| Acceptance probes          | The six mandatory probes                                                                                                                                         | _Stage 7_ |
+| Command                    | What it does                                                                                                                                                                                    | Status |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `npm run lint`             | ESLint across every workspace (25 files today)                                                                                                                                                  | Real   |
+| `npm run format:check`     | Prettier formatting check                                                                                                                                                                       | Real   |
+| `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                                                                                                                    | Real   |
+| `npm run test`             | Unit tests, no infrastructure needed (385 tests, incl. the role matrix, widget rules, and the CSP)                                                                                              | Real   |
+| `npm run test:integration` | Tenancy, auth, RBAC, widgets, submissions, inbox, delivery, analytics, privacy, the API contract, security headers, diagnostics, and the sandbox against real MongoDB/Redis/Mailpit (328 tests) | Real   |
+| `npm run test:e2e`         | Browser journeys, axe accessibility checks, and Content Security Policy verification, driven through the real UI                                                                                | Real   |
+| `npm run scan:secrets`     | Scan every tracked file for credential shapes; the same check CI runs                                                                                                                           | Real   |
+| `npm run migrate`          | Apply committed migrations and indexes; repeatable                                                                                                                                              | Real   |
+| `npm run build`            | Production build of every workspace                                                                                                                                                             | Real   |
 
 ### 5.3a Where to look once it is running
 
@@ -276,9 +274,22 @@ Run these on the host after `npm ci`:
 | Policies                            | <http://localhost:5173/policies/privacy>    |
 | See or delete your own data         | <http://localhost:5173/privacy>             |
 | The public sandbox                  | <http://localhost:5174/>                    |
+| Liveness and readiness              | <http://localhost:3000/health/ready>        |
 
 All of these are public: none needs an account, and a browser test asserts that by clearing cookies
 before visiting every one of them.
+
+One surface is deliberately not public. `GET /api/v1/diagnostics` is the platform-operator view of
+blueprint 16.4 - queue depths, dead letters, the daily email budget, migration state, the last
+retention sweep. It is restricted to an allowlist of addresses in `PLATFORM_OPERATOR_EMAILS`, matched
+against the signed-in user, and is closed to everybody when that list is empty, which is the default.
+A caller who is not on it gets 404 rather than 403, so the endpoint cannot be confirmed to exist.
+
+Every response the platform sends carries security headers and a Content Security Policy
+(`docs/secret-rotation.md` has the deployment note on the three headers a static host must send
+itself). The sandbox on 5174 carries the strictest policy in the product - no inline scripts and no
+inline styles - which is what proves the widget runtime can be installed on a customer's site
+without that site weakening its own policy.
 
 `npm run test:integration` and `npm run test:e2e` need MongoDB, Redis, and Mailpit
 running. Start them with `docker compose up -d --wait mongo redis mailpit`, or the full
@@ -333,111 +344,127 @@ reflects that this repository is only at Stage 0.
 - Everything listed in §4 above is out of scope.
 - The repository is organized as an npm-workspaces monorepo — see §3.
 
-### 7.2 Stage 9 limitations (temporary)
+### 7.2 Current limitations (temporary)
 
-- **Brevo has never been exercised for real.** Every email in every test goes to Mailpit.
-  The adapter's failure classification is unit-tested, but no message has gone through the
-  actual provider, and the free tier's 300 a day is a real constraint a busy demo would hit.
+Rewritten in Stage 13. It had been describing the repository as of Stage 9 — claiming the widget's
+form did not post, that no interaction events were recorded, that there was no dashboard chrome, and
+that every acceptance probe was unproven. All four had been false for several stages. A limitations
+section that understates what works is as misleading as one that overstates it, and it is worse for
+a reader trying to decide what to trust.
+
+**Providers and delivery**
+
+- **Brevo has never been exercised for real.** Every email in every test goes to Mailpit. The
+  adapter's failure classification is unit-tested, but no message has gone through the actual
+  provider, and the free tier's 300 a day is a real constraint a busy demo would hit.
 - **The operator alert only writes a log.** A new dead letter emits a structured
-  `delivery.dead_letter_alert` record; a pager or email integration attaches at that one
-  call site and does not exist yet.
-- **SSRF validation is check-then-connect.** Every resolved address is checked immediately
-  before each request, but a DNS entry that changes between the check and the connection is
-  not caught. Closing that properly means pinning the connection to the validated address,
-  which Node's `fetch` does not expose; the port allowlist limits what a won race could
-  reach.
-- The reconciliation sweep runs as a BullMQ job scheduler when the worker is started
-  in-process. The tests call the sweep directly, so nothing in CI proves the schedule itself
-  fires — only that the sweep does the right thing when it does.
-- **The widget's form still does not post.** The Stage 6 runtime renders and validates the
-  form and stops at a typed seam. Everything downstream of the submission endpoint is real
-  and tested — a visitor's keystrokes are the one part not yet wired to it.
-- Live updates carry contact events only. Submission, usage, and delivery events are named
-  in the contract so Stage 10 attaches to a stream that already knows them.
-- The SSE reconnect replay buffer is process-local and holds 50 events per workspace, which
-  is right for the single web process version 1 deploys and would need to move into Redis
-  for a second.
-- Membership revocation closes an open stream within one 25-second heartbeat rather than
-  instantly.
-- Geo enrichment is off outside production. ip-api's free endpoint allows 45 requests a
-  minute per source address and excludes commercial use, so `GEO_ENABLED` defaults to false
-  and the test suite drives scripted providers instead.
-- Trashed leads are marked with a purge date but never swept, and the double opt-in and
-  unsubscribe workflow does not exist; both are Stage 11.
-- The runtime bundle is read from disk once when the server starts, so a rebuilt runtime
-  needs a server restart before the new content hash is served.
-- No interaction events are recorded yet, so nothing measures whether a widget was seen or
-  opened (Stage 10).
-- The builder does not warn when a creator picks a low-contrast colour pairing. Both the
-  preview and the real widget render it faithfully, including its poor contrast.
+  `delivery.dead_letter_alert` record; a pager or email integration attaches at that one call site
+  and does not exist yet.
+- **SSRF validation is check-then-connect.** Every resolved address is checked immediately before
+  each request, but a DNS entry that changes between the check and the connection is not caught.
+  Closing that properly means pinning the connection to the validated address, which Node's `fetch`
+  does not expose; the port allowlist limits what a won race could reach.
+- Geo enrichment is off outside production. ip-api's free endpoint allows 45 requests a minute per
+  source address and excludes commercial use, so `GEO_ENABLED` defaults to false and the test suite
+  drives scripted providers instead.
+- **Blueprint 12.1 lists nine queue families and this codebase has eight.** Authentication and
+  privacy email was never given a queue, so those messages are sent inline inside the request: a
+  provider hiccup during registration surfaces as a failed registration rather than a retried email.
 
-- **There is no dashboard chrome.** The workspace pages sit in a deliberately minimal shell
-  — a switcher, four links, and an account link. The real product navigation is Stage 12.
-- A workspace's name and timezone are shown but cannot be edited: no endpoint changes them
-  yet, and a form posting to nothing would be worse than a read-only row.
-- No widgets, submissions, contacts, or analytics. The policy engine already answers for
-  their capabilities, but there are no routes to attach those answers to until Stages 5,
-  8, and 9.
-- Contact and widget trash is a separate idea from the workspace-level delete and recover
-  built here; it arrives in Stage 8.
-- Soft-delete and recovery are implemented; the scheduled purge sweep that actually
-  removes expired records is Stage 11.
-- Account deletion is enforced as a _precondition_ only. Full self-service account
-  deletion is a later stage.
-- Only the user meter in workspace usage is real. The widget, submission, and event
-  meters report null rather than a fabricated zero, and the UI draws them as an empty
-  dashed track labelled with the stage that will fill them in.
-- Every acceptance probe in [`EVIDENCE.md`](./EVIDENCE.md) is still unproven; they are
-  Stage 7.
-- CI has still never executed, because no remote is configured.
+**Scheduling and background work**
+
+- Every scheduled sweep — reconciliation, analytics aggregation, retention, and the hourly sandbox
+  reset — runs as a BullMQ job scheduler only when the worker is started in-process. The tests drive
+  each sweep directly, so nothing proves the schedule itself fires; only that the sweep does the
+  right thing when it does.
+- The runtime bundle is read from disk once when the server starts, so a rebuilt widget runtime needs
+  a server restart before the new content hash is served.
+
+**Live updates**
+
+- The SSE reconnect replay buffer is process-local and holds 50 events per workspace, which is right
+  for the single web process version 1 deploys and would need to move into Redis for a second.
+- Membership revocation closes an open stream within one 25-second heartbeat rather than instantly.
+- The public sandbox polls its activity feed rather than receiving it. The SSE stream is
+  authenticated and workspace-scoped, and opening it to an anonymous page would be a second, weaker
+  path into a live stream.
+
+**Security and operations**
+
+- **`IP_HMAC_SECRET` cannot be rotated without breaking every outstanding unsubscribe link.** It is
+  the master secret for four derived key families, including the signature on every consent link ever
+  emailed. `docs/secret-rotation.md` documents the consequence and the procedure; splitting it into
+  two secrets would fix it and is a data-format change rather than a hardening one.
+- **Retiring an encryption key is a manual step.** There is no bulk re-encryption command: each
+  webhook signing secret must be re-saved and each MFA enrolment redone. Version 1 has few enough of
+  these that doing it deliberately is safer than a migration nobody has run.
+- **The dashboard's browser tests exercise a development Content Security Policy**, which allows an
+  inline script and a WebSocket that the built application does not. The strict production policy is
+  asserted by a unit test and was verified by hand in a browser; the sandbox, which is tested built,
+  proves the strict case end to end.
+- **A static host must send three headers itself.** A `<meta>` policy cannot carry `frame-ancestors`,
+  `Permissions-Policy`, or `Strict-Transport-Security`. The dev and preview servers send them and
+  Express sends them for everything it serves; Stage 14 owns configuring the host that serves the two
+  front-end applications.
+- Automated accessibility scanning catches roughly a third of real problems. Every critical page and
+  the widget itself are clean at critical and serious severity against the WCAG 2.2 AA rule set, and
+  keyboard operation is tested separately — but nobody has used this product with a screen reader.
+- The builder does not warn when a creator picks a low-contrast colour pairing. Both the preview and
+  the real widget render it faithfully, including its poor contrast.
+
+**Deployment**
+
+- **CI has still never executed**, because no remote is configured.
 - Nothing is deployed, and `capstone.yaml` still has `TBD` for every production URL.
 - The repository path must not contain `&` on Windows — see §5.4.
-- _This section is expanded honestly as stages complete, and finalized in Stage 15._
+
+_This section is expanded honestly as stages complete, and finalized in Stage 15._
 
 ---
 
 ## 8. Evidence
 
-> **No proofs exist yet.** _To be completed progressively; the submission-path probes land in
-> Stage 7 and the evidence pack is finalized in Stage 15._
-
 [`EVIDENCE.md`](./EVIDENCE.md) maps every capstone requirement and acceptance probe to a repeatable
-proof. Today every entry is marked _Not yet implemented_, with the stage that will deliver it. No
-entry is marked complete and no test output is quoted, because no test has been written or run.
+proof, with the command that produces it and its actual output.
 
-The six acceptance probes that must eventually pass are:
+**All six mandatory acceptance probes pass**, and each names the test that runs it:
 
-| Probe                          | Required proof                                                          | Planned stage                 |
-| ------------------------------ | ----------------------------------------------------------------------- | ----------------------------- |
-| Valid second-origin submission | 2xx, durable Submission Event, visible Contact/dashboard result         | Stage 7                       |
-| Malformed and oversized input  | Clean 4xx JSON errors, never 500                                        | Stage 7                       |
-| Burst traffic                  | 429 responses appear while a later legitimate request still succeeds    | Stage 7                       |
-| Geo fallback                   | A down → B enriches; A and B down → submission still stored without geo | Stage 7                       |
-| Side-effect failure            | Email/webhook throws, primary submission remains successful and stored  | Stage 7, completed in Stage 9 |
-| Honeypot                       | Bot-like submission receives a generic outcome but creates no Contact   | Stage 7                       |
+| Probe                          | Required proof                                                          | Proven by                                                               |
+| ------------------------------ | ----------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Valid second-origin submission | 2xx, durable Submission Event, visible Contact/dashboard result         | `submission.integration.test.ts` PROBE 1                                |
+| Malformed and oversized input  | Clean 4xx JSON errors, never 500                                        | `submission.integration.test.ts` PROBE 2                                |
+| Burst traffic                  | 429 responses appear while a later legitimate request still succeeds    | `submission.integration.test.ts` PROBE 3                                |
+| Geo fallback                   | A down → B enriches; A and B down → submission still stored without geo | `submission.integration.test.ts` PROBE 4                                |
+| Side-effect failure            | Email/webhook throws, primary submission remains successful and stored  | `submission.integration.test.ts` PROBE 5, `delivery.integration` GATE 1 |
+| Honeypot                       | Bot-like submission receives a generic outcome but creates no Contact   | `submission.integration.test.ts` PROBE 6                                |
+
+The blueprint §17 security checklist is audited item by item in `EVIDENCE.md` Part C: every one of
+its nineteen requirements names the code that enforces it and the named test that proves it.
 
 ---
 
 ## 9. Repository map
 
-| Path                                                                                           | Purpose                                                       | Status                                       |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------- |
-| [`Embeddable_Widget_Lead_Capture_Blueprint.md`](./Embeddable_Widget_Lead_Capture_Blueprint.md) | Authoritative architecture and 16-stage plan                  | Complete                                     |
-| [`README.md`](./README.md)                                                                     | This file — orientation for a stranger                        | Stage 1                                      |
-| [`docs/architecture-summary.md`](./docs/architecture-summary.md)                               | One-page evaluator summary                                    | Current                                      |
-| [`docs/repository-layout.md`](./docs/repository-layout.md)                                     | Workspace ownership map                                       | Current                                      |
-| [`docs/stage-checklist.md`](./docs/stage-checklist.md)                                         | All 16 stages, goals, and exit gates                          | Stages 0–3 checked, 4a done                  |
-| [`EVIDENCE.md`](./EVIDENCE.md)                                                                 | One proof per requirement                                     | Stage 4 items updated; probes still unproven |
-| [`BUILDLOG.md`](./BUILDLOG.md)                                                                 | Where AI helped, failed, and was corrected                    | Stages 0–3 and 4a recorded                   |
-| [`capstone.yaml`](./capstone.yaml)                                                             | Machine-readable run/seed/test/probe manifest                 | Real commands; production URLs `TBD`         |
-| [`.env.example`](./.env.example)                                                               | Safe placeholder configuration                                | Placeholders only, no secrets                |
-| [`.gitignore`](./.gitignore)                                                                   | Established before dependencies or secrets could be committed | Current                                      |
-| [`LICENSE`](./LICENSE)                                                                         | MIT                                                           | Complete                                     |
-| [`package.json`](./package.json)                                                               | npm workspaces root and quality scripts                       | Stage 1                                      |
-| [`docker-compose.yml`](./docker-compose.yml)                                                   | Local six-service topology                                    | Stage 1                                      |
-| [`Dockerfile.dev`](./Dockerfile.dev)                                                           | Shared development image for the three apps                   | Stage 1                                      |
-| [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)                                       | CI baseline                                                   | Stage 1                                      |
-| `apps/`, `packages/`                                                                           | The nine npm workspaces                                       | See §2.5                                     |
+| Path                                                                                           | Purpose                                                       | Status                                           |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------ |
+| [`Embeddable_Widget_Lead_Capture_Blueprint.md`](./Embeddable_Widget_Lead_Capture_Blueprint.md) | Authoritative architecture and 16-stage plan                  | Complete                                         |
+| [`README.md`](./README.md)                                                                     | This file — orientation for a stranger                        | Stage 1                                          |
+| [`docs/architecture-summary.md`](./docs/architecture-summary.md)                               | One-page evaluator summary                                    | Current                                          |
+| [`docs/repository-layout.md`](./docs/repository-layout.md)                                     | Workspace ownership map                                       | Current                                          |
+| [`docs/stage-checklist.md`](./docs/stage-checklist.md)                                         | All 16 stages, goals, and exit gates                          | Stages 0–13 checked                              |
+| [`docs/secret-rotation.md`](./docs/secret-rotation.md)                                         | How to rotate every key without destroying data               | Stage 13                                         |
+| [`EVIDENCE.md`](./EVIDENCE.md)                                                                 | One proof per requirement                                     | All six probes passing; §17 audited item by item |
+| [`BUILDLOG.md`](./BUILDLOG.md)                                                                 | Where AI helped, failed, and was corrected                    | Stages 0–13 recorded                             |
+| [`capstone.yaml`](./capstone.yaml)                                                             | Machine-readable run/seed/test/probe manifest                 | Real commands; production URLs `TBD`             |
+| [`scripts/scan-secrets.mjs`](./scripts/scan-secrets.mjs)                                       | Credential scan, run locally and in CI                        | Stage 13                                         |
+| [`.env.example`](./.env.example)                                                               | Safe placeholder configuration                                | Placeholders only, no secrets                    |
+| [`.gitignore`](./.gitignore)                                                                   | Established before dependencies or secrets could be committed | Current                                          |
+| [`LICENSE`](./LICENSE)                                                                         | MIT                                                           | Complete                                         |
+| [`package.json`](./package.json)                                                               | npm workspaces root and quality scripts                       | Stage 1                                          |
+| [`docker-compose.yml`](./docker-compose.yml)                                                   | Local six-service topology                                    | Stage 1                                          |
+| [`Dockerfile.dev`](./Dockerfile.dev)                                                           | Shared development image for the three apps                   | Stage 1                                          |
+| [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)                                       | CI baseline                                                   | Stage 1                                          |
+| `apps/`, `packages/`                                                                           | The nine npm workspaces                                       | See §2.5                                         |
 
 ---
 

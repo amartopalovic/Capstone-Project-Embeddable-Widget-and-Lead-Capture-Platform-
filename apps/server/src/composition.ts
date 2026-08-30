@@ -45,6 +45,8 @@ import { PrivacyRequestService } from './application/privacy/privacy-request-ser
 import { PrivacyWorkers } from './application/privacy/privacy-worker.js';
 import { RetentionService } from './application/privacy/retention-service.js';
 import { DemoService } from './application/demo/demo-service.js';
+import { DiagnosticsService } from './application/diagnostics-service.js';
+import { MigrationDependencyProbe } from './infrastructure/migration-probe.js';
 import { DemoWorkers } from './application/demo/demo-worker.js';
 import { privacyRequestEmail } from './infrastructure/email/templates.js';
 import { OutboxReconciler } from './application/delivery/outbox-reconciler.js';
@@ -122,6 +124,7 @@ export interface AppDependencies {
   readonly accountLifecycleService: AccountLifecycleService;
   readonly demoService: DemoService;
   readonly demoWorkers: DemoWorkers;
+  readonly diagnosticsService: DiagnosticsService;
   readonly outboxReconciler: OutboxReconciler;
   readonly queues: QueueRegistry;
   readonly eventHub: RedisEventHub;
@@ -230,12 +233,21 @@ export function buildDependencies(
   /**
    * Key ring for readable-secret encryption.
    *
-   * Only the current version is configured today. Rotation adds older versions
-   * here so existing ciphertext stays readable (blueprint 12.4).
+   * New values are encrypted with the current version; retired versions stay in
+   * the map so ciphertext written under them is still readable (blueprint
+   * 12.4). Rotation is therefore a deployment with two variables changed and no
+   * data migration - see `docs/secret-rotation.md`.
    */
   const cipher = new AesSecretCipher({
     currentKeyVersion: env.encryptionKeyVersion,
-    keysByVersion: new Map([[env.encryptionKeyVersion, parseMasterKey(env.encryptionMasterKey)]]),
+    keysByVersion: new Map([
+      ...env.encryptionPreviousKeys.map(
+        ([version, key]) => [version, parseMasterKey(key)] as const,
+      ),
+      // Last, so a current version accidentally repeated in the retired list
+      // cannot shadow the key new values are actually written with.
+      [env.encryptionKeyVersion, parseMasterKey(env.encryptionMasterKey)] as const,
+    ]),
   });
 
   const authService = new AuthService({
@@ -509,6 +521,24 @@ export function buildDependencies(
     logger,
   });
 
+  /**
+   * The platform-operator diagnostics (blueprint 16.4).
+   *
+   * Mongo's state is asked of the migration probe rather than a separate ping:
+   * a probe that answered at all proves connectivity, and what an operator
+   * cannot see any other way is which migrations this database has applied.
+   */
+  const diagnosticsService = new DiagnosticsService({
+    db,
+    redis,
+    queues,
+    budget: emailBudget,
+    demo: demoService,
+    mongoProbes: [new MigrationDependencyProbe(db)],
+    release: env.release,
+    clock,
+  });
+
   const outboxReconciler = new OutboxReconciler({
     db,
     outbox: outboxRepository,
@@ -645,6 +675,7 @@ export function buildDependencies(
     accountLifecycleService,
     demoService,
     demoWorkers,
+    diagnosticsService,
     deliveryService,
     deliveryAdminService,
     deliveryWorkers,

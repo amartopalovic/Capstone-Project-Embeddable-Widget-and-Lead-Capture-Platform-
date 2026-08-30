@@ -11,7 +11,11 @@
     "./tsconfig.browser.json": "./tsconfig.browser.json",
     "./eslint": "./eslint.shared.js",
     "./vitest": "./vitest.shared.js",
-    "./prettier": "./prettier.shared.json"
+    "./prettier": "./prettier.shared.json",
+    "./vite-security-headers": {
+      "types": "./vite-security-headers.d.ts",
+      "default": "./vite-security-headers.js"
+    }
   },
   "files": [
     "tsconfig.base.json",
@@ -19,7 +23,9 @@
     "tsconfig.browser.json",
     "eslint.shared.js",
     "vitest.shared.js",
-    "prettier.shared.json"
+    "prettier.shared.json",
+    "vite-security-headers.js",
+    "vite-security-headers.d.ts"
   ],
   "scripts": {
     "build": "echo \"@lcp/config publishes static config files; nothing to compile.\"",

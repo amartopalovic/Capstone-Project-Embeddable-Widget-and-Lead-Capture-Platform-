@@ -48,6 +48,17 @@ export interface ServerEnv {
   // --- Stage 3b: MFA and secret encryption ---------------------------------
   readonly encryptionMasterKey: string;
   readonly encryptionKeyVersion: number;
+  /**
+   * Retired encryption keys that must stay readable (blueprint 12.4, 17).
+   *
+   * Written as `version:base64key`, comma separated. Rotating the master key
+   * without these would make every webhook signing secret already in the
+   * database permanently undecryptable - the cipher has supported multiple key
+   * versions since Stage 3b, but until Stage 13 nothing could configure a
+   * second one, which made the whole key-version design unusable in practice
+   * and the rotation runbook impossible to actually follow.
+   */
+  readonly encryptionPreviousKeys: readonly (readonly [number, string])[];
   /** Shown by authenticator apps beside the account name. */
   readonly totpIssuer: string;
 
@@ -77,6 +88,25 @@ export interface ServerEnv {
    * development it is the demo dev server; a deployment sets its own subdomain.
    */
   readonly demoOrigin: string;
+
+  // --- Stage 13: error monitoring -------------------------------------------
+
+  /**
+   * Sentry DSN (blueprint 16.3). Empty disables error monitoring entirely,
+   * which is the normal state locally and in tests.
+   *
+   * A DSN is not a secret in the way a key is - it is embedded in the browser
+   * bundle of every application that uses one, and it only grants the ability
+   * to SEND events. It is still read from the environment rather than committed,
+   * because it identifies a project.
+   */
+  readonly sentryDsn: string;
+  /** Share of requests traced. Blueprint 16.3 asks for "selected" traces. */
+  readonly sentryTracesSampleRate: number;
+
+  // --- Stage 13: operator diagnostics ---------------------------------------
+
+  readonly platformOperatorEmails: readonly string[];
 }
 
 export function loadEnv(): ServerEnv {
@@ -106,6 +136,7 @@ export function loadEnv(): ServerEnv {
     breachCheckRemote: readString('BREACH_CHECK_REMOTE', 'false') === 'true',
     encryptionMasterKey: readEncryptionMasterKey(),
     encryptionKeyVersion: readNumber('ENCRYPTION_KEY_VERSION', 1),
+    encryptionPreviousKeys: readVersionedKeys('ENCRYPTION_PREVIOUS_KEYS'),
     totpIssuer: readString('TOTP_ISSUER', 'Lead Capture Platform'),
     ipHmacSecret: readIpHmacSecret(),
     /**
@@ -119,6 +150,31 @@ export function loadEnv(): ServerEnv {
     geoEnabled: readString('GEO_ENABLED', isProductionEnv() ? 'true' : 'false') === 'true',
     geoTimeoutMs: readNumber('GEO_TIMEOUT_MS', 1500),
     demoOrigin: readString('DEMO_ORIGIN', 'http://localhost:5174'),
+    sentryDsn: readString('SENTRY_DSN', ''),
+    /**
+     * A tenth of traffic by default.
+     *
+     * Blueprint 5.2 puts this on free tiers with a service that sleeps, and
+     * Sentry's own developer plan has a monthly event quota. Tracing every
+     * request would spend that quota on a portfolio deployment's idle traffic
+     * and leave nothing for the week something actually breaks.
+     */
+    sentryTracesSampleRate: readNumber('SENTRY_TRACES_SAMPLE_RATE', 0.1),
+
+    /**
+     * Who may read the operator diagnostics surface (blueprint 16.4).
+     *
+     * Email addresses, comma separated, matched against the signed-in user.
+     * Deliberately NOT a shared token: a token is new secret material to store,
+     * rotate, and leak, and it would authenticate a caller rather than a person.
+     * This reuses the session, the verified-email gate, and the audit trail that
+     * every other privileged action in the product already goes through.
+     *
+     * Empty by default, and the surface is closed to everybody when it is empty
+     * - an operator view that defaults to open is a data breach with a
+     * changelog entry.
+     */
+    platformOperatorEmails: readList('PLATFORM_OPERATOR_EMAILS'),
   };
 }
 
@@ -168,6 +224,42 @@ function readIpHmacSecret(): string {
 
 function isProductionEnv(): boolean {
   return readString('NODE_ENV', 'development') === 'production';
+}
+
+/**
+ * A comma-separated list, normalised and de-blanked.
+ *
+ * Lower-cased because it is compared against email addresses, which this
+ * product already treats case-insensitively everywhere else.
+ */
+/**
+ * Parse `version:base64key` pairs.
+ *
+ * Refuses anything malformed rather than skipping it. A retired key that was
+ * silently dropped because of a typo would present as data that cannot be
+ * decrypted, days later, with nothing pointing at the cause.
+ */
+function readVersionedKeys(name: string): readonly (readonly [number, string])[] {
+  return readString(name, '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '')
+    .map((entry) => {
+      const separator = entry.indexOf(':');
+      const version = Number.parseInt(entry.slice(0, separator), 10);
+      const key = entry.slice(separator + 1);
+      if (separator < 1 || Number.isNaN(version) || key === '') {
+        throw new Error(`${name} entries must be written as version:base64key`);
+      }
+      return [version, key] as const;
+    });
+}
+
+function readList(name: string): readonly string[] {
+  return readString(name, '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry !== '');
 }
 
 function readNumber(name: string, fallback: number): number {

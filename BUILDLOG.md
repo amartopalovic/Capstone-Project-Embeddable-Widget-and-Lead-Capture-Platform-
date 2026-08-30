@@ -3100,3 +3100,193 @@ submission travelling the real pipeline end to end.
    and workspace-scoped; opening it to an anonymous page would be a second, weaker path into a live
    stream.
 5. **CI has still never run**, because no remote is configured.
+
+## Stage 13 - Security, accessibility, resilience, and observability hardening (2026-08-30)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Blueprint Stage 13. Hardening and evidence; no new product features.
+
+### What was done
+
+- **Audited blueprint §17 line by line** against the actual code. The rewritten Part C table in
+  `EVIDENCE.md` names the enforcing file and the proving test for all nineteen items.
+- **Sentry**, server and browser, with a shared release identifier, PII scrubbing before
+  transmission, and expected 4xx responses excluded by construction rather than by a filter list.
+- **Security headers and a Content Security Policy** on every surface, from one policy definition in
+  `@lcp/contracts/security`, applied by Express and by both Vite applications.
+- **Readiness gained migration compatibility** and a separate `optional` section that reports
+  degraded providers without ever changing the answer.
+- **`GET /api/v1/diagnostics`**, the platform-operator surface of blueprint 16.4.
+- **`docs/secret-rotation.md`**, and the configuration change that makes one of its procedures
+  possible at all.
+- **CI**: registry-signature verification, a blocking runtime audit, pull-request dependency review
+  with a licence gate, and two secret scanners.
+- **The widget runtime can now be installed on a site with a CSP**, which it could not before.
+- 36 new unit tests, 16 new integration tests, 6 new browser tests.
+
+### Key decisions
+
+**The policy is written down once.** `@lcp/contracts/security` holds it as data - directives, not a
+string - and Express, the dashboard, and the sandbox all read it from there. Two hand-written copies
+of a security policy is how one surface quietly ends up laxer than the one that was reviewed. Writing
+it as data also means the tests assert PROPERTIES: "script-src contains no `'unsafe-inline'`" fails
+for a reason, where a golden-string comparison would just get updated.
+
+**Four policies, because there are four kinds of surface.** `default-src 'none'` for JSON, which
+costs nothing and is exactly right. Inline styles for Swagger UI and for the dashboard, because a
+vendored React bundle and React itself both write style attributes - and scripts stay strict in both,
+which is the half where injection is exploitable. And the sandbox gets the strictest policy in the
+product, no inline anything, because it is the one page that embeds the widget across an origin
+boundary and is therefore the proof that a customer's own CSP does not break us.
+
+**The operator surface is gated on a person, not a token.** An allowlist of email addresses matched
+against the signed-in user. A shared token would have been fewer lines and is the obvious reach, but
+it is new secret material to store, rotate, and eventually leak, and it authenticates a caller rather
+than a person. This reuses the session, the server-side store, the verified-email gate, and the
+revocation path everything else already goes through - so a stolen laptop is handled by revoking a
+session rather than by a redeploy. It refuses with 404 rather than 403, and it defaults to closed.
+
+**Expected errors are excluded from monitoring by shape, not by a list.** Capture happens only in
+the error handler's final branch - the one that produces a 500. Every `ApiError`, CSRF rejection,
+413, and 429 is answered above it and never reported. An expected error added by some future stage is
+excluded automatically, which a list of ignored messages would not be.
+
+**The sandbox's browser tests run the built application.** Vite's dev server injects stylesheets as
+inline `<style>` elements, which the sandbox's own policy correctly refuses, so the dev server cannot
+serve that application as it is deployed. The choice was to weaken the policy in development or to
+test the artifact; testing the artifact is both more faithful and under a second slower.
+
+### Where AI failed or was corrected
+
+- **I asserted a CSP was fine because it looked fine.** Four things that read correctly in the diff
+  were wrong in Chrome, and none of them would have failed a unit test:
+  1. helmet's default `Cross-Origin-Resource-Policy: same-origin` makes the widget loader unfetchable
+     from every customer website in existence. The entire product, switched off by a security header,
+     with the dashboard still working and every test still passing.
+  2. `frame-ancestors` is **ignored** in a `<meta>` policy. The tag looked like it was providing
+     clickjacking protection and was not. Now the meta copy omits the directives a meta tag cannot
+     carry, and the runbook records that framing protection for the static applications depends on a
+     response header their host has to send.
+  3. Zod compiles validators with `new Function`, so the dashboard reported two policy violations on
+     every page load. Benign - Zod falls back - but a console full of benign violations is how a real
+     one goes unnoticed.
+  4. The demo application's own stylesheet is inline in dev, so the strict policy left the sandbox
+     unstyled and two Stage 12b tests failed with no obvious connection to anything I had changed.
+- **I diagnosed the widget font bug wrong, twice, before reading the right line.** Stage 12b left it
+  with the theory that `:host { all: initial; font-family: X }` was somehow not applying the second
+  declaration. It was not that at all: `instance.ts` set `all: initial` as an INLINE style on the
+  host, which outranks any `:host` rule. Found by grepping for `.style.` rather than by reasoning
+  about the cascade - which is what I should have done in Stage 12b instead of writing a paragraph
+  about specificity.
+- **Then I fixed it in a way that was silently broken.** I moved the widget's own values into the
+  inline style right after the reset, reasoning that CSSOM writes are not subject to CSP. A browser
+  test said otherwise: Chrome enforces `style-src` on `element.style` writes too, so on any page with
+  a strict policy the reset never applied at all and the widget lost its isolation from the host page
+  with nothing reported anywhere. The reset moved into the stylesheet with `!important`, which for a
+  `:host` rule is what actually beats the outer document - and is stronger than the inline version
+  ever was.
+- **My first PII scrubber leaked the thing it was written to protect.** It ran the shared `redact`
+  over attached context, and `redact` matches forbidden field NAMES - `url` is not one. The SDK
+  records every outbound request as a breadcrumb, so an error report from the unsubscribe page would
+  have carried a working single-use token to the monitoring vendor. Caught by the test for it, before
+  it ran anywhere.
+- **I wrote a rotation runbook for a rotation that was impossible.** The cipher has recorded a key
+  version on every ciphertext since Stage 3b, and `composition.ts` built its key map from one
+  environment variable - so the versioning worked and there was no way to configure a second key.
+  Following the procedure I had just written would have made every webhook signing secret and every
+  TOTP seed permanently undecryptable. `ENCRYPTION_PREVIOUS_KEYS` exists because of that.
+- **`z.config({ jitless: true })` in the body of `main.tsx` was too late**, and I only noticed
+  because the violations did not go away. Zod decides whether eval is available the first time a
+  schema is BUILT, and `@lcp/contracts` builds every schema at module scope. It needed its own module
+  imported first - the same shape as `instrument.ts` on the server, which I had already written that
+  day.
+- **I chased a CSP violation for four rounds before capturing its source.** Console scraping told me
+  an inline style was blocked; it did not tell me `@vite/client` had done it. Listening for
+  `securitypolicyviolation` and reading `sourceFile` answered it in one run. The test now filters by
+  source, so a violation caused by the dev server is excluded visibly and a violation caused by the
+  application still fails.
+
+- **A test failed only in a full run, and it was the product's fault rather than the test's.** `a
+visitor submits, and sees it land in the feed` passed alone and failed inside a busy shard, which
+  is the shape that usually means flakiness. It was a real race: the sandbox page refreshed its feed
+  twice after a click, and on a loaded machine the submission had not committed by the second one -
+  leaving a visitor watching an unchanged feed for up to thirty seconds. Stage 12b found the same
+  window and narrowed it from one check to two; this stage found it again, wider. It now runs a
+  burst that stops as soon as something arrives. Loosening the assertion would have been quicker and
+  would have hidden a defect a real visitor hits.
+
+### What the new probe found on its first run
+
+`pending: 011_demo`. The end-to-end database had been a migration behind since Stage 12b - blueprint
+9.3 forbids running migrations on boot, so nothing did, and every browser run since had executed
+against a database missing that migration's index. Nothing failed, because the queries work without
+it. That is exactly why nobody noticed, and it is the best argument for the probe: it was written to
+satisfy a checklist item and found a live silent divergence immediately.
+
+### A specification discrepancy this stage found and did not fix
+
+Blueprint 12.1 lists nine queue families. This codebase has eight: "authentication/privacy email"
+was never given one, and those messages are still sent inline inside the request. Stage 12b's
+buildlog called the sandbox reset "the ninth and last family", which was wrong - it is the eighth.
+
+Not fixed here. Adding a queue family means retry classification, dead-lettering, and dashboard
+states, which is architecture rather than hardening, and Stage 13's brief is explicit that it does
+not extend what exists. Recorded in `EVIDENCE.md` as an open gap and flagged below for a human.
+
+### Verification performed
+
+Every command run directly through `node`, because README 5.4's `&`-in-path issue breaks `npm run`
+in this checkout.
+
+```
+tsc (10 projects)                            0 errors
+eslint .                                     clean
+prettier --check .                           All matched files use Prettier code style!
+node scripts/scan-secrets.mjs                secret scan: clean
+npm audit --omit=dev --audit-level=high      found 0 vulnerabilities
+vitest unit    (3 projects)                  Test Files 17 passed   Tests 385 passed
+vitest integration (2 projects)              Test Files 17 passed   Tests 328 passed
+playwright (3 shards)                        61 + 55 + 47 = 163; one failure, fixed, see below
+playwright (re-run after the fix)            37 passed
+vite build widget-runtime                    17.42 kB raw / 6.81 kB gzip (budgets 20 / 8)
+vite build web, demo, server                 all succeed
+```
+
+A manual browser pass against `vite preview` confirmed the BUILT dashboard renders with no policy
+violations under `script-src 'self'`, which no automated test covers - recorded as a limitation.
+
+### Plugin usage this stage
+
+- **`context7` - used substantively, and it changed the design.** Consulted for Sentry v10 and
+  helmet 8. It surfaced two facts I would otherwise have got wrong: that `setupExpressErrorHandler`
+  is deprecated in v10 in favour of `expressIntegration`, which captures 5xx and excludes 4xx by
+  default - which is exactly blueprint 16.3's requirement and told me the boundary I wanted was
+  already the vendor's default, so implementing it at our error handler was aligning with the SDK
+  rather than working around it; and helmet 8's exact option names and the fact that
+  `useDefaults: false` is what stops a reviewed policy being silently merged with whatever the
+  library's defaults are this major version.
+- **`typescript-lsp` - used for navigation across the new modules.** Its cross-file index has been a
+  stage behind since Stage 11 and still is: it reported a phantom error in `demo-service.ts`
+  throughout this stage that `tsc` never saw across ten clean project builds. `tsc` remained the
+  authority.
+- **`frontend-design` - not consulted.** The accessibility audit found nothing needing a layout or
+  interaction decision, which is what the brief made it conditional on. The only visual change this
+  stage made was moving two inline styles into a stylesheet, which is not a design question.
+
+### Open questions for a human
+
+1. **The ninth queue family.** Blueprint 12.1 asks for one that does not exist, and authentication
+   emails are sent inline as a result. A Brevo hiccup during registration surfaces as a failed
+   registration rather than a retried email. Worth a decision before deployment.
+2. **`IP_HMAC_SECRET` cannot be rotated without breaking every outstanding unsubscribe link.**
+   Splitting it into a pseudonym secret and a consent-signing secret would fix that, at the cost of a
+   data-format change. Documented rather than done.
+3. **The dashboard's automated tests exercise a dev-server policy.** The strict one is unit-asserted
+   and was checked by hand in a browser. Closing it properly means building the dashboard on every
+   end-to-end run.
+4. **CI has still never run**, because no remote is configured. The `supply-chain` job is written
+   against commands that do run locally, but `dependency-review-action` and TruffleHog have never
+   executed.
+5. **Automated accessibility scanning is a floor.** Zero critical and serious violations across every
+   page and the widget, and keyboard operation tested separately - but nobody has used this product
+   with a screen reader.

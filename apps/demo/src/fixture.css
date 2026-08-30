@@ -1,0 +1,71 @@
+/*
+ * Deliberately hostile host-page CSS, for the widget isolation tests.
+ *
+ * A widget is a guest on a page it does not control, and this is a worst-case
+ * version of one: rules that reset box-sizing globally, restyle every input,
+ * and reuse `.panel` - the same class name the widget's own stylesheet uses. If
+ * Shadow DOM isolation were not doing its job, every one of these would visibly
+ * deform the widget, and the Stage 6 browser tests assert that none of them
+ * does.
+ *
+ * A file rather than a `<style>` block in the page, since Stage 13: this
+ * application now sends `style-src 'self'`, which refuses an inline style block
+ * however hostile its author intended it to be. The rules are identical and the
+ * fixture is exactly as unpleasant; it just arrives the way a real website's
+ * stylesheet does. Found when the isolation test reported the HOST page had
+ * lost its own styling rather than the widget having lost its.
+ */
+
+* {
+  box-sizing: content-box !important;
+}
+
+body {
+  margin: 0;
+  font-family: Georgia, serif;
+  background: #fbf7ef;
+  color: #2b2118;
+}
+
+/* A class collision with the widget's own internals. */
+.panel {
+  background: #ffe08a;
+  border: 4px dashed #b3261e;
+  padding: 40px;
+  text-transform: uppercase;
+}
+
+input,
+textarea,
+button {
+  font-size: 40px !important;
+  color: #b3261e !important;
+  background: #ffe08a !important;
+  border: 6px solid #b3261e !important;
+  letter-spacing: 6px !important;
+}
+
+h2 {
+  text-transform: uppercase;
+  letter-spacing: 10px;
+  color: #b3261e;
+}
+
+.host-shell {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 32px 20px 80px;
+}
+
+.tall {
+  height: 2400px;
+  background: linear-gradient(#fbf7ef, #efe6d6);
+  border-top: 1px solid #d8cbb4;
+  margin-top: 32px;
+  padding-top: 16px;
+}
+
+.note {
+  font-size: 14px;
+  color: #6b5b46;
+}

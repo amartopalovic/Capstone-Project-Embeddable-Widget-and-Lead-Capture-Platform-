@@ -1,4 +1,4 @@
 {
   "extends": "@lcp/config/tsconfig.browser.json",
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "src/**/*.d.ts"]
 }

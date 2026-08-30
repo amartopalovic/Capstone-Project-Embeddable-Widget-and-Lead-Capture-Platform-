@@ -98,6 +98,13 @@ export interface HarnessOptions {
   readonly webhookClient?: WebhookClient;
   /** States what a hostname resolves to, for the SSRF tests. */
   readonly dnsResolver?: Resolver;
+  /**
+   * Who may read the operator diagnostics surface (blueprint 16.4).
+   *
+   * Empty by default, exactly as it is in a fresh deployment, so the tests that
+   * do not set it prove the surface is closed rather than assuming it.
+   */
+  readonly operatorEmails?: readonly string[];
 }
 
 export async function createAuthHarness(options: HarnessOptions = {}): Promise<AuthHarness> {
@@ -142,6 +149,7 @@ export async function createAuthHarness(options: HarnessOptions = {}): Promise<A
     breachCheckRemote: false,
     encryptionMasterKey: Buffer.from('test-only-insecure-key-32-bytes!').toString('base64'),
     encryptionKeyVersion: 1,
+    encryptionPreviousKeys: [],
     totpIssuer: 'Lead Capture Test',
     ipHmacSecret: 'integration-test-ip-hmac-not-a-real-credential',
     // Never call the real geo services from a test suite; blueprint 18.4 wants
@@ -150,6 +158,11 @@ export async function createAuthHarness(options: HarnessOptions = {}): Promise<A
     geoTimeoutMs: 200,
     // The sandbox's own origin; the seeded widgets allow submissions from it.
     demoOrigin: 'http://localhost:5174',
+    // No DSN: nothing in a test suite should be able to reach a monitoring
+    // vendor, and the reporter's own behaviour is unit-tested with a fake.
+    sentryDsn: '',
+    sentryTracesSampleRate: 0,
+    platformOperatorEmails: options.operatorEmails ?? [],
   } satisfies ServerEnv;
 
   // The real SMTP sender, pointed at the real Mailpit service.

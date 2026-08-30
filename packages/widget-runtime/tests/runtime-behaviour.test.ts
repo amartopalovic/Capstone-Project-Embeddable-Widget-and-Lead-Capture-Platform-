@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isSuppressed, markSeen, visitorId } from '../src/cooldown.js';
 import { supportsExitIntent } from '../src/triggers.js';
-import { buildStyles } from '../src/styles.js';
+import { buildStyles, hostDeclarations } from '../src/styles.js';
 import { isPageTargeted, isSafeDestinationUrl } from '@lcp/contracts/rules';
 import type { PublicWidgetConfig } from '@lcp/contracts';
 
@@ -226,6 +226,41 @@ describe('the stylesheet accepts only enumerated values (blueprint 4.3, 17)', ()
     const styles = buildStyles(configWith({}));
     expect(styles).toContain('all: initial');
     expect(styles).toContain('box-sizing: border-box');
+  });
+
+  it('puts the widget FONT back after the reset, and makes both important', () => {
+    /**
+     * The Stage 12b defect, in the one place a unit test can see it.
+     *
+     * `all: initial` resets the font to the browser's default, so every widget
+     * in the product rendered in Times New Roman whatever its creator chose.
+     * The declarations that must survive come after the reset, where they win
+     * on order.
+     *
+     * `!important` on both is what lets this live in the stylesheet at all: for
+     * the host element a normal rule in the OUTER document outranks a normal
+     * `:host` rule, so only an important declaration from inside the shadow
+     * tree holds. It also means no inline style is needed, which is what makes
+     * the widget installable on a page with a strict Content Security Policy -
+     * proven end to end by the sandbox's own browser tests.
+     */
+    const styles = buildStyles(configWith({ fontFamily: 'mono' as never }));
+    const host = styles.slice(styles.indexOf(':host'), styles.indexOf('}'));
+
+    expect(host).toContain('all: initial !important');
+    expect(host).toMatch(/font-family: [^;]*monospace[^;]*!important/);
+    // Order is the whole mechanism: a reset AFTER the font would undo it.
+    expect(host.indexOf('all: initial')).toBeLessThan(host.indexOf('font-family'));
+  });
+
+  it('never needs an inline style, so a strict style-src cannot break it', () => {
+    // `hostDeclarations` is the single source for both the `:host` block and
+    // anything that might apply the same values another way. Every property the
+    // host depends on has to be in the stylesheet.
+    const styles = buildStyles(configWith({}));
+    for (const [property] of hostDeclarations(configWith({}))) {
+      expect(styles, property).toContain(`${property}:`);
+    }
   });
 });
 

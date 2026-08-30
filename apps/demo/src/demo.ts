@@ -43,14 +43,21 @@ interface DemoFeed {
 }
 
 /**
- * Where the API is.
+ * Where the platform is.
  *
- * Overridable by query string so the browser tests can point this page at
- * whichever port the platform is on, which is the same affordance the isolation
- * fixture has had since Stage 6.
+ * The default comes from the build, through the same constant that built this
+ * page's Content Security Policy - so the origin this page fetches from and the
+ * origin its policy permits are one value and cannot drift into disagreeing.
+ *
+ * Still overridable by query string, so the browser tests can point this page
+ * at whichever port the platform is on; that is the same affordance the
+ * isolation fixture has had since Stage 6, and the CSP is what stops it being
+ * pointed anywhere interesting.
  */
+declare const __PLATFORM_ORIGIN__: string;
+
 const params = new URLSearchParams(window.location.search);
-const apiBase = (params.get('api') ?? 'http://localhost:5173').replace(/\/+$/, '');
+const apiBase = (params.get('api') ?? __PLATFORM_ORIGIN__).replace(/\/+$/, '');
 
 const TYPE_LABEL: Readonly<Record<DemoWidget['type'], string>> = {
   contact_form: 'Contact form',
@@ -106,19 +113,15 @@ function renderSpecimen(widget: DemoWidget): HTMLLIElement {
      */
     const explain = el(
       'p',
-      undefined,
+      'mount__explain',
       'This one stays hidden until something opens it. It has a three-second delay of its own, and any element on the page can open it too:',
     );
-    explain.style.margin = '0 0 1rem';
-    explain.style.color = 'var(--muted)';
     mount.append(explain);
 
-    const opener = el('button', undefined, 'Open the popover');
+    const opener = el('button', 'mount__opener', 'Open the popover');
     opener.type = 'button';
     opener.setAttribute('data-lcp-widget-open', widget.publicId);
     opener.setAttribute('data-testid', `open-${widget.publicId}`);
-    opener.style.cssText =
-      'border:1px solid var(--signal);background:var(--signal);color:#fff;padding:0.6rem 1.1rem;font:500 0.875rem var(--sans);cursor:pointer';
     mount.append(opener);
   }
 
@@ -297,21 +300,38 @@ async function start(): Promise<void> {
   window.setInterval(() => void refreshFeed(), 30_000);
 
   /**
-   * A faster check just after any click inside the page, which is the cheapest
-   * proxy for "somebody probably just pressed Send" that does not require the
-   * runtime to expose an event we would then have to keep in step.
+   * A burst of faster checks just after any click inside the page.
    *
-   * TWICE, at different delays, and the second one is not belt-and-braces. A
-   * single check races the write: the submission is committed asynchronously,
-   * so a feed fetched 1.2 seconds after the click can legitimately land before
-   * the row exists - and the next scheduled poll is then thirty seconds away.
-   * A visitor who had just pressed Send would watch an empty feed for half a
-   * minute and reasonably conclude nothing happened. Found because a browser
-   * test hit exactly that window under load.
+   * A click is the cheapest proxy for "somebody probably just pressed Send"
+   * that does not require the runtime to expose an event we would then have to
+   * keep in step with.
+   *
+   * A BURST rather than one check, and the extra ones are not belt-and-braces.
+   * A submission commits asynchronously, so a feed fetched a second after the
+   * click can legitimately land before the row exists - and the next scheduled
+   * poll is then thirty seconds away. Somebody who had just pressed Send would
+   * watch an unchanged feed for half a minute and reasonably conclude nothing
+   * happened.
+   *
+   * Stage 12b checked twice, at 1.2 and 4 seconds, which closed the window on
+   * an idle machine and not on a loaded one - a browser test failed against
+   * exactly that in Stage 13. The delays now stretch to fourteen seconds and
+   * stop early the moment something new arrives, so the burst costs one request
+   * in the common case and covers a slow write in the uncommon one.
    */
+  let chase: number[] = [];
+
   document.addEventListener('click', () => {
-    window.setTimeout(() => void refreshFeed(), 1200);
-    window.setTimeout(() => void refreshFeed(), 4000);
+    for (const timer of chase) window.clearTimeout(timer);
+    const before = lastSeenTop;
+    chase = [1000, 2500, 5000, 9000, 14_000].map((delay) =>
+      window.setTimeout(() => {
+        // Something newer than the top entry we had at click time has arrived;
+        // the rest of the burst has nothing left to look for.
+        if (lastSeenTop !== before) return;
+        void refreshFeed();
+      }, delay),
+    );
   });
 }
 

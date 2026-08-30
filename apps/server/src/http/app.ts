@@ -4,6 +4,7 @@ import { API_PREFIX, ERROR_CODES, createErrorPayload } from '@lcp/contracts';
 import type { HealthService } from '../application/health-service.js';
 import type { AppDependencies } from '../composition.js';
 import type { ServerEnv } from '../config/env.js';
+import { nullErrorReporter, type ErrorReporter } from '../ports/error-reporter.js';
 import { createHealthRouter } from './routes/health.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createSessionsRouter } from './routes/sessions.js';
@@ -15,6 +16,7 @@ import { createContactsRouter } from './routes/contacts.js';
 import { createEventsRouter } from './routes/events.js';
 import { createDeliveriesRouter } from './routes/deliveries.js';
 import { createAnalyticsRouter } from './routes/analytics.js';
+import { createDiagnosticsRouter } from './routes/diagnostics.js';
 import { PUBLIC_WIDGET_PREFIX, createPublicWidgetRouter } from './routes/public-widget.js';
 import { PUBLIC_PRIVACY_PREFIX, createPrivacyRouter } from './routes/privacy.js';
 import { DEMO_PREFIX, createDemoRouter } from './routes/demo.js';
@@ -24,12 +26,17 @@ import { correlationMiddleware } from './middleware/correlation.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { sessionMiddleware, type SessionCookieOptions } from './middleware/session.js';
 import { createCsrf } from './middleware/csrf.js';
+import {
+  crossOriginReadable,
+  permissionsPolicy,
+  securityHeaders,
+} from './middleware/security-headers.js';
 
 /**
  * Express application factory.
  *
  * Middleware order is load-bearing and deliberate:
- *   correlation -> cookies -> body -> session resolution -> CSRF -> routes
+ *   security headers -> correlation -> cookies -> body -> session -> CSRF -> routes
  *
  * CSRF must run AFTER session resolution because the token is bound to the
  * session identifier, and after the body parser so a form-encoded token could
@@ -40,10 +47,13 @@ export interface CreateAppOptions {
   readonly env: ServerEnv;
   readonly healthService: HealthService;
   readonly deps: AppDependencies;
+  /** Blueprint 16.3. Defaults to reporting nothing, which is what tests want. */
+  readonly errorReporter?: ErrorReporter;
 }
 
 export function createApp(options: CreateAppOptions): Express {
   const { env, healthService, deps } = options;
+  const errorReporter = options.errorReporter ?? nullErrorReporter;
   const app = express();
 
   app.disable('x-powered-by');
@@ -59,6 +69,18 @@ export function createApp(options: CreateAppOptions): Express {
     // break the top-level navigation arriving from a verification email link.
     sameSite: 'lax',
   };
+
+  /**
+   * Security headers first, before anything that can produce a response
+   * (blueprint 17).
+   *
+   * Ahead of correlation and the body parser on purpose: a 413 raised by the
+   * body parser and a 500 raised by a route are both responses a browser will
+   * act on, and a header set only on the happy path is a header that is missing
+   * exactly when something has gone wrong.
+   */
+  app.use(securityHeaders());
+  app.use(permissionsPolicy());
 
   app.use(correlationMiddleware());
   app.use(cookieParser());
@@ -159,6 +181,12 @@ export function createApp(options: CreateAppOptions): Express {
     logger: deps.logger,
   });
 
+  const diagnosticsRouter = createDiagnosticsRouter({
+    diagnostics: deps.diagnosticsService,
+    operatorEmails: env.platformOperatorEmails,
+    logger: deps.logger,
+  });
+
   const demoRouter = createDemoRouter({
     demo: deps.demoService,
     limiter: deps.rateLimiter,
@@ -214,6 +242,15 @@ export function createApp(options: CreateAppOptions): Express {
     { prefix: `${API_PREFIX}/contacts`, router: contactsRouter },
     { prefix: `${API_PREFIX}/deliveries`, router: deliveriesRouter },
     { prefix: `${API_PREFIX}/analytics`, router: analyticsRouter },
+    /**
+     * The operator diagnostics surface (blueprint 16.4).
+     *
+     * Inside the CSRF-guarded block like every other authenticated route, even
+     * though it is a GET and the guard exempts safe methods - so that the day
+     * it grows a POST it is already protected rather than needing somebody to
+     * notice.
+     */
+    { prefix: `${API_PREFIX}/diagnostics`, router: diagnosticsRouter },
   ];
 
   app.use(`${API_PREFIX}/auth`, authRouter);
@@ -239,7 +276,7 @@ export function createApp(options: CreateAppOptions): Express {
    * protects these routes is the Origin allowlist and the published state,
    * both enforced server-side (blueprint 7.2 step 5).
    */
-  app.use(PUBLIC_WIDGET_PREFIX, publicWidgetRouter);
+  app.use(PUBLIC_WIDGET_PREFIX, crossOriginReadable(), publicWidgetRouter);
 
   /**
    * The public consent and privacy surface (blueprint 4.8).
@@ -260,7 +297,7 @@ export function createApp(options: CreateAppOptions): Express {
    * The hourly reset is deliberately NOT here: it is a scheduled job, because a
    * route that wipes a tenant is a route that wipes a tenant.
    */
-  app.use(DEMO_PREFIX, demoRouter);
+  app.use(DEMO_PREFIX, crossOriginReadable(), demoRouter);
 
   /**
    * The API contract and its reference UI (blueprint 10.1).
@@ -308,7 +345,7 @@ export function createApp(options: CreateAppOptions): Express {
       );
   });
 
-  app.use(errorHandler(deps.logger));
+  app.use(errorHandler(deps.logger, errorReporter));
 
   return app;
 }

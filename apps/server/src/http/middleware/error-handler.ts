@@ -8,6 +8,7 @@ import {
   type Logger,
 } from '@lcp/contracts';
 import { CSRF_ERROR_CODE } from './csrf.js';
+import { nullErrorReporter, type ErrorReporter } from '../../ports/error-reporter.js';
 
 /**
  * Typed application error carrying a machine-readable code.
@@ -34,8 +35,17 @@ export class ApiError extends Error {
  * becomes a 500, so the two cases Express raises itself - a JSON parse failure
  * and a body-size overflow - are translated into their proper 4xx codes rather
  * than falling through to the generic branch.
+ *
+ * This is also where blueprint 16.3's "expected validation, authentication,
+ * spam, and rate-limit responses are not reported as application crashes" is
+ * implemented, and it is implemented by SHAPE rather than by a list. Every
+ * branch above the last one is an answer this server meant to give, and none of
+ * them reports anything. Only the final branch - the one that produces a 500
+ * because nothing understood the error - reaches the monitoring service. An
+ * expected error introduced by some future stage is therefore excluded by
+ * construction, without anybody remembering to exclude it.
  */
-export function errorHandler(logger: Logger) {
+export function errorHandler(logger: Logger, reporter: ErrorReporter = nullErrorReporter) {
   return (error: unknown, request: Request, response: Response, next: NextFunction): void => {
     if (response.headersSent) {
       next(error);
@@ -105,6 +115,13 @@ export function errorHandler(logger: Logger) {
       correlationId,
       errorName: error instanceof Error ? error.name : 'unknown',
       result: 'server_error',
+    });
+
+    reporter.captureException(error, {
+      correlationId,
+      event: 'request.unhandled_error',
+      workspaceId: request.workspaceScope?.workspaceId.toHexString(),
+      userId: request.session?.userId,
     });
 
     response

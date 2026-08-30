@@ -34,6 +34,7 @@ export function buildTestApp(healthService: HealthService): Express {
     breachCheckRemote: false,
     encryptionMasterKey: Buffer.from('test-only-insecure-key-32-bytes!').toString('base64'),
     encryptionKeyVersion: 1,
+    encryptionPreviousKeys: [],
     totpIssuer: 'Lead Capture Test',
     ipHmacSecret: 'integration-test-ip-hmac-not-a-real-credential',
     // Never call the real geo services from a test suite; blueprint 18.4 wants
@@ -42,6 +43,9 @@ export function buildTestApp(healthService: HealthService): Express {
     geoTimeoutMs: 200,
     // The sandbox's own origin; the seeded widgets allow submissions from it.
     demoOrigin: 'http://localhost:5174',
+    sentryDsn: '',
+    sentryTracesSampleRate: 0,
+    platformOperatorEmails: [],
   } satisfies ServerEnv;
 
   // Only the health surface is exercised, so the auth graph is never called.

@@ -294,31 +294,60 @@ real queue behavior in Stage 9.
 
 ## Part C — Security architecture checklist (blueprint §17)
 
-The implementation is not complete until every item below is enforced and evidenced. All are
-currently unproven. Consolidated verification happens in **Stage 13**, but each item is delivered
-by the stage noted.
+Audited item by item in **Stage 13**. Every row names the code that enforces it and the named,
+re-runnable test that proves it. A row without both is not marked proven.
 
-| #   | Requirement                                                                                 | Status                                                                                                                | Delivered by                         |
-| --- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| C1  | Argon2id hashing and strong password rules                                                  | `PROVEN` - Argon2id 64MiB/t=3/p=4 with policy and breach blocking                                                     | Stage 3                              |
-| C2  | Hashed single-use verification, reset, invitation, recovery, and privacy tokens with expiry | `PROVEN` for verification, reset, and recovery codes; privacy tokens in Stage 11                                      | Stages 3, 4, 11                      |
-| C3  | Optional TOTP MFA and hashed recovery codes                                                 | `PROVEN` - optional TOTP with hashed single-use recovery codes                                                        | Stage 3                              |
-| C4  | Redis sessions, rotation, expiry, device revocation, secure cookies, CSRF                   | `PROVEN` for sessions, rotation, expiry, revocation, cookies, and CSRF                                                | Stage 3                              |
-| C5  | Generic auth responses and dedicated brute-force limits                                     | `PROVEN` - generic responses and per-flow throttles                                                                   | Stage 3                              |
-| C6  | Mandatory workspace scope in every tenant query                                             | `PROVEN` - scope is session-derived and re-checked per request                                                        | Stage 2, enforced onward             |
-| C7  | Role and verified-email gates on the server, never only in React                            | `PROVEN` - enforced server-side, and the UI hides controls using capabilities the SERVER derives from that same table | Stage 4                              |
-| C8  | Strict Origin allowlist and correct CORS/preflight behavior                                 | `NOT YET IMPLEMENTED`                                                                                                 | Stages 6, 7                          |
-| C9  | Platform-owned payload schemas and 32 KB body limit                                         | `NOT YET IMPLEMENTED`                                                                                                 | Stage 7                              |
-| C10 | Honeypot, timing heuristic, rate limits, quotas, 24-hour idempotency                        | `PROVEN` - see Part D-detail, Stage 7                                                                                 | Stage 7                              |
-| C11 | No raw IP persistence and monthly HMAC rotation                                             | `PROVEN` - see Part D-detail, Stages 7 and 10a                                                                        | Stages 7, 10                         |
-| C12 | Encryption of readable secrets with key-version support                                     | `PROVEN` for the TOTP secret - AES-256-GCM with key version                                                           | Stages 3, 9                          |
-| C13 | Output escaping, safe template variables, no arbitrary HTML/CSS/JS                          | `IN PROGRESS` - auth UI escapes output and accepts no HTML; widget templates in Stages 5, 6, 9                        | Stages 5, 6, 9                       |
-| C14 | Validated redirects and CTA destinations                                                    | `NOT YET IMPLEMENTED`                                                                                                 | Stages 5, 6                          |
-| C15 | Webhook SSRF defenses and HMAC signing                                                      | `PROVEN` - see Part D-detail, Stage 9                                                                                 | Stage 9                              |
-| C16 | Security headers and an appropriate Content Security Policy                                 | `NOT YET IMPLEMENTED`                                                                                                 | Stage 13                             |
-| C17 | PII and secret redaction in logs, errors, analytics, and monitoring                         | `NOT YET IMPLEMENTED`                                                                                                 | Stage 13                             |
-| C18 | Dependency review, lockfile integrity, vulnerability and secret scanning in CI              | `IN PROGRESS` - detail below                                                                                          | Stage 1 baseline, completed Stage 13 |
-| C19 | Immutable audit and submission evidence within retention windows                            | `IN PROGRESS` - AuditEvent 12-month TTL verified                                                                      | Stages 2, 7, 11                      |
+Most of these were built by the stage that owned the feature; Stage 13's job was to go and check
+that each one is real rather than assumed, and to close what was not. Two had never been
+implemented at all — C16 and C17. Three were implemented but had no test that named the checklist
+item they satisfy, and now do — C8, C9, C14. One had support in the code that no configuration could
+reach, which quietly made its rotation procedure impossible — C12.
+
+| #   | Requirement                                                                                 | Enforced in                                                                                                                                              | Proven by                                                                                                                                                                                                                                                                           |
+| --- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | Argon2id hashing and strong password rules                                                  | `infrastructure/auth/argon2-password-hasher.ts`, `domain/auth/password-policy.ts`                                                                        | `auth-domain.test.ts` policy suite; `auth-flows.integration.test.ts` stores a hash, never the password                                                                                                                                                                              |
+| C2  | Hashed single-use verification, reset, invitation, recovery, and privacy tokens with expiry | `domain/auth/tokens.ts`, `domain/auth/recovery-codes.ts`, `application/privacy/privacy-request-service.ts`                                               | `auth-domain.test.ts`; `mfa.integration.test.ts`; `privacy.integration.test.ts` "refuses a token that has been tampered with", "refuses a token whose 24-hour window has closed"                                                                                                    |
+| C3  | Optional TOTP MFA and hashed recovery codes                                                 | `application/auth/mfa-service.ts`                                                                                                                        | `mfa-domain.test.ts`; `mfa.integration.test.ts`                                                                                                                                                                                                                                     |
+| C4  | Redis sessions, rotation, expiry, device revocation, secure cookies, CSRF                   | `infrastructure/redis/session-store.ts`, `http/middleware/session.ts`, `http/middleware/csrf.ts`                                                         | `auth-sessions.integration.test.ts`; `security-headers.integration.test.ts` "still refuses a state-changing request that carries no CSRF token"                                                                                                                                     |
+| C5  | Generic auth responses and dedicated brute-force limits                                     | `http/routes/auth.ts`, `http/middleware/throttle.ts`                                                                                                     | `auth-flows.integration.test.ts` generic-response and per-flow throttle cases                                                                                                                                                                                                       |
+| C6  | Mandatory workspace scope in every tenant query                                             | `@lcp/database` `WorkspaceScopedRepository` — scope is the first parameter and merges last                                                               | `packages/database` tenancy tests, plus a cross-tenant case in every surface's integration file; `demo.integration.test.ts` "never touches another workspace"                                                                                                                       |
+| C7  | Role and verified-email gates on the server, never only in React                            | `http/middleware/workspace.ts`, `domain/workspace/capabilities.ts`                                                                                       | `rbac.test.ts`; `workspace.integration.test.ts`; the UI hides controls using a capability list the SERVER derives from that same table                                                                                                                                              |
+| C8  | Strict Origin allowlist and correct CORS/preflight behavior                                 | `application/widget/public-widget-service.ts`, `application/submission/submission-service.ts`, both via `isOriginAllowed`                                | `submission.integration.test.ts` "refuses an Origin that is not on the widget allowlist", "refuses a request with no Origin at all", "answers a preflight without revealing whether the widget exists"; `security-headers.integration.test.ts` "never echoes a foreign origin back" |
+| C9  | Platform-owned payload schemas and 32 KB body limit                                         | `http/app.ts` `express.json({ limit: '32kb' })`; every validator lives in `@lcp/contracts`, never in a request                                           | `submission.integration.test.ts` "rejects a body over 32 KB with a clean 4xx, never a 500" and four sibling cases; `security-headers.integration.test.ts` proves the 413 still carries every security header                                                                        |
+| C10 | Honeypot, timing heuristic, rate limits, quotas, 24-hour idempotency                        | `domain/submission/heuristics.ts`, `domain/submission/quota.ts`, `infrastructure/redis/rate-limiter.ts`                                                  | `submission-domain.test.ts`; `submission.integration.test.ts` PROBE 3 and PROBE 6, and the idempotency suite                                                                                                                                                                        |
+| C11 | No raw IP persistence and monthly HMAC rotation                                             | `domain/submission/ip-pseudonym.ts`, `domain/analytics/visitor-pseudonym.ts`                                                                             | `submission-domain.test.ts` rotation cases; `submission.integration.test.ts` "never persists the raw IP, only a rotating pseudonym"                                                                                                                                                 |
+| C12 | Encryption of readable secrets with key-version support                                     | `infrastructure/auth/aes-secret-cipher.ts`, keys assembled in `composition.ts` from `ENCRYPTION_MASTER_KEY` plus `ENCRYPTION_PREVIOUS_KEYS`              | `mfa.integration.test.ts`; `delivery.integration.test.ts` "never stores or returns a signing secret in plaintext afterwards"; procedure in `docs/secret-rotation.md`                                                                                                                |
+| C13 | Output escaping, safe template variables, no arbitrary HTML/CSS/JS                          | `domain/delivery/templates.ts`; `widget-runtime/render.ts` has no `innerHTML` anywhere; `widget-runtime/styles.ts` interpolates hex-checked colours only | `delivery-domain.test.ts` "escapes every dangerous character", "rejects arbitrary HTML outright", "renders an UNKNOWN variable as nothing"; `widget-runtime.spec.ts` isolation suite                                                                                                |
+| C14 | Validated redirects and CTA destinations                                                    | `@lcp/contracts` `checkDestinationUrl`, applied in `domain/widget/fields.ts` on save and again in the runtime before navigating                          | `widget-domain.test.ts`; `runtime-behaviour.test.ts`; `security-headers.integration.test.ts` "refuses a javascript:, data:, credentialed, and relative destination at the API"                                                                                                      |
+| C15 | Webhook SSRF defenses and HMAC signing                                                      | `domain/delivery/ssrf.ts`, `domain/delivery/signing.ts`                                                                                                  | `delivery-domain.test.ts` SSRF and signing suites, including "checks EVERY address a hostname resolves to"; `delivery.integration.test.ts` "blocks a loopback destination even when asked directly"                                                                                 |
+| C16 | Security headers and an appropriate Content Security Policy                                 | `@lcp/contracts/security` holds the policy once; applied by `http/middleware/security-headers.ts` and `@lcp/config/vite-security-headers`                | `packages/contracts/tests/security.test.ts` (25 property assertions); `security-headers.integration.test.ts` (10); `e2e/tests/security-headers.spec.ts` (6, in a real browser)                                                                                                      |
+| C17 | PII and secret redaction in logs, errors, analytics, and monitoring                         | `@lcp/contracts` `redact`; `infrastructure/observability/sentry.ts`; `apps/web/src/lib/observability.ts`                                                 | `packages/contracts/tests/logging.test.ts`; `observability.test.ts` "PII scrubbing before transmission" and "expected responses are never reported as crashes"                                                                                                                      |
+| C18 | Dependency review, lockfile integrity, vulnerability and secret scanning in CI              | `.github/workflows/ci.yml` `supply-chain` job; `scripts/scan-secrets.mjs`                                                                                | `node scripts/scan-secrets.mjs` — runs locally and in CI, currently clean; detail below                                                                                                                                                                                             |
+| C19 | Immutable audit and submission evidence within retention windows                            | `AuditEvent` and `SubmissionEvent` are append-only, with TTL indexes set by migration                                                                    | `packages/database` migration tests; `contact.integration.test.ts` "returns canonical values plus the immutable submission history"; `privacy.integration.test.ts` "records immutable evidence of the exact wording that was shown"                                                 |
+
+Three rows deserve more than a table cell, because the honest answer is longer than one.
+
+**C12 was proven and unusable at the same time.** The cipher has recorded a key version on every
+ciphertext since Stage 3b and the tests for that were real. But `composition.ts` built its key map
+from exactly one environment variable, so there was no way to configure a second key — the
+versioning worked and rotation was impossible. Rotating the master key would have made every webhook
+signing secret and every TOTP seed permanently undecryptable, with no partial recovery, and the
+runbook this stage was asked to write would have described a procedure that destroys data. Stage 13
+added `ENCRYPTION_PREVIOUS_KEYS` so that `docs/secret-rotation.md` describes something a person can
+actually carry out.
+
+**C17's monitoring half found a gap in its own first implementation.** The scrubber ran the shared
+`redact` over attached context, and `redact` matches forbidden field NAMES — `url` is not one. The
+SDK records every outbound request as a breadcrumb, so an error report from the unsubscribe page
+would have carried a working single-use token to the monitoring vendor. Caught by
+`observability.test.ts` "rewrites a breadcrumb URL without dropping the trail" before it ran
+anywhere.
+
+**C16 is the item where "verified in the browser" earned its keep.** Four things that looked correct
+in a diff were wrong in Chrome, and none of them would have produced a failing unit test. They are
+recorded in `BUILDLOG.md`; the shortest is that helmet's default
+`Cross-Origin-Resource-Policy: same-origin` would have made the widget loader unfetchable from every
+customer website in existence — the entire product, switched off by a security header.
 
 ---
 
@@ -2390,3 +2419,289 @@ only`, from Stage 10b, passes deterministically in isolation and on repeat and h
 | 2026-08-30 | 11 | Blueprint **Stage 11 COMPLETE**. B8 moved to `PROVEN` except its policy pages (Stage 12); D20 to `IN PROGRESS`. Consent state machine with single/double opt-in and immutable evidence; workspace-wide suppression that outlives the contact as a salted hash; email-verified export and deletion on the account-verification token construction; workspace-configurable retention measured from a deliberate anchor; and all four 30-day windows of the 9.5 table actually firing, with actor references anonymised rather than cascade-deleted and a bounded startup catch-up sweep. Account deletion and recovery, which had no route before. Evidenced by 30 new unit tests (347 total), 31 new integration tests (297 total), and 16 new browser tests (117 total) including 5 axe scans. **No new capability names**; the section 11 table is unchanged. Migration `010_privacy` applied. Found and fixed a Stage 9 gap: the in-process worker was never started outside the tests, so every schedule since then had never run in a deployed process. |
 | 2026-08-30 | 12a | Blueprint Stage 12, sub-stage 12a. The PUBLIC face of the main application: a landing page written for an evaluator rather than a buyer, five documentation guides, an OpenAPI 3.1 document served through Swagger UI, and the four policy pages of 4.8. The contract cannot drift: request bodies are generated by `z.toJSONSchema` from the same Zod validators the routes parse with, and a test asserts the document's paths match the routes the running server dispatches in both directions - it found an undocumented route on its first run. Swagger UI is vendored rather than loaded from a CDN, so one Docker command still brings everything up. Evidenced by 6 new integration tests (303 total) and 25 new browser tests (142 total), including 11 axe scans with zero critical or serious violations. Also corrected six stale rows in this file - C10, C11, C15, D10, D11, and D12 read `NOT YET IMPLEMENTED` while their proofs were recorded in Part D-detail below them. Stage 12 stays OPEN pending 12b (the separate anonymous demo). |
 | 2026-08-30 | 12b | Blueprint **Stage 12 COMPLETE**. The separate anonymous sandbox of 14.3: one ordinary workspace marked `isDemo`, owned by nobody, seeded with all three widget types, wiped and reseeded hourly by the ninth queue family. Email and webhooks are refused for it twice - at the point deliveries are planned and again at the point one is attempted - and its public limits are provably stricter than production's, asserted rather than asserted-to. The public feed republishes nothing anybody typed. Evidenced by 16 new browser tests (158 total) including 5 axe scans, and 9 new integration tests (312 total). Migration `011_demo` applied. Required wiring the widget runtime's submission seam, open since Stage 7, because 14.3's "accepts demo submissions" cannot be met without it - runtime bundle 17.12 kB raw / 6.68 kB gzip, inside budget. Found a pre-existing defect it did not fix: every widget renders in the browser's initial serif rather than its configured font. |
+
+---
+
+## Part D-detail - Stage 13 hardening and observability evidence
+
+Stage 13 built almost nothing new. Its job was to check that what Stages 1 to 12 claimed is true,
+close what was missing, and leave every §17 item with a proof somebody else can re-run. The rewritten
+Part C table above is the deliverable; this section records what it took to get there.
+
+### The exit gate
+
+```
+node node_modules/vitest/vitest.mjs run --project unit-contracts security
+  Tests 25 passed (25)
+
+node node_modules/vitest/vitest.mjs run --project unit-server observability health
+  Tests 16 passed (16)
+
+node node_modules/vitest/vitest.mjs run --project integration-server security-headers diagnostics
+  Tests 16 passed (16)
+
+node node_modules/@playwright/test/cli.js test security-headers
+  6 passed
+
+node node_modules/@playwright/test/cli.js test --shard=1/3   61 passed, 1 failed
+node node_modules/@playwright/test/cli.js test --shard=2/3   55 passed
+node node_modules/@playwright/test/cli.js test --shard=3/3   47 passed
+```
+
+The one failure was `a visitor submits, and sees it land in the feed`, and it was a product defect
+rather than a flaky test - see below. With that fixed, `demo-sandbox demo-accessibility
+security-headers widget-runtime` runs 37 passed.
+
+| Gate claim (blueprint Stage 13)                     | Proof                                                                                                                               |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| The §17 checklist is evidenced item by item         | Part C above - every row names its code and its test                                                                                |
+| Critical/serious accessibility violations are zero  | axe with the WCAG 2.2 AA tag set across every critical page and the widget                                                          |
+| A degraded optional provider never breaks a request | `delivery.integration` GATE 1; `submission.integration` PROBE 4 and 5; `health.test.ts` "optional providers never change readiness" |
+
+### What was genuinely missing, and is not now
+
+**Sentry did not exist.** Now it does, on both sides of the wire, with the release identifier taken
+from the same `RELEASE` value the structured logger stamps on every line - so a crash report and the
+log line that preceded it cannot disagree about which build produced them.
+
+The requirement that "expected validation, authentication, spam, and rate-limit responses are not
+reported as application crashes" is not implemented as a list of ignored errors. It falls out of
+WHERE capture is called from: the terminal error handler reports only the branch that produces a 500. Every `ApiError`, every CSRF rejection, every 413 and every 429 is answered and never reported,
+and an expected error introduced by some future stage is excluded by construction rather than by
+somebody remembering to add it to a list. `observability.test.ts` drives all five through real HTTP
+and asserts the reporter saw none of them, then throws one genuine fault and asserts it saw exactly
+that.
+
+**Security headers and a Content Security Policy did not exist.** They do now, on every surface, with
+the policy written down once in `@lcp/contracts/security` and applied by both Express and the two
+Vite applications - because two hand-written copies of a policy is how one surface quietly ends up
+laxer than the one that was reviewed.
+
+The policies differ per surface because the surfaces differ, and each difference is a decision:
+
+| Surface        | Policy                                               | Why it is not the same as its neighbour                                                          |
+| -------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| API and assets | `default-src 'none'`                                 | JSON has no subresources; the strictest possible policy costs nothing here                       |
+| Swagger UI     | adds `script-src 'self'`, `style-src` with inline    | A vendored React bundle writes style attributes as it renders; scripts stay strict               |
+| Dashboard      | `default-src 'self'`, inline styles                  | React writes measured style attributes, and the builder previews the real widget                 |
+| Sandbox        | `default-src 'none'`, `style-src 'self'` — no inline | The one page that embeds the widget cross-origin, so it is the proof a customer's real CSP works |
+
+The sandbox's policy is the strictest, deliberately. It is what proves the widget runtime installs
+cleanly on a site whose CSP has no `'unsafe-inline'` in it - which is an ordinary policy for anyone
+who has thought about this at all, and which the runtime would have failed before this stage.
+
+**Migration compatibility was not part of readiness.** Blueprint 16.2 defines readiness as "Mongo
+and Redis connectivity plus migration compatibility", and only the first half existed. The gap was
+not theoretical: blueprint 9.3 forbids running migrations on boot, so a deployment whose migration
+step failed comes up connected, healthy, and missing indexes. The probe found a real instance of
+exactly that the first time it ran - see below.
+
+**Optional providers had nowhere to be reported.** Readiness now carries a separate `optional`
+section for the email provider, geo, and error monitoring. None of them can change `status`, and one
+that throws outright is caught and reported as degraded rather than taking the endpoint down with
+it - which would be the same failure the endpoint exists to prevent, one layer up.
+
+**The platform-operator diagnostics surface did not exist.** `GET /api/v1/diagnostics` reports the
+seven things blueprint 16.4 names. Two decisions in it are worth stating:
+
+- It is gated on an allowlist of email addresses matched against the SIGNED-IN user, not on a shared
+  token. A token would have been fewer lines and is the obvious reach, but it is new secret material
+  to store, rotate, and eventually leak, and it authenticates a caller rather than a person. This
+  reuses the session, the server-side session store, the verified-email requirement, and the
+  revocation path every other privileged action already goes through.
+- It answers a non-operator with **404, not 403**. A 403 confirms the endpoint exists to anybody with
+  an account, which is the enumeration problem blueprint 10.3 already solves everywhere else.
+
+It defaults to closed. `diagnostics.integration.test.ts` proves that with a second harness whose
+allowlist was never set, which is the state of a fresh deployment.
+
+### What the readiness probe found the first time it looked
+
+`pending: 011_demo`.
+
+The end-to-end database had been a migration behind since Stage 12b. Blueprint 9.3 forbids running
+migrations on boot so the server does not, and no step existed between `docker compose up` and
+`playwright test` that did - so every browser run since Stage 12b had been executing against a
+database missing that migration's index. Nothing failed, because the queries still work without it;
+that is precisely why nobody noticed.
+
+Fixed by `e2e/global-setup.ts`, which runs migrations before the servers start. `runMigrations` is
+idempotent twice over - a ledger of applied ids, and individually idempotent migrations - so this
+costs one query on a database that is already current.
+
+This is the single best argument for the probe. It was written to satisfy a checklist item and it
+found a real, live, silent divergence on its first run.
+
+### The widget could not be installed on a site with a Content Security Policy
+
+Two separate defects, both in the same few lines, both invisible without a browser.
+
+**The stylesheet was a `<style>` element.** A `<style>` is an inline style block however it was
+created, so a customer whose site sends `style-src 'self'` - completely ordinary - got a widget with
+no styling at all and nothing in their console pointing at us. The runtime now adopts a constructed
+stylesheet, which CSSOM builds and CSP does not govern. The sandbox ships exactly that policy, so the
+claim is enforced rather than asserted: `security-headers.spec.ts` checks
+`adoptedStyleSheets.length === 1` and `querySelectorAll('style').length === 0` on every rendered
+widget, and would fail with a transparent panel if either regressed.
+
+**The host reset was silently blocked.** The runtime set `all: initial` as an inline style on the
+host element, which is the only declaration strong enough to beat an ordinary rule in a customer's
+own stylesheet. Chrome enforces `style-src` on CSSOM writes as well as on markup, so on any page with
+a strict policy that reset never applied - the widget lost its isolation from the host page's CSS,
+with nothing reported anywhere. The reset moved into the stylesheet and carries `!important`, which
+for a `:host` rule is what beats the outer document, and which makes it STRONGER than the inline
+version it replaces.
+
+The same change closed the defect Stage 12b found and left: every widget in the product had been
+rendering in the browser's initial serif whatever font its creator chose, because `all` means all and
+nothing put the font back afterwards.
+
+### The CSP that would have broken the product
+
+helmet's default is `Cross-Origin-Resource-Policy: same-origin`. Applied to this API that makes
+`/widget/v1/loader.js` unfetchable from every customer website in existence - the entire product,
+disabled by a security header, with the dashboard still working perfectly and every unit test still
+passing.
+
+The header is relaxed to `cross-origin` on exactly two surfaces, both public by design: the widget
+path and the sandbox's read-only endpoints. `security-headers.integration.test.ts` asserts both, and
+asserts that four other paths keep `same-origin` - because a control that is relaxed everywhere is
+not a control.
+
+### Zod, and a console full of benign violations
+
+The dashboard's policy carries no `'unsafe-eval'`. Zod compiles a fast validator with `new Function`,
+catches the refusal, and falls back - so nothing broke, and the browser reported two policy
+violations on every page load. A console full of benign violations is how a real one goes unnoticed,
+so `z.config({ jitless: true })` turns the compilation off in the browser.
+
+It is set in its own module imported FIRST by `main.tsx`, for the same reason `instrument.ts` is
+first on the server: Zod decides whether eval is available the first time a schema is BUILT, and
+`@lcp/contracts` builds every schema in the product at module scope. A `z.config` call in the body of
+`main.tsx` runs after those imports have been evaluated and is too late, which is what the first
+attempt did.
+
+It is deliberately NOT set in `@lcp/contracts`: the same schemas run on the server on the submission
+hot path, where the compiled validator is a genuine win and there is no policy to satisfy. The
+setting belongs to the environment, not to the schemas.
+
+### The sandbox's browser tests now run the BUILT application
+
+Vite's dev server injects every stylesheet as an inline `<style>` element, which the sandbox's own
+`style-src 'self'` correctly refuses - so the dev server cannot serve that application as it is
+actually deployed. Rather than weaken the policy in development, the Playwright web server for the
+sandbox builds and previews it. The build takes under a second, and the browser tests now exercise
+the exact policy and the exact bundle that ship.
+
+The dashboard still runs from its dev server, where two relaxations apply that a build does not have:
+an inline script, because Vite's React plugin injects a refresh preamble no hash can cover, and a
+WebSocket for HMR. Both are named in one place in `@lcp/contracts/security` and a unit test asserts
+the production policy carries neither. That is a real limitation and it is recorded as one.
+
+### Resilience: a degraded provider never breaks a primary request
+
+Already true before this stage, and confirmed rather than rebuilt:
+
+| Degraded provider                  | Proof                                                                                                         |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Geo A down, B answers              | `submission.integration` "A down, B enriches - and records that the fallback was used"                        |
+| Both geo providers down            | `submission.integration` "A and B down - the submission is still stored, without geo"                         |
+| Geo throws outright                | `submission.integration` "stores the submission even when geo enrichment throws outright"                     |
+| Webhook 500, timeout, 4xx, or SSRF | `delivery.integration` "a webhook 500, a timeout, a 4xx, and a blocked destination all leave the lead stored" |
+| Email provider fails               | `delivery.integration` "an email provider failure leaves the lead stored"                                     |
+| Redis unreachable at enqueue       | `delivery.integration` "a completely unreachable Redis at enqueue time still stores the lead"                 |
+| Brevo daily budget exhausted       | `delivery.integration` "DEFERS a side-effect email when the cap is spent"                                     |
+| Any optional provider degraded     | `health.test.ts` "stays ready with a degraded provider, a down provider, and one that threw"                  |
+
+The last row is the one Stage 13 added, and it closes the loop at the level a load balancer reads:
+a readiness endpoint that went red because Brevo had spent its daily allowance would take the API out
+of rotation and stop it accepting leads, which is the opposite of what that degradation means.
+
+### The sandbox feed, found again by a full-suite run
+
+One test failed in the full three-shard run: `a visitor submits, and sees it land in the feed`. It
+passed on its own and against a targeted group, and failed inside a busy shard - the shape that
+usually means a flaky test.
+
+It was not. A sandbox submission commits asynchronously, and the page refreshed its feed twice after
+a click, at 1.2 and 4 seconds. On an idle machine the row exists by then. On a loaded one it does
+not, and the next scheduled poll is thirty seconds away - so somebody who had just pressed Send
+watches an unchanged feed for half a minute and reasonably concludes nothing happened. Stage 12b
+found the same window and narrowed it; Stage 13 found it again, wider.
+
+The page now runs a burst at 1, 2.5, 5, 9, and 14 seconds that stops the moment something new
+arrives, so it costs one request in the common case and covers a slow write in the uncommon one.
+The fix is to the page rather than the test, because the race was real for a visitor too.
+
+### Supply chain and secrets in CI
+
+The `supply-chain` job runs five checks, and the split between them is deliberate:
+
+- `npm ci` — **lockfile integrity**. It refuses to run when `package.json` and `package-lock.json`
+  disagree, and installs nothing the lockfile does not pin.
+- `npm audit signatures` — the other half. `npm ci` proves the tree matches what was committed; this
+  proves what was committed matches what the registry published and signed, which is the check that
+  notices a substituted tarball.
+- `npm audit --omit=dev --audit-level=high` — **blocking**. Runtime dependencies only.
+- `npm audit --audit-level=critical` — **reported, not blocking**, for development dependencies. A
+  vulnerability in a test runner is worth knowing about and is not worth blocking a deployment over,
+  and conflating the two is how a real finding ends up ignored.
+- `dependency-review-action` on pull requests, with a licence gate. This repository is MIT; a
+  copyleft dependency would change what it can be published as.
+
+Secret scanning is two scanners, because they miss different things. TruffleHog walks the full
+history, which is where a credential that was committed and then deleted still lives.
+`scripts/scan-secrets.mjs` scans the working tree and **runs locally in one command**, because a
+check that can only be observed by pushing is a check whose result nobody sees until after the
+mistake is public. It also knows this repository's conventions - every fixture address ends in
+`.invalid`, development fallbacks are spelled `development-only-insecure-`, `.env.example` holds
+`replace-me-` placeholders - so it can be strict about credential shapes without drowning in false
+positives. It prints a redacted excerpt and never the matched value, because a scanner that echoes
+secrets into CI logs has moved the problem rather than solved it.
+
+```
+node scripts/scan-secrets.mjs
+  secret scan: clean
+```
+
+### Performance and bundle size
+
+| Artifact                 | Size                             | Budget (blueprint 8.3) |
+| ------------------------ | -------------------------------- | ---------------------- |
+| `widget-runtime.iife.js` | 17.42 kB raw / 6.81 kB gzip      | 20 kB / 8 kB           |
+| `loader.js`              | well under, unchanged this stage | tracked in CI          |
+
+The runtime grew 0.30 kB raw over Stage 12b. The constructed-stylesheet path with its `<style>`
+fallback costs about that; the host reset moving into the stylesheet gave some of it back. Asserted
+by `widget-bundle.test.ts`, which fails the build rather than reporting a number nobody reads.
+
+### What is still missing
+
+- **The dashboard's browser tests run against a dev-server policy, not the built one.** Two
+  relaxations - an inline script and a WebSocket - are present in development and absent from the
+  build. The sandbox proves the strict case; the dashboard's own strict policy is asserted by a unit
+  test and was verified manually in a browser against `vite preview`, but no automated test exercises
+  it. Serving the built dashboard in Playwright would close this, at the cost of a build on every
+  end-to-end run.
+- **`IP_HMAC_SECRET` cannot be rotated without breaking outstanding unsubscribe links.** It is the
+  master for four derived key families, including the signature on every consent link ever emailed.
+  Splitting it into two secrets would make the pseudonym half rotatable independently, but that is a
+  data-format change rather than a hardening one, and this stage does not change product behaviour.
+  The consequence is documented in `docs/secret-rotation.md` rather than left to be discovered.
+- **Blueprint 12.1 lists nine queue families and this codebase has eight.** "Authentication/privacy
+  email" was never given a queue; those messages are still sent inline inside the request. Stage 12b
+  described the sandbox reset as "the ninth", which was wrong - it is the eighth. Found by writing a
+  diagnostics test that tried to assert a count of nine. Not fixed here: adding a queue family means
+  retry semantics, dead-lettering, and dashboard states, which is architecture rather than hardening.
+- **There is no bulk re-encryption command.** Retiring an old encryption key means re-saving each
+  webhook secret and re-enrolling MFA by hand. Version 1 has few enough of these that doing it
+  deliberately is safer than a migration nobody has ever run, but it is a manual step in a runbook.
+- **Automated accessibility scanning catches roughly a third of real problems.** Every critical page
+  and the widget itself are clean at critical and serious severity against the WCAG 2.2 AA tag set,
+  and keyboard operation is tested separately - but a clean axe run is a floor, not a certificate,
+  and no assistive-technology testing with a real user has been done.
+- **CI has still never run**, because no remote is configured. Every check in the `supply-chain` job
+  was written against the same commands that run locally, and the two that can run locally -
+  `npm audit` and the secret scan - do.
+
+---

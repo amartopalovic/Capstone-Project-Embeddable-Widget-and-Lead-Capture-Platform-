@@ -47,6 +47,46 @@ function lookup(table: Record<string, string>, key: string, fallback: string): s
   return Object.prototype.hasOwnProperty.call(table, key) ? (table[key] ?? fallback) : fallback;
 }
 
+/**
+ * The declarations the HOST element itself must carry.
+ *
+ * The host is the one element a customer's own stylesheet can reach, so it
+ * needs a reset that survives `div { margin: 2rem }` in their CSS. Through
+ * Stage 12b that reset was `all: initial` written as an INLINE style from
+ * `instance.ts`, and it had two faults, each found by a different kind of test.
+ *
+ * The first: `all` means all, so it reset the widget's own font, colour, and
+ * line height back to the browser's initial values - which is why every widget
+ * in the product rendered in Times New Roman regardless of what its creator had
+ * chosen. Found by looking at the sandbox in Stage 12b.
+ *
+ * The second: Chrome enforces `style-src` on CSSOM writes, not only on style
+ * attributes in markup. On any page whose policy omits `'unsafe-inline'` - the
+ * sandbox's own, and any careful customer's - the reset was silently BLOCKED,
+ * leaving the widget with no protection at all and nothing in the console for
+ * anybody who was not already looking. Found by a browser test in Stage 13.
+ *
+ * So the reset lives in the stylesheet now, and carries `!important`. That is
+ * not decoration: for the host element a normal rule in the outer document
+ * outranks a normal `:host` rule, and only an important declaration from inside
+ * the shadow tree wins - which makes this version STRONGER than the inline one
+ * it replaces, because it also beats an important rule out there.
+ */
+export function hostDeclarations(
+  config: PublicWidgetConfig,
+): readonly (readonly [string, string])[] {
+  const a = config.appearance;
+  return [
+    ['display', 'block'],
+    ['font-family', lookup(FONT_STACKS, a.fontFamily, FONT_STACKS['system'] ?? 'sans-serif')],
+    ['font-size', lookup(FONT_SIZES, a.fontSize, '15px')],
+    ['line-height', '1.45'],
+    ['color', color(a.textColor, '#14162b')],
+    ['box-sizing', 'border-box'],
+    ['text-align', 'left'],
+  ];
+}
+
 export function buildStyles(config: PublicWidgetConfig): string {
   const a = config.appearance;
   const primary = color(a.primaryColor, '#3d2bd9');
@@ -63,16 +103,19 @@ export function buildStyles(config: PublicWidgetConfig): string {
         ? `background: transparent; color: ${primary}; border: 1px solid transparent;`
         : `background: ${primary}; color: #ffffff; border: 1px solid ${primary};`;
 
+  /**
+   * `all: initial` first, then the widget's own values back over it. Both
+   * important, so the later declarations win on order and the whole block wins
+   * against the host page.
+   */
+  const host = hostDeclarations(config)
+    .map(([property, value]) => `  ${property}: ${value} !important;`)
+    .join('\n');
+
   return `
 :host {
-  all: initial;
-  display: block;
-  font-family: ${lookup(FONT_STACKS, a.fontFamily, FONT_STACKS['system'] ?? 'sans-serif')};
-  font-size: ${lookup(FONT_SIZES, a.fontSize, '15px')};
-  line-height: 1.45;
-  color: ${ink};
-  box-sizing: border-box;
-  text-align: left;
+  all: initial !important;
+${host}
 }
 /* Stated outright rather than inherited. A host page can force
    box-sizing onto the HOST element with an important universal rule, and an
@@ -195,4 +238,36 @@ textarea { min-height: 84px; resize: vertical; }
   border: 0;
 }
 `;
+}
+
+/**
+ * Put the widget's stylesheet into a shadow root without an inline style block.
+ *
+ * A `<style>` element is an inline style block however it was created, so a
+ * customer whose site sends `style-src 'self'` - a completely ordinary CSP -
+ * would have had every widget render unstyled, with nothing in their console
+ * pointing at us. A constructed stylesheet is CSSOM rather than markup and is
+ * not subject to `style-src` at all, so the widget installs cleanly under a
+ * policy that has no `'unsafe-inline'` in it. The product's own sandbox page
+ * ships exactly that policy, which is what keeps this honest.
+ *
+ * The `<style>` fallback is for a browser without constructible stylesheets.
+ * It is what every browser did before, so the failure mode of falling back is
+ * the behaviour that shipped through Stage 12b.
+ */
+export function adoptStyles(root: ShadowRoot, css: string): void {
+  if (typeof CSSStyleSheet === 'function' && 'adoptedStyleSheets' in root) {
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(css);
+      root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+      return;
+    } catch {
+      // Falls through to the element below.
+    }
+  }
+
+  const element = document.createElement('style');
+  element.textContent = css;
+  root.append(element);
 }

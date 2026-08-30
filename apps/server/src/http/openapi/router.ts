@@ -2,6 +2,7 @@ import { Router } from 'express';
 import express from 'express';
 import { createRequire } from 'node:module';
 import { buildOpenApiDocument, DOCS_PATH, OPENAPI_PATH } from './document.js';
+import { docsCsp } from '../middleware/security-headers.js';
 
 /**
  * The API documentation surface (blueprint 10.1).
@@ -102,6 +103,16 @@ export function createOpenApiRouter(deps: OpenApiRouterDeps): Router {
   router.get(OPENAPI_PATH, (_request, response) => {
     response.type('application/json').send(JSON.stringify(document, null, 2));
   });
+
+  /**
+   * The documentation surface gets its own CSP (blueprint 17).
+   *
+   * The application-wide policy is `default-src 'none'`, which is right for
+   * JSON and wrong for the only HTML page this server serves. Applied to the
+   * page AND to the asset routes below it, so a stylesheet fetched by that page
+   * is governed by the same policy the page was rendered under.
+   */
+  router.use(DOCS_PATH, docsCsp());
 
   router.get(DOCS_PATH, (_request, response) => {
     response.type('html').send(page());

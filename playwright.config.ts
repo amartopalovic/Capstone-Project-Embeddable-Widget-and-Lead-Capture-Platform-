@@ -22,6 +22,15 @@ export const DEMO_ORIGIN = `http://localhost:${String(DEMO_PORT)}`;
 
 export default defineConfig({
   testDir: './e2e/tests',
+  /**
+   * Migrations, before the servers start (blueprint 9.3, 16.2).
+   *
+   * Blueprint 9.3 forbids running migrations on boot, so the server does not,
+   * and until Stage 13 nothing else did either - the end-to-end database had
+   * been a migration behind since Stage 12b and nothing noticed. See
+   * `e2e/global-setup.ts`.
+   */
+  globalSetup: './e2e/global-setup.ts',
   // Auth journeys share one Mailpit inbox and one throttle key space per IP,
   // so they run serially rather than racing each other.
   fullyParallel: false,
@@ -77,9 +86,22 @@ export default defineConfig({
       stderr: 'pipe',
     },
     {
-      // The demo sandbox, on its own port. This is what makes the widget tests
-      // cross-origin rather than a same-origin simulation of one.
-      command: 'node ../../node_modules/vite/bin/vite.js',
+      /**
+       * The demo sandbox, on its own port. This is what makes the widget tests
+       * cross-origin rather than a same-origin simulation of one.
+       *
+       * BUILT and previewed rather than run from the dev server, since Stage 13.
+       * The sandbox ships `style-src 'self'` with no `'unsafe-inline'` - the
+       * strictest page policy in the product, and the proof that the widget
+       * runtime installs cleanly on a site with a real Content Security Policy.
+       * Vite's dev server injects every stylesheet as an inline `<style>`
+       * element, which that policy correctly refuses, so the dev server cannot
+       * serve this application as it is actually deployed. Testing the built
+       * artifact is both more faithful and the only way to exercise the real
+       * policy; the build takes well under a second.
+       */
+      command:
+        'node ../../node_modules/vite/bin/vite.js build && node ../../node_modules/vite/bin/vite.js preview --port 5174 --strictPort',
       cwd: 'apps/demo',
       url: `http://localhost:${String(DEMO_PORT)}`,
       reuseExistingServer: process.env['CI'] === undefined,

@@ -447,3 +447,20 @@ pre {
   color: var(--signal);
   text-underline-offset: 4px;
 }
+
+/* The popover specimen's own two elements. In the stylesheet rather than set
+   from script, so the page's `style-src 'self'` needs no exception and the
+   whole appearance of the sandbox is in one file. */
+.mount__explain {
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+
+.mount__opener {
+  border: 1px solid var(--signal);
+  background: var(--signal);
+  color: #fff;
+  padding: 0.6rem 1.1rem;
+  font: 500 0.875rem var(--sans);
+  cursor: pointer;
+}

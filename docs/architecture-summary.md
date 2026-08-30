@@ -156,19 +156,34 @@ the capstone's core backend requirements.
 
 ## 7. What exists today
 
-**Stage 1 of 16 complete.** The project installs, lints, type-checks, tests, builds, and runs
-locally. It has **no features**.
+**Stage 13 of 16 complete.** The product is feature-complete against the blueprint and hardened;
+what remains is deployment (Stage 14) and the portfolio evidence pack (Stage 15).
 
-- Nine npm workspaces, of which `packages/config` is populated and the rest are boundary shells.
-- `apps/server`: an Express skeleton serving `/health/live`, `/health/ready`, and `/api/v1`,
-  structured along the layering rule in section 4 above.
-- `apps/web` and `apps/demo`: placeholder shells on ports 5173 and 5174, so the second origin that
-  the cross-origin requirements depend on exists and is testable from now on.
+- Nine npm workspaces. Contracts, database, UI, and the widget runtime are real packages; the three
+  applications are real applications.
+- **Authentication and accounts**: Argon2id, hashed single-use tokens, optional TOTP with recovery
+  codes, Redis server sessions with rotation and device revocation, and CSRF on every authenticated
+  state change.
+- **Workspaces and RBAC**: the section 11 capability matrix enforced server-side, with the UI hiding
+  controls using a capability list the server derives from that same table.
+- **Widgets**: three types, a builder with drafts and immutable published revisions, a cached public
+  loader, and a framework-free runtime that renders inside a shadow root on any website.
+- **The hardened submission path**: Origin allowlist, platform-owned schemas, a 32 KB body cap,
+  honeypot, timing heuristic, rate limits, quotas, and 24-hour idempotency. No raw IP is ever
+  persisted.
+- **Inbox, delivery, and analytics**: a collaborative contact inbox with exports, email and webhook
+  delivery with retries and dead letters, eight funnel dashboards, and live updates over SSE.
+- **Consent and privacy**: double opt-in, stateless unsubscribe links, email-verified export and
+  deletion, and automated retention sweeps.
+- **The public site and the anonymous sandbox** on a genuinely separate origin, plus an OpenAPI
+  document the API generates about itself and renders through Swagger UI.
+- **Hardening**: security headers and a Content Security Policy on every surface, Sentry with PII
+  scrubbing on both sides of the wire, liveness and readiness including migration compatibility, a
+  protected platform-operator diagnostics surface, and supply-chain and secret scanning in CI.
 - `docker compose up --build` starts server, web, demo, MongoDB (single-member replica set, so
   transactions work), Redis, and Mailpit.
-- A CI baseline running install, format, lint, type-check, test, build, and dependency audit.
-  Checks that cannot run yet are named as TODOs rather than stubbed as passing steps.
 
-Nothing in Parts A-D of [`../EVIDENCE.md`](../EVIDENCE.md) is proven except four infrastructure
-entries. The six mandatory acceptance probes are proven in **Stage 7**. Authentication is
-**Stage 3**, widgets **Stage 5**, the widget runtime **Stage 6**, and deployment **Stage 14**.
+All six mandatory acceptance probes pass, and the blueprint section 17 security checklist is audited
+item by item in [`../EVIDENCE.md`](../EVIDENCE.md) Part C - each of its nineteen items naming the
+code that enforces it and the test that proves it. Nothing is deployed yet; every production URL in
+[`../capstone.yaml`](../capstone.yaml) is still `TBD`.

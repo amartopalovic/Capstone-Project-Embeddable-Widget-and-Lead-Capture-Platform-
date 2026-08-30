@@ -1,6 +1,6 @@
 import { isPageTargeted, pathFromUrl } from '@lcp/contracts/rules';
 import type { PublicWidgetResponse } from '@lcp/contracts';
-import { buildStyles } from './styles.js';
+import { adoptStyles, buildStyles } from './styles.js';
 import { collectFocusable, renderWidget, type SubmitOutcome } from './render.js';
 import { isSuppressed, markSeen, visitorId } from './cooldown.js';
 import { wireTriggers } from './triggers.js';
@@ -166,8 +166,15 @@ export class WidgetInstance {
 
     const host = document.createElement('div');
     host.setAttribute('data-lcp-widget', this.publicId);
-    // A host page's `div { margin: 2rem }` must not move a fixed overlay.
-    host.style.setProperty('all', 'initial');
+    /**
+     * No inline styles on the host, deliberately.
+     *
+     * The reset that used to live here moved into the stylesheet in Stage 13.
+     * See `hostDeclarations` in `styles.ts`: an inline `all: initial` both
+     * destroyed the widget's configured font and was silently blocked by any
+     * host page with a Content Security Policy, because Chrome enforces
+     * `style-src` on CSSOM writes and not only on markup.
+     */
 
     /**
      * An OPEN shadow root, not closed.
@@ -183,9 +190,7 @@ export class WidgetInstance {
 
     const shadow = host.attachShadow({ mode: 'open' });
 
-    const style = document.createElement('style');
-    style.textContent = buildStyles(this.#response.config);
-    shadow.append(style);
+    adoptStyles(shadow, buildStyles(this.#response.config));
 
     const rendered = renderWidget({
       response: this.#response,
