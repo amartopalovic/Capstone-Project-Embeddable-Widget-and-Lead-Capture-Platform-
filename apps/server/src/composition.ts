@@ -44,6 +44,8 @@ import { ConsentService } from './application/privacy/consent-service.js';
 import { PrivacyRequestService } from './application/privacy/privacy-request-service.js';
 import { PrivacyWorkers } from './application/privacy/privacy-worker.js';
 import { RetentionService } from './application/privacy/retention-service.js';
+import { DemoService } from './application/demo/demo-service.js';
+import { DemoWorkers } from './application/demo/demo-worker.js';
 import { privacyRequestEmail } from './infrastructure/email/templates.js';
 import { OutboxReconciler } from './application/delivery/outbox-reconciler.js';
 import { QueueRegistry } from './infrastructure/queue/queues.js';
@@ -118,6 +120,8 @@ export interface AppDependencies {
   readonly retentionService: RetentionService;
   readonly privacyWorkers: PrivacyWorkers;
   readonly accountLifecycleService: AccountLifecycleService;
+  readonly demoService: DemoService;
+  readonly demoWorkers: DemoWorkers;
   readonly outboxReconciler: OutboxReconciler;
   readonly queues: QueueRegistry;
   readonly eventHub: RedisEventHub;
@@ -478,6 +482,26 @@ export function buildDependencies(
     logger,
   });
 
+  // ------------------------------------------- the public sandbox (14.3)
+
+  const demoService = new DemoService({
+    db,
+    /**
+     * The origins the seeded widgets accept submissions from.
+     *
+     * The demo app is on its own origin by design - 14.3 wants the sandbox to
+     * prove cross-origin behaviour - so the allowlist has to name it. In
+     * development that is the Vite dev server on 5174; a deployment names its
+     * own demo subdomain the same way.
+     */
+    allowedOrigins: [env.demoOrigin],
+    apiBaseUrl: env.appBaseUrl,
+    clock,
+    logger,
+  });
+
+  const demoWorkers = new DemoWorkers({ registry: queues, demo: demoService, logger });
+
   const deliveryWorkers = new DeliveryWorkers({
     registry: queues,
     deliveries: deliveryService,
@@ -512,6 +536,16 @@ export function buildDependencies(
 
     privacyWorkers.start();
     void privacyWorkers.scheduleRetention();
+
+    /**
+     * The sandbox seeds itself at startup and resets hourly (14.3, 12.1).
+     *
+     * Not awaited, for the same reason the retention catch-up is not: a
+     * sandbox that cannot seed must not stop the process serving real
+     * customers, and the method swallows its own failures to guarantee that.
+     */
+    demoWorkers.start();
+    void demoWorkers.scheduleReset();
 
     /**
      * The startup catch-up sweep (blueprint 9.5, 5.2).
@@ -609,6 +643,8 @@ export function buildDependencies(
     retentionService,
     privacyWorkers,
     accountLifecycleService,
+    demoService,
+    demoWorkers,
     deliveryService,
     deliveryAdminService,
     deliveryWorkers,

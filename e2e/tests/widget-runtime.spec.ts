@@ -46,10 +46,18 @@ async function publishFor(
   return publicId ?? '';
 }
 
-/** Open the demo page with the given widgets installed. */
+/**
+ * Open the hostile-CSS fixture with the given widgets installed.
+ *
+ * `/fixture.html`, not `/`. Stage 12b gave `/` to the public sandbox, and these
+ * tests need the opposite of a well-behaved page: global `box-sizing`
+ * overrides, `!important` on every input, and a `.panel` class that collides
+ * with the widget's own internals. A sandbox a visitor is meant to enjoy cannot
+ * be that page, so the two live at different URLs on the same origin.
+ */
 async function openDemo(page: Page, publicIds: readonly string[]): Promise<void> {
   const query = new URLSearchParams({ w: publicIds.join(','), api: 'http://localhost:5173' });
-  await page.goto(`${DEMO_ORIGIN}/?${query.toString()}`);
+  await page.goto(`${DEMO_ORIGIN}/fixture.html?${query.toString()}`);
 }
 
 /**
@@ -309,7 +317,7 @@ test.describe('the cache contract, as delivered to a browser (blueprint 8.2)', (
     const fresh = await browser.newContext();
     const visitor = await fresh.newPage();
     const query = new URLSearchParams({ w: publicId, api: 'http://localhost:5173' });
-    await visitor.goto(`${DEMO_ORIGIN}/?${query.toString()}`);
+    await visitor.goto(`${DEMO_ORIGIN}/fixture.html?${query.toString()}`);
 
     await expect(visitor.getByRole('heading', { name: 'Northwind Supply' })).toBeVisible();
     await expect(visitor.locator(`[data-lcp-widget="${publicId}"]`)).toHaveCount(0);

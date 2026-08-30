@@ -27,7 +27,7 @@ project:
   authoritative_reference: Embeddable_Widget_Lead_Capture_Blueprint.md
   license: MIT
   repository: TBD # filled_in_by: Stage 14
-  stage_completed: 11
+  stage_completed: 12
   stages_total: 16
 
 # -----------------------------------------------------------------------------
@@ -63,13 +63,13 @@ commands:
     description: >-
       Tenancy, auth, workspace/RBAC, widgets, submissions, and the contact
       inbox, delivery, analytics, consent, retention, and the OpenAPI contract
-      against real MongoDB, Redis, and Mailpit (303 tests as of Stage 12a).
+      against real MongoDB, Redis, and Mailpit (312 tests as of Stage 12b).
       Needs `docker compose up -d --wait mongo redis mailpit`.
   test_e2e:
     command: npm run test:e2e
     description: >-
       Browser journeys plus axe accessibility checks against WCAG 2.2 AA,
-      driven through the real UI (142 tests as of Stage 12a). Playwright starts
+      driven through the real UI (158 tests as of Stage 12b). Playwright starts
       the API, the dashboard, and the separate-origin demo itself; the same
       Docker services must be up.
   lint:
@@ -94,7 +94,9 @@ base_urls:
   local:
     app: http://localhost:3000
     web: http://localhost:5173
+    # The public sandbox (blueprint 14.3), built in Stage 12b.
     demo_origin: http://localhost:5174
+    demo_fixture: http://localhost:5174/fixture.html
     mailpit: http://localhost:8025
     # Built in Stage 12a. Swagger UI, and the document it renders.
     api_docs: http://localhost:5173/api-reference

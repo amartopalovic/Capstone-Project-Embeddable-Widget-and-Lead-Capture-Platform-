@@ -254,7 +254,7 @@ test results, remaining limitations, and confirmation of the exit gate.
   - **Exit gate:** Time-controlled tests prove every recovery window, permanent purge, suppression
     rule, and privacy verification boundary.
 
-- [ ] **Stage 12 — Public site, documentation, policies, and anonymous demo**
+- [x] **Stage 12 — Public site, documentation, policies, and anonymous demo** _(2026-08-30)_
   - **Goal:** Make the product understandable and evaluable without assistance.
   - **Exit gate:** A new visitor can understand the product, run the demo, find the API and embed
     docs, and never mistake the portfolio deployment for an SLA-backed service.
@@ -269,7 +269,18 @@ test results, remaining limitations, and confirmation of the exit gate.
       running server dispatches in both directions.
     - The four policy pages of 4.8, workspace-neutral and plain about being a portfolio project.
     - 25 browser tests including 11 axe scans, and 6 contract tests.
-  - [ ] **12b — The separate anonymous demo** _(not started)_
+  - [x] **12b — The separate anonymous demo** _(2026-08-30)_
+    - A wholly separate application on its own origin, seeded with all three widget types, usable
+      with no account, wiped and reseeded hourly by the ninth queue family of 12.1.
+    - The sandbox is an ordinary workspace with a marker, owned by nobody: no carve-out in the
+      tenancy layer, and no membership by which its contents could reach a dashboard.
+    - Email and outbound webhooks refused twice - where deliveries are planned, and again where one
+      is attempted.
+    - Rate and payload limits provably stricter than production's, asserted against them.
+    - A public feed that republishes nothing anybody typed and carries no identifier.
+    - Presented as a workbench rather than a fake company, which is what lets it be pleasant to use
+      and unmistakably not real at the same time.
+    - Required wiring the widget runtime's submission seam, open since Stage 7.
 
 - [ ] **Stage 13 — Security, accessibility, resilience, and observability hardening**
   - **Goal:** Verify cross-cutting requirements before deployment rather than treating them as

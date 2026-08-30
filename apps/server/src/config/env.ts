@@ -65,6 +65,18 @@ export interface ServerEnv {
   /** Whether to call the real geo providers. Off outside production. */
   readonly geoEnabled: boolean;
   readonly geoTimeoutMs: number;
+
+  // --- Stage 12b: the public sandbox ---------------------------------------
+
+  /**
+   * Where the anonymous demo is served from (blueprint 14.3).
+   *
+   * A separate origin on purpose - "hosted on a different provider subdomain
+   * from the API so it proves the capstone's cross-origin behavior" - so this
+   * is the value the seeded widgets put on their allowed-domain list. In
+   * development it is the demo dev server; a deployment sets its own subdomain.
+   */
+  readonly demoOrigin: string;
 }
 
 export function loadEnv(): ServerEnv {
@@ -106,6 +118,7 @@ export function loadEnv(): ServerEnv {
      */
     geoEnabled: readString('GEO_ENABLED', isProductionEnv() ? 'true' : 'false') === 'true',
     geoTimeoutMs: readNumber('GEO_TIMEOUT_MS', 1500),
+    demoOrigin: readString('DEMO_ORIGIN', 'http://localhost:5174'),
   };
 }
 

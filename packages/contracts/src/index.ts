@@ -18,5 +18,6 @@ export * from './contact.js';
 export * from './delivery.js';
 export * from './analytics.js';
 export * from './privacy.js';
+export * from './demo.js';
 export * from './widget.js';
 export * from './widget-rules.js';

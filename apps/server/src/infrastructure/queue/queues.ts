@@ -52,6 +52,16 @@ export const QUEUE_NAMES = {
    * tenant is the kind of race that only shows up in production.
    */
   retentionPurge: 'retention-purge',
+  /**
+   * The hourly sandbox reset (blueprint 12.1, 14.3), added in Stage 12b. The
+   * ninth and last family section 12.1 names.
+   *
+   * Its own family, at concurrency 1, because it DELETES a tenant's contents.
+   * Sharing a queue with work that reads those same collections would let a
+   * reset land mid-read; and a second concurrent reset would have two passes
+   * seeding widgets into the same workspace.
+   */
+  sandboxReset: 'sandbox-reset',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

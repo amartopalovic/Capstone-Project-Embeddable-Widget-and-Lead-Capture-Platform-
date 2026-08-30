@@ -108,6 +108,7 @@ async function seedTenant(db: Db, label: string): Promise<SeededTenant> {
     timezone: 'Europe/Berlin',
     retentionDays: DEFAULT_RETENTION_DAYS,
     optInMode: DEFAULT_OPT_IN_MODE,
+    isDemo: false,
     status: 'active',
     deletedAt: null,
     purgeAfter: null,

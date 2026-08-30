@@ -2206,6 +2206,158 @@ offering a choice that does not exist is theatre.
 - **No `Retry-After` or rate-limit headers are documented** because none are sent. A caller learns
   about a limit from a 429 and nothing else.
 
+---
+
+## Part D-detail - Stage 12b public sandbox evidence
+
+12b closes blueprint Stage 12 with the second piece 14.3 describes: a wholly separate,
+unauthenticated demo application on its own origin, where anyone can exercise all three widget
+types without an account and without touching anything real.
+
+### The exit gate
+
+```
+node node_modules/@playwright/test/cli.js test demo-sandbox demo-accessibility
+  16 passed
+
+node node_modules/vitest/vitest.mjs run --project integration-server demo.integration
+  Tests 9 passed (9)
+```
+
+| Claim (14.3)                                 | Test                                                                 |
+| -------------------------------------------- | -------------------------------------------------------------------- |
+| Anyone may use it without an account         | `all three widget types are seeded, published, and rendered`         |
+| Seeded examples of all three widget types    | same, plus `creates one workspace with all three widget types`       |
+| It accepts demo submissions                  | `a visitor submits, and sees it land in the feed`                    |
+| A safe public feed without dashboard tenancy | `the public feed never carries submitted values or any identifier`   |
+| Data resets hourly                           | `clears everything the sandbox accumulated, and reseeds it`          |
+| Email and outbound webhooks disabled         | `a sandbox submission plans no delivery at all`                      |
+| Strict demo-specific rate and payload limits | `demo rate limits bite sooner than the production ones would`        |
+| Never enters a user's workspace              | `never touches another workspace`, `the feed shows the sandbox only` |
+
+Two of those are worth reading closely.
+
+**`never touches another workspace`** is the one that matters most about a job whose entire purpose
+is deleting a tenant's data. A real workspace with a contact and a widget sits beside the sandbox
+across two resets and comes out untouched - not because the reset filters it out afterwards, but
+because every delete it performs is keyed by the sandbox's own workspace id.
+
+**`the public feed never carries submitted values or any identifier`** submits a unique string
+through the real form and then asserts the feed's raw response does not contain it, and contains no
+24-character hex id at all. A feed that echoed values would republish whatever the previous stranger
+chose to type, to every subsequent visitor, on a page with no moderation.
+
+Five axe scans cover the composed page - host page plus three widgets rendered inside shadow roots
+by a runtime loaded from another origin, which is precisely the arrangement where accessibility
+falls between two audits. Zero critical or serious violations.
+
+### The sandbox is an ordinary workspace
+
+Marked with one boolean, `isDemo`, and otherwise scoped, queried, and isolated exactly like every
+other tenant. There is no carve-out in `WorkspaceScopedRepository` and no branch in the tenancy
+guards. That is deliberate: what the demo demonstrates about isolation is what the product actually
+does, rather than an arrangement built to make a demo look safe.
+
+It also has no owner and no membership rows, which is what makes "demo data never enters a user's
+workspace" structural rather than a promise. There is no account for which it is listed, no session
+that can switch into it, and no dashboard route by which its contents could be read - all of which
+follow from ordinary tenancy.
+
+What the flag changes is only what happens outside the tenant boundary, and every one of those is a
+refusal rather than a permission: no email leaves, no webhook fires, stricter public limits apply,
+and an hourly job wipes it.
+
+### Nothing leaves, in two places
+
+`DeliveryService.planFor` refuses the tenant, so nothing is ever queued - a suppressed row that
+exists and never sends would still be a row an operator has to interpret. `DeliveryService.attempt`
+refuses it again, because "nothing should ever reach here" is not a security property: a delivery
+seeded directly, or left over from before a workspace became the sandbox, would otherwise send real
+email from a tenant advertised to strangers as harmless.
+
+Everything else about a sandbox submission is real. It is validated against the published revision's
+own field schema, deduplicated by idempotency key, stored, and counted in analytics. Only the part
+that leaves the building is missing.
+
+### Limits that are provably stricter
+
+Three rate rules and a body cap, applied ON TOP OF the production ones rather than instead of them,
+so a sandbox submission clears both sets. A unit-level assertion compares each demo limit against
+its production counterpart and fails if one is not lower, with the window lengths compared too so
+"lower limit" means what it says. A sandbox limit that had quietly drifted looser than production's
+would be worse than having none: it would look like a control and behave like a hole.
+
+| Rule                | Production | Sandbox |
+| ------------------- | ---------- | ------- |
+| Per visitor, minute | 5          | 3       |
+| Per visitor, hour   | 30         | 15      |
+| Per widget, minute  | 100        | 30      |
+| Body                | 32 KB      | 8 KB    |
+
+The body cap is checked BEFORE schema validation, and the first version had that backwards - see
+the buildlog. Validating first meant an oversized body was refused for whichever field happened to
+exceed its own maximum, so the 8 KB cap could never fire and could not be tested.
+
+### The reset is a job, not a route
+
+There is no endpoint that triggers it, and a browser test asserts that four plausible ones do not
+exist. A route that wipes a tenant is a route that wipes a tenant, however well-intentioned; it
+would be one configuration mistake away from pointing at a real workspace.
+
+The widgets are recreated on every reset rather than kept, so their public ids change hourly. A
+stable id in a public sandbox is one somebody can hard-code into a script and keep pointing at.
+That is also why the demo page discovers its widgets from an endpoint rather than embedding them.
+
+### What the runtime had to gain, and why
+
+Blueprint 14.3 requires the sandbox to "accept demo submissions". It could not: the widget
+runtime's form had recorded the `submission` funnel event since Stage 10a but never posted
+anything, a gap Stage 7 opened and Stage 10a's buildlog recorded as outstanding. A sandbox whose
+forms do nothing is not a sandbox.
+
+So this stage wired the seam: the form posts to the Stage 7 endpoint, sends the `renderedAt` from
+when the form rendered rather than when Send was pressed (the server's timing heuristic measures
+that gap, and sending the click time would defeat it), carries an idempotency key generated per
+rendered form so a double-click is one lead, and shows the server's own answer rather than
+inventing wording the server owns.
+
+This is a change to the real submission path rather than to anything demo-specific, and it is
+called out as scope this stage judged necessary rather than buried.
+
+The runtime bundle grew from 15.12 KB to 17.12 KB raw, and 5.98 KB to 6.68 KB gzipped - inside the
+20 KB / 8 KB budgets blueprint 8.3 enforces with tests.
+
+### What is still missing
+
+- **The widget's configured font never applies.** Every widget renders in the browser's initial
+  serif, not the font its appearance settings choose: the computed `font-family` on the widget host
+  is `"Times New Roman"` on a page whose own font is Space Grotesk, so it is not host-page bleed.
+  The `:host` block declares `all: initial` and then a `font-family`, and the second declaration is
+  not taking effect. Pre-existing, affecting every widget rather than the sandbox, and found only
+  because this stage put three widgets on a page and looked at them. Not fixed here: it belongs to
+  the widget's own styling, and this stage's brief excludes changes to the widget path beyond what
+  the sandbox needs.
+- **The feed polls rather than being pushed.** Thirty seconds, plus a faster check shortly after any
+  click. The platform has an SSE stream, but it is authenticated and workspace-scoped, and opening
+  it to an anonymous page for one tenant would be a second, weaker path into a live stream.
+- **The reset is hourly on a schedule that only runs when workers are started in-process.** The
+  same limitation Stages 9 to 11 have: the tests drive it directly, and nothing in CI proves the
+  schedule fires.
+- **The sandbox has no analytics view.** A visitor sees the feed, not the eight dashboards the
+  submissions feed into. Showing those would mean exposing a tenant's dashboard publicly, which is
+  exactly what 14.3 says not to do - but it does mean the most interesting thing the platform does
+  with a submission is invisible from the sandbox.
+- **One test is flaky under sustained load.** `a reconnecting stream resumes on this workspace
+only`, from Stage 10b, passes deterministically in isolation and on repeat and has now failed in
+  three separate full-suite runs. Two attempted fixes across Stages 11 and 12a - widening its
+  assertion past the reconnect backoff ceiling, then raising the test's own budget to match - were
+  each correct and neither made it reliable. It is the only test whose result depends on a
+  background SSE reconnect finishing while the same process runs four families of scheduled
+  workers. Recorded as known-flaky rather than claimed fixed a third time.
+- **Nothing enforces that the sandbox stays small.** Its contents are capped only by the hourly
+  wipe and the rate limits. A determined visitor could fill it within an hour, and the only
+  consequence is a long feed.
+
 ## Change log
 
 | Date       | Stage | Change                                                                                                                                                               |
@@ -2237,3 +2389,4 @@ offering a choice that does not exist is theatre.
 | 2026-08-30 | 10b | Blueprint **Stage 10 COMPLETE**. B9 moved to `PROVEN` and B10 to `PROVEN` for all four meters. The eight dashboards of 4.9 on one page, from a single authenticated `workspace.view` read; a rate with no denominator renders as "no data" and, where the cause is structural, says why; live updates ride the 8a stream with no second connection; reads combine today with the stored aggregates per 13.2 step 4. Evidenced by 11 new browser tests (101 total) including 3 axe scans and a keyboard-only pass, and 6 new integration tests (266 total) for the read contract a browser cannot see. **No new capability names**; the section 11 table is unchanged. No charting library was added and the widget runtime bundle is unchanged. The visual pass found five real defects, including an empty state that claimed a freshness delay this stage had removed. |
 | 2026-08-30 | 11 | Blueprint **Stage 11 COMPLETE**. B8 moved to `PROVEN` except its policy pages (Stage 12); D20 to `IN PROGRESS`. Consent state machine with single/double opt-in and immutable evidence; workspace-wide suppression that outlives the contact as a salted hash; email-verified export and deletion on the account-verification token construction; workspace-configurable retention measured from a deliberate anchor; and all four 30-day windows of the 9.5 table actually firing, with actor references anonymised rather than cascade-deleted and a bounded startup catch-up sweep. Account deletion and recovery, which had no route before. Evidenced by 30 new unit tests (347 total), 31 new integration tests (297 total), and 16 new browser tests (117 total) including 5 axe scans. **No new capability names**; the section 11 table is unchanged. Migration `010_privacy` applied. Found and fixed a Stage 9 gap: the in-process worker was never started outside the tests, so every schedule since then had never run in a deployed process. |
 | 2026-08-30 | 12a | Blueprint Stage 12, sub-stage 12a. The PUBLIC face of the main application: a landing page written for an evaluator rather than a buyer, five documentation guides, an OpenAPI 3.1 document served through Swagger UI, and the four policy pages of 4.8. The contract cannot drift: request bodies are generated by `z.toJSONSchema` from the same Zod validators the routes parse with, and a test asserts the document's paths match the routes the running server dispatches in both directions - it found an undocumented route on its first run. Swagger UI is vendored rather than loaded from a CDN, so one Docker command still brings everything up. Evidenced by 6 new integration tests (303 total) and 25 new browser tests (142 total), including 11 axe scans with zero critical or serious violations. Also corrected six stale rows in this file - C10, C11, C15, D10, D11, and D12 read `NOT YET IMPLEMENTED` while their proofs were recorded in Part D-detail below them. Stage 12 stays OPEN pending 12b (the separate anonymous demo). |
+| 2026-08-30 | 12b | Blueprint **Stage 12 COMPLETE**. The separate anonymous sandbox of 14.3: one ordinary workspace marked `isDemo`, owned by nobody, seeded with all three widget types, wiped and reseeded hourly by the ninth queue family. Email and webhooks are refused for it twice - at the point deliveries are planned and again at the point one is attempted - and its public limits are provably stricter than production's, asserted rather than asserted-to. The public feed republishes nothing anybody typed. Evidenced by 16 new browser tests (158 total) including 5 axe scans, and 9 new integration tests (312 total). Migration `011_demo` applied. Required wiring the widget runtime's submission seam, open since Stage 7, because 14.3's "accepts demo submissions" cannot be met without it - runtime bundle 17.12 kB raw / 6.68 kB gzip, inside budget. Found a pre-existing defect it did not fix: every widget renders in the browser's initial serif rather than its configured font. |

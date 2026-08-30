@@ -163,6 +163,19 @@ export interface WorkspaceRecord extends Timestamped {
   readonly retentionDays: number;
   /** Single or double opt-in for marketing consent. Default double (4.8). */
   readonly optInMode: OptInMode;
+  /**
+   * The public sandbox tenant (blueprint 14.3), added in Stage 12b.
+   *
+   * A marker, NOT a carve-out. This workspace is scoped, queried, and isolated
+   * exactly like any other - the tenancy invariant has no idea it exists, which
+   * is the point: what the demo proves about isolation is what the real system
+   * does, not a special case written to make a demo safe.
+   *
+   * What the flag changes is only what happens OUTSIDE the tenant boundary:
+   * no email leaves, no webhook fires, stricter public limits apply, and an
+   * hourly job wipes it. Every one of those is a refusal, never a permission.
+   */
+  readonly isDemo: boolean;
   readonly status: RecordStatus;
   readonly deletedAt: Date | null;
   readonly purgeAfter: Date | null;

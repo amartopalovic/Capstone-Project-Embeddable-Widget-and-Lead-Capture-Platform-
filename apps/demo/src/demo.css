@@ -1,0 +1,449 @@
+/**
+ * The public sandbox (blueprint 14.3).
+ *
+ * A separate application on its own origin with no framework, so the design
+ * system is restated here rather than imported. The tokens are the platform's,
+ * to the value: same paper, same ink, same signal indigo, same two typefaces -
+ * self-hosted from the packages the main app already uses, so nothing on this
+ * page depends on a CDN being reachable.
+ *
+ * THE DESIGN PROBLEM, and everything below follows from it: a sandbox that
+ * looks like a product invites people to type real things into it, and a
+ * sandbox plastered in warnings is unusable and makes the product look
+ * unfinished. Stacking disclaimers solves neither.
+ *
+ * The answer here is to stop pretending. Most widget demos dress up as a
+ * fictional company's homepage, and that pretence is exactly what invites real
+ * data. This page is openly a WORKBENCH: each widget is a specimen in a
+ * bracket with a spec label under it, not a component of somebody's website.
+ * A specimen under glass is pleasant to look at and impossible to mistake for
+ * the real thing.
+ *
+ * Two supporting moves, both putting the caution where it is also useful:
+ * the status strip carries a live countdown to the next wipe, so the warning
+ * is the clock and cannot become wallpaper; and each spec label states
+ * "sends nothing" as a property of the specimen rather than as an apology.
+ *
+ * There is no red anywhere on this page. Red would read as an error state and
+ * make a working sandbox look broken. The words carry the caution.
+ */
+
+@import '@fontsource-variable/space-grotesk';
+@import '@fontsource-variable/jetbrains-mono';
+
+:root {
+  --paper: #edeff7;
+  --panel: #ffffff;
+  --ink: #14162b;
+  --muted: #5a5f7d;
+  --signal: #3d2bd9;
+  --edge: #d3d7e8;
+  --secure: #1f6f4a;
+
+  --sans: 'Space Grotesk Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono Variable', ui-monospace, 'Cascadia Code', Consolas, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  line-height: 1.55;
+}
+
+/* A visible, high-contrast focus ring, matching the platform's. */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+}
+
+.skip:focus {
+  left: 1rem;
+  top: 1rem;
+  z-index: 50;
+  background: var(--panel);
+  border: 1px solid var(--signal);
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+/* --------------------------------------------------------------- the strip */
+
+/**
+ * Sticky, and never dismissible.
+ *
+ * It carries a live countdown to the next wipe, which is the trick: a notice
+ * that also tells you something you want to know does not become wallpaper the
+ * way a static banner does. It is the clock AND the warning.
+ */
+.strip {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--panel);
+  border-bottom: 1px solid var(--edge);
+}
+
+.strip__inner {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 0.75rem 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1.25rem;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.strip__mark {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.strip__countdown {
+  color: var(--signal);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------------------- layout */
+
+.shell {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 3.5rem 1.25rem 5rem;
+}
+
+.intro {
+  max-width: 40rem;
+}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--signal);
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(2rem, 5vw, 2.75rem);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  margin: 0.75rem 0 0;
+}
+
+.lede {
+  font-size: 1.0625rem;
+  color: var(--muted);
+  margin: 1rem 0 0;
+}
+
+.columns {
+  display: grid;
+  gap: 3rem;
+  margin-top: 3.5rem;
+}
+
+@media (min-width: 64rem) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr) 21rem;
+    gap: 3.5rem;
+  }
+}
+
+/* -------------------------------------------------------------- specimens */
+
+.specimens {
+  display: grid;
+  gap: 3.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.specimen__label {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.75rem;
+}
+
+.specimen__label b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.specimen__blurb {
+  color: var(--muted);
+  margin: 0 0 1.5rem;
+  max-width: 44rem;
+}
+
+/**
+ * The mount, and the page's signature.
+ *
+ * The platform uses these corner ticks to frame a panel; here they mean it
+ * literally - the widget is a component held in a bracket on a bench. That is
+ * the whole argument of the page in one visual device, which is why it is the
+ * only decoration on it.
+ */
+.mount {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  padding: 2rem 1.5rem;
+  min-height: 6rem;
+}
+
+.mount::before,
+.mount::after,
+.mount > .mount__tick::before,
+.mount > .mount__tick::after {
+  content: '';
+  position: absolute;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 0 solid color-mix(in srgb, var(--signal) 45%, transparent);
+}
+
+.mount::before {
+  top: -0.5rem;
+  left: -0.5rem;
+  border-top-width: 1px;
+  border-left-width: 1px;
+}
+
+.mount::after {
+  top: -0.5rem;
+  right: -0.5rem;
+  border-top-width: 1px;
+  border-right-width: 1px;
+}
+
+.mount > .mount__tick::before {
+  bottom: -0.5rem;
+  left: -0.5rem;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+}
+
+.mount > .mount__tick::after {
+  bottom: -0.5rem;
+  right: -0.5rem;
+  border-bottom-width: 1px;
+  border-right-width: 1px;
+}
+
+/** The spec plate under each specimen. States, never apologises. */
+.spec {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1.25rem;
+  margin: 1.25rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.spec dt {
+  color: var(--muted);
+}
+
+.spec dd {
+  margin: 0;
+  color: var(--ink);
+}
+
+.spec dd.is-nothing {
+  color: var(--secure);
+}
+
+details.snippet {
+  margin-top: 1rem;
+}
+
+details.snippet > summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+details.snippet > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.snippet > summary:hover {
+  color: var(--ink);
+}
+
+.snippet__caret {
+  transition: transform 120ms ease;
+}
+
+details.snippet[open] .snippet__caret {
+  transform: rotate(90deg);
+}
+
+pre {
+  margin: 0.75rem 0 0;
+  padding: 1rem;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+/* ------------------------------------------------------------------- feed */
+
+.feed {
+  align-self: start;
+}
+
+@media (min-width: 64rem) {
+  .feed {
+    position: sticky;
+    top: 4.5rem;
+  }
+}
+
+.feed h2 {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  margin: 0 0 0.75rem;
+}
+
+.feed__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+}
+
+.feed__entry {
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--edge);
+  font-size: 0.875rem;
+}
+
+.feed__entry:last-child {
+  border-bottom: 0;
+}
+
+.feed__what {
+  color: var(--ink);
+}
+
+.feed__meta {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.feed__stored {
+  color: var(--secure);
+}
+
+/**
+ * A new entry announces itself once.
+ *
+ * The only animation on the page, and it is functional: after you submit, this
+ * is what shows you your own action landing rather than leaving you to guess
+ * whether anything happened.
+ */
+@keyframes settle {
+  from {
+    background: color-mix(in srgb, var(--signal) 10%, var(--panel));
+  }
+  to {
+    background: var(--panel);
+  }
+}
+
+.feed__entry.is-new {
+  animation: settle 1.4s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed__entry.is-new {
+    animation: none;
+  }
+  .snippet__caret {
+    transition: none;
+  }
+}
+
+.feed__empty {
+  padding: 1.25rem 1rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.feed__totals {
+  margin: 0.75rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ----------------------------------------------------------------- footer */
+
+.foot {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--edge);
+  color: var(--muted);
+  font-size: 0.875rem;
+  max-width: 44rem;
+}
+
+.foot a {
+  color: var(--signal);
+  text-underline-offset: 4px;
+}

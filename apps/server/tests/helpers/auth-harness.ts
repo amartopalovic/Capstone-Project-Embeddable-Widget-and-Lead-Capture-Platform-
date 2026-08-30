@@ -148,6 +148,8 @@ export async function createAuthHarness(options: HarnessOptions = {}): Promise<A
     // provider outcomes deterministic, and the tests inject their own.
     geoEnabled: false,
     geoTimeoutMs: 200,
+    // The sandbox's own origin; the seeded widgets allow submissions from it.
+    demoOrigin: 'http://localhost:5174',
   } satisfies ServerEnv;
 
   // The real SMTP sender, pointed at the real Mailpit service.

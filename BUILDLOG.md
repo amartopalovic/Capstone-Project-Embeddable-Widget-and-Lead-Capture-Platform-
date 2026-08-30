@@ -2931,3 +2931,172 @@ Swagger UI drove three of the corrections above.
 4. **The policy pages carry a hard-coded "last updated" date.** It is correct today and there is
    nothing that will notice when it stops being.
 5. **CI has still never run**, because no remote is configured.
+
+## Stage 12b - The separate anonymous demo (2026-08-30)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Blueprint Stage 12, sub-stage 12b of 2. The wholly separate anonymous sandbox
+of section 14.3. Closes Stage 12.
+
+### What was done
+
+- `packages/database`: `isDemo` on the workspace record, and migration `011_demo`.
+- `apps/server/src/domain/demo/limits.ts`: the sandbox's own rate rules and body cap.
+- `apps/server/src/application/demo/`: `DemoService` (seed, reset, config, feed) and `DemoWorkers`
+  (the hourly schedule and the startup seed).
+- `apps/server/src/http/routes/demo.ts`: two public read-only endpoints at `/demo/v1`.
+- `DeliveryService`: refuses the sandbox in `planFor` and again in `attempt`.
+- `public-widget.ts`: the sandbox's stricter limits, applied on top of the production ones.
+- `apps/demo`: the sandbox page itself, and the old hostile-CSS host page moved to
+  `fixture.html` with the Stage 6 tests pointed at it.
+- `packages/widget-runtime`: the form now posts. See below.
+- 16 browser tests and 9 integration tests.
+
+### Key decisions
+
+**The sandbox is an ordinary workspace with a marker on it.** No carve-out in the repository layer,
+no branch in the tenancy guards - it is scoped and queried exactly like every other tenant. What
+the demo demonstrates about isolation is therefore what the product actually does, rather than an
+arrangement built to make a demo look safe. And it has no owner and no memberships, which is what
+makes "demo data never enters a user's workspace" structural: there is no account for which it is
+listed and no session that can switch into it.
+
+**Nothing leaves it, refused twice.** `planFor` is the policy and `attempt` is the wall. "Nothing
+should ever reach here" is not a security property, and a delivery seeded directly would otherwise
+send real mail from a tenant advertised to strangers as harmless.
+
+**The reset is a job with no route.** A route that wipes a tenant is a route that wipes a tenant,
+and a browser test asserts that four plausible endpoints do not exist. The widgets are recreated
+rather than kept, so their public ids change hourly - a stable id in a public sandbox is one
+somebody hard-codes into a script.
+
+**The seeded configs come from `defaultConfigFor`,** the same function the builder uses when a
+customer creates a widget. A hand-written config here would be a second description of what each
+widget type looks like, and the sandbox would slowly stop resembling what a customer gets.
+
+**The page is a workbench, not a fake company.** This is the design answer to the stage's real
+problem: a sandbox that looks like a product invites people to type real things into it, and one
+plastered in warnings is unusable. Most widget demos dress up as a fictional company's homepage,
+and that pretence is exactly what invites real data. Here each widget is a specimen in a bracket
+with a spec plate under it - pleasant to use, impossible to mistake for somebody's website. The
+caution then goes where it is also useful: a sticky strip whose countdown to the next wipe is real
+information, a spec line reading "Sends: nothing" as a property rather than an apology, and feed
+copy that says "Stored · 4 fields. No email sent." at the moment of maximum attention. There is no
+red anywhere on the page; red would make a working sandbox look broken.
+
+### Scope this stage judged necessary, and why
+
+**The widget runtime could not submit.** Its form recorded the `submission` funnel event and posted
+nothing - a seam Stage 7 left open and Stage 10a's buildlog recorded as outstanding. Blueprint 14.3
+requires the sandbox to "accept demo submissions", so 12b could not pass its own exit gate without
+it, and a demo whose forms do nothing would be worse than no demo.
+
+So the seam is wired: a POST to the Stage 7 endpoint, `renderedAt` taken from when the form
+rendered rather than when Send was pressed (the server's timing heuristic measures that gap), an
+idempotency key generated per rendered form so a double-click is one lead, and the server's own
+outcome shown rather than wording invented here.
+
+This is a change to the real submission path rather than to anything demo-specific, which the
+brief's out-of-scope section warns about. Recorded here rather than buried, because it is the one
+judgement call in this stage that a reviewer might have made differently.
+
+### Where AI failed or was corrected
+
+- **I hand-wrote a widget configuration and got its shape wrong three ways.** Invented field names,
+  a `success` object built by spreading a discriminated union so it was neither variant, and a
+  missing `version`. TypeScript caught all three, but the instinct to reach for `as unknown as` and
+  move on was there - and would have produced a sandbox whose widgets failed to render for reasons
+  no test would have explained. Replaced with `defaultConfigFor`, which is what should have been
+  used first.
+- **The body cap was checked after schema validation, so it could never fire.** A 12,000-character
+  message was refused for exceeding that field's own 5,000 maximum, and the 8 KB sandbox cap was
+  unreachable - a limit that existed in the code, read correctly, and did nothing. Found by writing
+  the test for it and getting 400 where 413 was expected. A size cap belongs before the work it
+  exists to avoid paying for.
+- **I nearly diagnosed a broken sandbox as a broken test.** The browser submission produced no
+  confirmation, and the feed nonetheless said "Stored" - which looked like a flaky assertion. It
+  was the runtime never posting at all, with the feed entry left over from a direct API call in an
+  earlier test. Chasing the cause rather than loosening the assertion is what surfaced the missing
+  seam above.
+- **The Vite proxy did not forward `/demo`,** so the sandbox's own endpoints returned the web app's
+  HTML and the page reported itself unprepared. The same omission as Stage 11's `/public`, one
+  stage later.
+- **Two accessibility tests raced the popover.** The CTA example opens itself after three seconds,
+  so a scan started before that audited whatever half-composed state it caught and reported seven
+  violations that vanished when the test ran alone. Fixed by settling the dialog before scanning
+  rather than by retrying: a test that passes because it was lucky about timing is not evidence.
+- **`Enter` was pressed on a `details` element rather than its `summary`** - the exact mistake
+  Stage 10b made and recorded, repeated. The summary is what takes focus.
+- **The analytics reconnect test failed again, and I have now claimed to fix it twice.** Stage 11
+  widened its assertion window past the SSE backoff ceiling; Stage 12a raised the test's own budget
+  to match. It still fails under a full-suite run while passing deterministically in isolation and
+  on repeat. Both fixes were correct as far as they went and neither made it reliable, so the
+  honest description is no longer "fixed" but "flaky under sustained load". The likely cause is
+  that this test is the only one whose timing depends on a background reconnect completing while
+  the same process runs the delivery, retention, analytics, and - since this stage - sandbox reset
+  workers on a contended machine. Recorded rather than patched a third time: a third speculative
+  timeout increase would be guessing, and the two previous claims of success were worth less than
+  saying so.
+- **The feed could miss the visitor's own submission for thirty seconds.** It refreshed once, 1.2
+  seconds after a click, which races the write: the submission commits asynchronously, so a fetch
+  that lands first sees nothing and the next scheduled poll is half a minute away. Somebody who had
+  just pressed Send would watch an empty feed and reasonably conclude it had not worked. Surfaced
+  as a browser test that passed alone and failed beside a busier spec - and the right fix was to
+  the page rather than the test, because the race was real for visitors too. It now refreshes twice.
+- **A pre-existing defect I found and did not fix.** Every widget renders in the browser's initial
+  serif rather than its configured font: the computed `font-family` on the widget host is
+  `"Times New Roman"` on a page whose own font is Space Grotesk, so it is not host-page bleed. The
+  `:host` block sets `all: initial` and then a `font-family`, and the second declaration is not
+  taking effect. It affects every widget everywhere and was found only because this stage put three
+  of them on a page and looked at the result. Left for Stage 13, and reported rather than quietly
+  worked around in the sandbox's own CSS - which would have hidden it.
+
+### Verification performed
+
+Every command run directly through `node`, because README 5.4's `&`-in-path issue breaks `npm run`
+in this checkout.
+
+```
+tsc (10 projects, incl. e2e and apps/demo)   no errors
+eslint .                                     clean
+prettier --check .                           All matched files use Prettier code style!
+vitest unit    (3 projects)                  Test Files 15 passed (15)   Tests 347 passed (347)
+vitest integration (2 projects)              Test Files 15 passed (15)   Tests 312 passed (312)
+playwright (demo specs)                      16 passed
+playwright (widget specs, unchanged)         35 passed
+vite build widget-runtime                    17.12 kB raw / 6.68 kB gzip  (budgets 20 KB / 8 KB)
+vite build apps/demo                         two pages, fonts self-hosted
+```
+
+A visual pass over the rendered sandbox is what surfaced the widget font defect, and confirmed the
+submission travelling the real pipeline end to end.
+
+### Plugin usage this stage
+
+- **`frontend-design` - used substantively, and it produced the central idea.** The brief handed it
+  the honesty problem directly, and its answer - stop pretending to be a website, present the
+  widgets as specimens on a bench - is the thing that resolves the tension rather than stacking
+  disclaimers. The supporting moves came from the same pass: the countdown that makes the warning
+  useful, and the decision to use no red at all.
+- **`typescript-lsp` - used for navigation across the new demo modules.** Its cross-file reference
+  index has been a stage behind since Stage 11, so `tsc` remained the authority for diagnostics.
+- **`context7` - not consulted.** The brief allowed it for BullMQ scheduled-job patterns if a
+  genuine question arose. None did: the sandbox reset uses `upsertJobScheduler` exactly as the
+  retention sweep does, and the version-specific behaviour that mattered - a scheduler holding one
+  pending iteration and re-arming from the upsert, so a fresh process needs a startup seed as well
+  as a schedule - was established by Stage 11's consultation and applied here unchanged.
+
+### Open questions for a human
+
+1. **Wiring the runtime's submission was arguably outside this stage's brief.** It was necessary for
+   14.3's "accepts demo submissions", but it changes behaviour for every widget on the platform,
+   not just the sandbox's three. Worth a second opinion.
+2. **The widget font defect is not this stage's to fix but is now visible on the most public page in
+   the product.** Stage 13 is the natural home; until then, every widget renders in Times.
+3. **The sandbox has no analytics view.** Submissions feed the eight dashboards and a visitor
+   cannot see any of it, because showing a tenant's dashboard publicly is what 14.3 forbids. The
+   most interesting thing the platform does with a submission is therefore invisible from the demo.
+4. **The feed polls every thirty seconds.** The platform has an SSE stream, but it is authenticated
+   and workspace-scoped; opening it to an anonymous page would be a second, weaker path into a live
+   stream.
+5. **CI has still never run**, because no remote is configured.

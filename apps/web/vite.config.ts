@@ -21,6 +21,10 @@ import tailwindcss from '@tailwindcss/vite';
  * are served by this app but post to the API, and they are reached by people
  * with no session at all. Same origin, same reason.
  *
+ * `/demo` in Stage 12b is the public sandbox's own read-only endpoints, which
+ * the demo application on 5174 fetches cross-origin - the one place in this
+ * product where that is deliberate rather than incidental.
+ *
  * `/api-reference` in Stage 12a is Swagger UI, served by the API from the
  * OpenAPI document it generates about itself. It is NOT under `/docs`, which
  * this application owns for the written guides - in production both sit on one
@@ -48,6 +52,10 @@ export default defineConfig({
         target: process.env['VITE_API_TARGET'] ?? 'http://localhost:3000',
         changeOrigin: false,
       },
+      '/demo': {
+        target: process.env['VITE_API_TARGET'] ?? 'http://localhost:3000',
+        changeOrigin: false,
+      },
     },
   },
   preview: {
@@ -67,6 +75,10 @@ export default defineConfig({
         changeOrigin: false,
       },
       '/api-reference': {
+        target: process.env['VITE_API_TARGET'] ?? 'http://localhost:3000',
+        changeOrigin: false,
+      },
+      '/demo': {
         target: process.env['VITE_API_TARGET'] ?? 'http://localhost:3000',
         changeOrigin: false,
       },

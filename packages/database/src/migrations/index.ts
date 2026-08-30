@@ -10,3 +10,4 @@ export { migration007ContactInbox } from './007-contact-inbox.js';
 export { migration008Delivery } from './008-delivery.js';
 export { migration009Analytics } from './009-analytics.js';
 export { migration010Privacy } from './010-privacy.js';
+export { migration011Demo } from './011-demo.js';

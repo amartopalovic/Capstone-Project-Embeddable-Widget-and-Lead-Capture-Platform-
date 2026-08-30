@@ -122,6 +122,15 @@ textarea { min-height: 84px; resize: vertical; }
   ${button}
 }
 
+.submit[disabled] { opacity: 0.6; cursor: progress; }
+
+/* The server's answer. Colours are literal rather than tokenised: a failure
+   must be legible whatever accent the workspace chose, including one that is
+   itself red or green. */
+.notice { margin: 10px 0 0; font-size: 14px; line-height: 1.5; }
+.notice.error { color: #b3261e; }
+.notice.success { color: #1f6f4a; margin: 0; }
+
 /* A visible focus ring the host page cannot remove. WCAG 2.2 Focus
    Appearance, and the reason :host resets outline rather than trusting one. */
 :where(button, input, textarea, a):focus-visible {

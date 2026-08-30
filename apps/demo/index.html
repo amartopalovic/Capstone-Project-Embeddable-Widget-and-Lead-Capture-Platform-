@@ -3,95 +3,78 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Lead Capture Demo Sandbox</title>
+    <title>Sandbox · Lead Capture Platform</title>
+    <meta
+      name="description"
+      content="Try three real lead-capture widgets with no account. Everything here is synthetic, sends nothing, and is wiped every hour."
+    />
+    <!--
+      Not indexed. The sandbox is for people who arrive from the product, not
+      for search results that would present synthetic data as a real service.
+    -->
+    <meta name="robots" content="noindex" />
+  </head>
+
+  <body>
+    <a class="skip" href="#content">Skip to content</a>
 
     <!--
-      Deliberately hostile host-page CSS.
+      The status strip.
 
-      A widget is a guest on a page it does not control, and this page is a
-      worst-case version of one: rules that reset box-sizing globally, restyle
-      every input, and reuse `.panel` - the same class name the widget's own
-      stylesheet uses. If Shadow DOM isolation were not doing its job, every one
-      of these would visibly deform the widget, and the browser tests assert
-      that none of them does.
+      Sticky and undismissable, and it earns that by being useful: the
+      countdown is real information a visitor wants, which is what keeps it
+      from becoming wallpaper the way a static warning banner does.
     -->
-    <style>
-      * {
-        box-sizing: content-box !important;
-      }
+    <div class="strip" role="status">
+      <div class="strip__inner">
+        <span class="strip__mark">Sandbox</span>
+        <span>Everything here is synthetic</span>
+        <span>Nothing is emailed or sent onward</span>
+        <span>Wiped and reseeded <span class="strip__countdown" id="countdown">hourly</span></span>
+      </div>
+    </div>
 
-      body {
-        margin: 0;
-        font-family: Georgia, serif;
-        background: #fbf7ef;
-        color: #2b2118;
-      }
-
-      /* A class collision with the widget's own internals. */
-      .panel {
-        background: #ffe08a;
-        border: 4px dashed #b3261e;
-        padding: 40px;
-        text-transform: uppercase;
-      }
-
-      input,
-      textarea,
-      button {
-        font-size: 40px !important;
-        color: #b3261e !important;
-        background: #ffe08a !important;
-        border: 6px solid #b3261e !important;
-        letter-spacing: 6px !important;
-      }
-
-      h2 {
-        text-transform: uppercase;
-        letter-spacing: 10px;
-        color: #b3261e;
-      }
-
-      .host-shell {
-        max-width: 780px;
-        margin: 0 auto;
-        padding: 32px 20px 80px;
-      }
-
-      .tall {
-        height: 2400px;
-        background: linear-gradient(#fbf7ef, #efe6d6);
-        border-top: 1px solid #d8cbb4;
-        margin-top: 32px;
-        padding-top: 16px;
-      }
-
-      .note {
-        font-size: 14px;
-        color: #6b5b46;
-      }
-    </style>
-  </head>
-  <body>
-    <main class="host-shell">
-      <h1>Northwind Supply</h1>
-      <p class="note" id="origin-note"></p>
-
-      <div class="panel" data-testid="host-panel">
-        A host-page element using the class name <code>.panel</code>, which the widget also uses
-        internally. It must keep these styles.
+    <main class="shell" id="content">
+      <div class="intro">
+        <p class="eyebrow">Lead Capture Platform</p>
+        <h1>Three widgets on a bench.</h1>
+        <p class="lede">
+          These are the real thing, loaded the way a customer would load them: one script tag,
+          fetched across an origin boundary from the API. Fill one in and it travels the whole
+          pipeline — checked, stored, deduplicated, counted. Then it stops, because nothing here
+          leaves the building.
+        </p>
       </div>
 
-      <p>
-        <button type="button" id="host-button" data-testid="host-button">A host page button</button>
-      </p>
+      <div class="columns">
+        <ol class="specimens" id="specimens">
+          <li class="specimen" id="specimens-loading">
+            <p class="specimen__blurb">Loading the sandbox.</p>
+          </li>
+        </ol>
 
-      <div id="widgets"></div>
+        <aside class="feed" aria-labelledby="feed-heading">
+          <h2 id="feed-heading">Recent activity</h2>
+          <ul class="feed__list" id="feed">
+            <li class="feed__empty">Nothing yet. Fill in one of the forms.</li>
+          </ul>
+          <p class="feed__totals" id="totals"></p>
+        </aside>
+      </div>
 
-      <div class="tall" data-testid="tall-section">
-        <p class="note">A long section, so scroll-depth triggers have somewhere to go.</p>
+      <div class="foot">
+        <p>
+          The sandbox is one ordinary workspace that nobody owns, isolated exactly like every real
+          one. It has stricter rate limits than production, an 8&nbsp;KB body cap, and no way to
+          send email or fire a webhook. Its contents are deleted every hour.
+        </p>
+        <p>
+          Put nothing real in it — not your own address, and certainly not anybody else's.
+          <a href="http://localhost:5173/">See what the product actually is</a>.
+        </p>
       </div>
     </main>
 
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/demo.ts"></script>
   </body>
 </html>

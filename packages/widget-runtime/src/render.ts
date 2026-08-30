@@ -100,19 +100,31 @@ function renderField(field: WidgetField, idPrefix: string): HTMLElement {
   return wrapper;
 }
 
+/**
+ * What the runtime shows after a submission.
+ *
+ * A closed union rather than a loose object, so a caller cannot forget the
+ * failure case - which is the one a half-finished integration always forgets.
+ */
+export type SubmitOutcome =
+  | { readonly kind: 'message'; readonly message: string }
+  | { readonly kind: 'redirect'; readonly url: string }
+  | { readonly kind: 'error'; readonly message: string };
+
 export interface RenderOptions {
   readonly response: PublicWidgetResponse;
   /** Whether to draw a close control - modal and floating modes have one. */
   readonly dismissible: boolean;
   readonly onClose: () => void;
   /**
-   * Where a completed submission would go.
+   * Send a completed submission.
    *
-   * Stage 7 owns the submission endpoint. Until it exists the form is rendered
-   * fully and inertly: this is the typed seam it will attach to, not a
-   * half-working post.
+   * Resolves with what to show the visitor. The runtime does not decide that:
+   * the success message is the workspace's own configured wording, and a
+   * failure is whatever the server said, because the server owns the field
+   * schema and the runtime must not grow a second opinion about it.
    */
-  readonly onSubmit: (values: Record<string, string>) => void;
+  readonly onSubmit: (values: Record<string, string>) => Promise<SubmitOutcome>;
   /**
    * The visitor started filling the form (blueprint 4.9).
    *
@@ -204,8 +216,24 @@ export function renderWidget(options: RenderOptions): RenderedWidget {
   submit.textContent = config.submitLabel;
   form.append(submit);
 
+  /**
+   * A place for the server's answer, announced politely.
+   *
+   * Inside the form rather than replacing it, so a rejected submission keeps
+   * what the visitor typed. Losing somebody's message because one field was
+   * wrong is the rudest thing a form can do.
+   */
+  const notice = element('p', 'notice');
+  notice.setAttribute('role', 'status');
+  notice.hidden = true;
+  form.append(notice);
+
+  let sending = false;
+
   form.addEventListener('submit', (event) => {
     event.preventDefault();
+    if (sending) return;
+
     const values: Record<string, string> = {};
     for (const field of ordered) {
       const control = form.querySelector<HTMLInputElement | HTMLTextAreaElement>(
@@ -217,7 +245,46 @@ export function renderWidget(options: RenderOptions): RenderedWidget {
           ? String(control.checked)
           : control.value;
     }
-    onSubmit(values);
+
+    sending = true;
+    submit.disabled = true;
+    notice.hidden = true;
+
+    void onSubmit(values).then(
+      (outcome) => {
+        sending = false;
+        submit.disabled = false;
+
+        if (outcome.kind === 'redirect') {
+          window.location.assign(outcome.url);
+          return;
+        }
+
+        if (outcome.kind === 'error') {
+          notice.className = 'notice error';
+          notice.textContent = outcome.message;
+          notice.hidden = false;
+          return;
+        }
+
+        /**
+         * Success replaces the form entirely. There is nothing left to do with
+         * it, and leaving a filled-in form on screen invites a second send.
+         */
+        form.replaceChildren();
+        const done = element('p', 'notice success');
+        done.setAttribute('role', 'status');
+        done.textContent = outcome.message;
+        form.append(done);
+      },
+      () => {
+        sending = false;
+        submit.disabled = false;
+        notice.className = 'notice error';
+        notice.textContent = 'That did not send. Check your connection and try again.';
+        notice.hidden = false;
+      },
+    );
   });
 
   panel.append(form);

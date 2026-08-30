@@ -124,11 +124,46 @@ export class DeliveryService {
    * must not stop the other three from arriving, and a webhook receiver that is
    * down must not hold up the email.
    */
+  /**
+   * Whether this scope is the public sandbox.
+   *
+   * A read of the workspace's own marker rather than a cached id, because this
+   * is the check that keeps mail from leaving a tenant strangers can reach. It
+   * runs twice per submission at most, against an indexed lookup by primary
+   * key, which is a cost worth paying for a guard that must not be stale.
+   */
+  async #isDemoWorkspace(scope: WorkspaceScope): Promise<boolean> {
+    const workspace = await this.#deps.db
+      .collection<WorkspaceRecord>(COLLECTIONS.workspaces)
+      .findOne({ _id: scope.workspaceId }, { projection: { isDemo: 1 } });
+    return workspace?.isDemo === true;
+  }
+
   async planFor(
     scope: WorkspaceScope,
     submission: WithId<SubmissionEventRecord>,
     widget: WithId<WidgetRecord>,
   ): Promise<readonly DeliveryPlanItem[]> {
+    /**
+     * The public sandbox sends nothing (blueprint 14.3).
+     *
+     * Refused here, where deliveries are DECIDED, so nothing is ever queued -
+     * a suppressed row that exists and never sends would still be a row an
+     * operator has to interpret. `attempt` refuses the same tenant again, so
+     * this is a policy with a wall behind it rather than the only guard.
+     *
+     * Everything else about a sandbox submission is real: it is validated,
+     * stored, deduplicated, and counted in analytics. Only the part that leaves
+     * the building is missing.
+     */
+    if (await this.#isDemoWorkspace(scope)) {
+      this.#deps.logger.info('delivery.suppressed_for_demo', {
+        result: 'success',
+        workspaceId: scope.workspaceId.toHexString(),
+      });
+      return [];
+    }
+
     const plan: DeliveryPlanItem[] = [];
     const submissionId = submission._id.toHexString();
 
@@ -246,6 +281,29 @@ export class DeliveryService {
    * would conflate "the receiver said no" with "this process broke".
    */
   async attempt(scope: WorkspaceScope, deliveryId: ObjectId): Promise<DeliveryExecution> {
+    /**
+     * The wall behind the policy in `planFor`.
+     *
+     * Nothing should ever reach here for the sandbox, because nothing is
+     * planned for it - but "should never happen" is not a security property. A
+     * delivery seeded directly, or left over from before a workspace became
+     * the sandbox, would otherwise send a real email from a tenant that is
+     * advertised to strangers as harmless.
+     */
+    if (await this.#isDemoWorkspace(scope)) {
+      this.#deps.logger.warn('delivery.refused_for_demo', {
+        result: 'degraded',
+        workspaceId: scope.workspaceId.toHexString(),
+        deliveryId: deliveryId.toHexString(),
+      });
+      return {
+        kind: 'failed',
+        failure: 'permanent',
+        detail: 'The public sandbox does not send email or webhooks.',
+        statusCode: null,
+      };
+    }
+
     const now = this.#deps.clock.now();
     const claimed = await this.#deps.deliveries.claimForAttempt(scope, deliveryId, now);
     if (claimed === null) {

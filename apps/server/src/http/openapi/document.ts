@@ -1154,7 +1154,7 @@ const paths: Json = {
       tags: ['Public widget'],
       summary: 'Submit a lead',
       description:
-        'The hardened path of blueprint 7.3. Origin must be on the widget’s allowlist, the body is capped at 32 KB, values are validated against the published revision’s own field schema, and `idempotencyKey` makes a retried submission safe. Accepted work happens before optional side effects, so a provider outage never fails a submission.',
+        'The hardened path of blueprint 7.3. Origin must be on the widget’s allowlist, the body is capped at 32 KB, values are validated against the published revision’s own field schema, and `idempotencyKey` makes a retried submission safe. Accepted work happens before optional side effects, so a provider outage never fails a submission. A widget belonging to the public sandbox additionally meets stricter rate limits and an 8 KB body cap, checked on top of these rather than instead of them, and no email or webhook is ever sent for it.',
       parameters: [path('publicId', 'The opaque public widget id.')],
       requestBody: body(submissionPayloadSchema),
       responses: {
@@ -1173,6 +1173,33 @@ const paths: Json = {
       parameters: [path('publicId', 'The opaque public widget id.')],
       requestBody: body(interactionBatchSchema),
       responses: { '202': json('Accepted.'), ...PUBLIC_ERRORS },
+    }),
+  },
+
+  // ------------------------------------------------------------- sandbox
+  '/demo/v1/config': {
+    get: op({
+      tags: ['Demo'],
+      summary: 'The sandbox’s seeded widgets',
+      description:
+        'What the public demo page needs to install its three examples: their opaque public ids, and when the sandbox was last wiped. Unauthenticated, and CORS-open, because the demo is hosted on a different origin on purpose and nothing here is private. Returns 503 while the sandbox is still being seeded.',
+      responses: {
+        '200': json('The seeded widgets and the reset schedule.'),
+        '503': json('The sandbox is still being prepared.', ref('ErrorEnvelope')),
+      },
+    }),
+  },
+  '/demo/v1/feed': {
+    get: op({
+      tags: ['Demo'],
+      summary: 'Recent sandbox activity',
+      description:
+        'A deliberately thin public feed: which example widget, what kind of thing happened, when, and how many fields a submission carried. Never an id, never an address, and never a value somebody typed - it is a public page with no moderation, and echoing submitted text would republish whatever the last visitor chose to write.',
+      responses: {
+        '200': json('Recent entries and totals.'),
+        '429': json('Rate limited.', ref('ErrorEnvelope')),
+        '503': json('The sandbox is still being prepared.', ref('ErrorEnvelope')),
+      },
     }),
   },
 
@@ -1288,6 +1315,11 @@ export function buildOpenApiDocument(serverUrl: string): Json {
       { name: 'Analytics', description: 'The funnel and the seven dashboards beside it.' },
       { name: 'Deliveries', description: 'Email and webhook health, replay, and settings.' },
       { name: 'Privacy', description: 'Unsubscribe, opt-in, and verified export or deletion.' },
+      {
+        name: 'Demo',
+        description:
+          'The public sandbox. No account, no credentials, and nothing it holds is real.',
+      },
       { name: 'Operations', description: 'Probes and the live event stream.' },
     ],
     components,

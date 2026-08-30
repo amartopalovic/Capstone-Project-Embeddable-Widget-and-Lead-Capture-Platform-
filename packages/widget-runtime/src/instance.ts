@@ -1,7 +1,7 @@
 import { isPageTargeted, pathFromUrl } from '@lcp/contracts/rules';
 import type { PublicWidgetResponse } from '@lcp/contracts';
 import { buildStyles } from './styles.js';
-import { collectFocusable, renderWidget } from './render.js';
+import { collectFocusable, renderWidget, type SubmitOutcome } from './render.js';
 import { isSuppressed, markSeen, visitorId } from './cooldown.js';
 import { wireTriggers } from './triggers.js';
 import { WidgetAnalytics } from './analytics.js';
@@ -54,8 +54,22 @@ export class WidgetInstance {
   #unwireTriggers: (() => void) | null = null;
   #keydown: ((event: KeyboardEvent) => void) | null = null;
   readonly #analytics: WidgetAnalytics;
+  readonly #options: InstanceOptions;
+
+  /**
+   * When this form appeared, and the key that identifies its submission.
+   *
+   * Both are set at RENDER time and reused for the life of that rendered form.
+   * The timestamp is what the server's timing heuristic measures against, and
+   * the key is what makes a double-click one lead rather than two. Both are
+   * regenerated when the widget is rendered again, because that is a new form
+   * and a genuinely new submission.
+   */
+  #renderedAt = Date.now();
+  #idempotencyKey = newKey();
 
   constructor(options: InstanceOptions) {
+    this.#options = options;
     this.#response = options.response;
     this.#mode = modeFor(options.response);
     this.#anchor = options.anchor;
@@ -164,6 +178,9 @@ export class WidgetInstance {
      * widget inspectable by the site owner who installed it and testable from
      * the outside, which is worth more than the appearance of secrecy.
      */
+    this.#renderedAt = Date.now();
+    this.#idempotencyKey = newKey();
+
     const shadow = host.attachShadow({ mode: 'open' });
 
     const style = document.createElement('style');
@@ -174,17 +191,17 @@ export class WidgetInstance {
       response: this.#response,
       dismissible: this.#mode !== 'inline',
       onClose: () => this.close(),
-      onSubmit: () => {
+      onSubmit: async (values) => {
         /**
-         * The submission seam.
+         * The submission, posted to the Stage 7 endpoint.
          *
-         * Stage 7 owns the public submission endpoint and it is real and
-         * tested; wiring the visitor's keystrokes to it is still outstanding.
-         * The funnel event is recorded here regardless, because "the visitor
-         * completed the form" is a stage they reached whether or not this
-         * runtime is the thing that posts it.
+         * The funnel event is recorded first and unconditionally: "the visitor
+         * completed the form" is a stage they reached whether or not the post
+         * then succeeds, and counting only successes would quietly hide a
+         * broken integration behind a healthy-looking funnel.
          */
         this.#analytics.record('submission');
+        return this.#send(values);
       },
       onFormStart: () => this.#analytics.record('form_start'),
       onCtaClick: () => this.#analytics.record('cta_click'),
@@ -222,6 +239,71 @@ export class WidgetInstance {
       this.#bindKeyboard(rendered.focusable);
       this.#takeFocus(rendered.focusable);
     }
+  }
+
+  /**
+   * Post one submission (blueprint 7.3).
+   *
+   * Three details are the server's contract rather than this runtime's taste:
+   *
+   * `idempotencyKey` is generated here and reused for the life of this rendered
+   * form, so a visitor who double-clicks, or whose connection retries, creates
+   * one lead rather than two. It is regenerated only when the form is rendered
+   * again.
+   *
+   * `renderedAt` is when the form appeared, not when Send was pressed. The
+   * server's timing heuristic uses the gap between the two to tell a person
+   * from a script, and sending the click time would defeat it.
+   *
+   * The outcome comes back from the server unaltered. The success wording is
+   * the workspace's own configuration and a rejection names its own fields;
+   * inventing either here would give the runtime a second opinion about a
+   * schema only the server owns.
+   */
+  async #send(values: Record<string, string>): Promise<SubmitOutcome> {
+    const base = this.#options.apiBase.replace(/\/+$/, '');
+    const url = `${base}/widget/v1/submit/${encodeURIComponent(this.#response.publicId)}`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        credentials: 'omit',
+        mode: 'cors',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          idempotencyKey: this.#idempotencyKey,
+          values,
+          pageUrl: window.location.href,
+          referrer: document.referrer === '' ? undefined : document.referrer,
+          renderedAt: this.#renderedAt,
+        }),
+      });
+    } catch {
+      return { kind: 'error', message: 'That did not send. Check your connection and try again.' };
+    }
+
+    if (response.status === 202) {
+      const body = (await response.json().catch(() => null)) as {
+        outcome?: { kind?: string; message?: string; url?: string };
+      } | null;
+      const outcome = body?.outcome;
+      if (outcome?.kind === 'redirect' && typeof outcome.url === 'string') {
+        return { kind: 'redirect', url: outcome.url };
+      }
+      return {
+        kind: 'message',
+        message: outcome?.message ?? 'Thank you. Your message has been sent.',
+      };
+    }
+
+    const failure = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    return {
+      kind: 'error',
+      message: failure?.error?.message ?? 'That could not be sent. Please try again.',
+    };
   }
 
   close(): void {
@@ -324,4 +406,18 @@ export class WidgetInstance {
   static focusableIn(root: ParentNode): HTMLElement[] {
     return collectFocusable(root);
   }
+}
+
+/**
+ * A submission key that is unique per rendered form.
+ *
+ * `crypto.randomUUID` where it exists, which is everywhere this runtime
+ * supports; the fallback keeps an older browser working rather than sending a
+ * constant, which would make every submission from that browser collide with
+ * the first one and silently discard them.
+ */
+function newKey(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid !== undefined) return uuid;
+  return `k-${String(Date.now())}-${Math.random().toString(36).slice(2, 12)}`;
 }

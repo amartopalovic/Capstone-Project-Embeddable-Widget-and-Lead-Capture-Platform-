@@ -121,6 +121,8 @@ export class WorkspaceService {
         timezone,
         retentionDays: DEFAULT_RETENTION_DAYS,
         optInMode: DEFAULT_OPT_IN_MODE,
+        // Workspaces people create are never the sandbox (blueprint 14.3).
+        isDemo: false,
         status: 'active',
         deletedAt: null,
         purgeAfter: null,

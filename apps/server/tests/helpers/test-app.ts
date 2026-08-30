@@ -40,6 +40,8 @@ export function buildTestApp(healthService: HealthService): Express {
     // provider outcomes deterministic, and the tests inject their own.
     geoEnabled: false,
     geoTimeoutMs: 200,
+    // The sandbox's own origin; the seeded widgets allow submissions from it.
+    demoOrigin: 'http://localhost:5174',
   } satisfies ServerEnv;
 
   // Only the health surface is exercised, so the auth graph is never called.

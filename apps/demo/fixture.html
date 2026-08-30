@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Widget isolation fixture</title>
+
+    <!--
+      The widget ISOLATION FIXTURE, not the public sandbox.
+
+      This page moved off `/` in Stage 12b, when the sandbox became a real
+      visitor-facing thing. It stays because it is what the Stage 6 runtime
+      tests need and the sandbox cannot be: a deliberately awful host page.
+
+      Deliberately hostile host-page CSS.
+
+      A widget is a guest on a page it does not control, and this page is a
+      worst-case version of one: rules that reset box-sizing globally, restyle
+      every input, and reuse `.panel` - the same class name the widget's own
+      stylesheet uses. If Shadow DOM isolation were not doing its job, every one
+      of these would visibly deform the widget, and the browser tests assert
+      that none of them does.
+    -->
+    <style>
+      * {
+        box-sizing: content-box !important;
+      }
+
+      body {
+        margin: 0;
+        font-family: Georgia, serif;
+        background: #fbf7ef;
+        color: #2b2118;
+      }
+
+      /* A class collision with the widget's own internals. */
+      .panel {
+        background: #ffe08a;
+        border: 4px dashed #b3261e;
+        padding: 40px;
+        text-transform: uppercase;
+      }
+
+      input,
+      textarea,
+      button {
+        font-size: 40px !important;
+        color: #b3261e !important;
+        background: #ffe08a !important;
+        border: 6px solid #b3261e !important;
+        letter-spacing: 6px !important;
+      }
+
+      h2 {
+        text-transform: uppercase;
+        letter-spacing: 10px;
+        color: #b3261e;
+      }
+
+      .host-shell {
+        max-width: 780px;
+        margin: 0 auto;
+        padding: 32px 20px 80px;
+      }
+
+      .tall {
+        height: 2400px;
+        background: linear-gradient(#fbf7ef, #efe6d6);
+        border-top: 1px solid #d8cbb4;
+        margin-top: 32px;
+        padding-top: 16px;
+      }
+
+      .note {
+        font-size: 14px;
+        color: #6b5b46;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="host-shell">
+      <h1>Northwind Supply</h1>
+      <p class="note" id="origin-note"></p>
+
+      <div class="panel" data-testid="host-panel">
+        A host-page element using the class name <code>.panel</code>, which the widget also uses
+        internally. It must keep these styles.
+      </div>
+
+      <p>
+        <button type="button" id="host-button" data-testid="host-button">A host page button</button>
+      </p>
+
+      <div id="widgets"></div>
+
+      <div class="tall" data-testid="tall-section">
+        <p class="note">A long section, so scroll-depth triggers have somewhere to go.</p>
+      </div>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

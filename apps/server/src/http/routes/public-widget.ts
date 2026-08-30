@@ -17,6 +17,8 @@ import express from 'express';
 import type { PublicWidgetService } from '../../application/widget/public-widget-service.js';
 import type { SubmissionService } from '../../application/submission/submission-service.js';
 import type { RateLimiter } from '../../ports/rate-limiter.js';
+import type { DemoService } from '../../application/demo/demo-service.js';
+import { DEMO_MAX_BODY_BYTES, DEMO_RATE_RULES } from '../../domain/demo/limits.js';
 import {
   INTERACTION_RATE_RULES,
   SUBMISSION_RATE_RULES,
@@ -96,11 +98,18 @@ export interface PublicWidgetRouterDeps {
   readonly logger: Logger;
   /** Absolute origin the loader points at, e.g. https://app.example.com. */
   readonly publicBaseUrl: string;
+  /**
+   * The sandbox, for one question only: is this widget one of its three
+   * (blueprint 14.3)? The answer decides whether the stricter demo limits
+   * apply on top of the production ones. Passed as the whole service rather
+   * than a set of ids because the ids change on every hourly reset.
+   */
+  readonly demo: DemoService;
 }
 
 export function createPublicWidgetRouter(deps: PublicWidgetRouterDeps): Router {
   const router = Router();
-  const { widgets, submissions, analytics, limiter, logger, publicBaseUrl } = deps;
+  const { widgets, submissions, analytics, limiter, logger, publicBaseUrl, demo } = deps;
 
   const runtime = loadRuntimeAsset();
   if (runtime === null) {
@@ -313,6 +322,28 @@ export function createPublicWidgetRouter(deps: PublicWidgetRouterDeps): Router {
       };
 
       try {
+        /**
+         * The sandbox's body cap, checked BEFORE the schema (blueprint 14.3).
+         *
+         * Order matters here and the first version got it wrong. Validating
+         * first meant an oversized body was refused for whichever field
+         * happened to exceed its own maximum, so the 8 KB cap was unreachable
+         * and untestable - a limit that exists in the code and never fires. A
+         * size cap belongs before the work it is meant to avoid paying for.
+         */
+        const isDemo = await demo.isDemoWidget(publicId);
+        if (isDemo) {
+          const size = Buffer.byteLength(JSON.stringify(request.body ?? {}), 'utf8');
+          if (size > DEMO_MAX_BODY_BYTES) {
+            fail(
+              ERROR_CODES.PAYLOAD_TOO_LARGE,
+              'That is larger than the sandbox accepts. The real platform allows more.',
+              413,
+            );
+            return;
+          }
+        }
+
         const parsed = validate(submissionPayloadSchema, request.body);
         if (!parsed.ok) {
           fail(ERROR_CODES.VALIDATION_FAILED, 'Check the submitted fields', 400, parsed.errors);
@@ -326,12 +357,19 @@ export function createPublicWidgetRouter(deps: PublicWidgetRouterDeps): Router {
          */
         const ip = request.ip ?? 'unknown';
 
-        // Step 3: three shared Redis limits.
+        // Step 3: the shared Redis limits, plus the sandbox's if this is one.
         const pair = `${publicId}:${ip}`;
         for (const rule of [
           { rule: SUBMISSION_RATE_RULES.perIpWidgetMinute, id: pair },
           { rule: SUBMISSION_RATE_RULES.perIpWidgetHour, id: pair },
           { rule: SUBMISSION_RATE_RULES.perWidgetMinute, id: publicId },
+          ...(isDemo
+            ? [
+                { rule: DEMO_RATE_RULES.perIpMinute, id: pair },
+                { rule: DEMO_RATE_RULES.perIpHour, id: pair },
+                { rule: DEMO_RATE_RULES.perWidgetMinute, id: publicId },
+              ]
+            : []),
         ]) {
           const decision = await limiter.consume(rule.rule, rule.id);
           if (!decision.allowed) {

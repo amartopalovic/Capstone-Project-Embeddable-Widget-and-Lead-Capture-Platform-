@@ -17,6 +17,7 @@ import { createDeliveriesRouter } from './routes/deliveries.js';
 import { createAnalyticsRouter } from './routes/analytics.js';
 import { PUBLIC_WIDGET_PREFIX, createPublicWidgetRouter } from './routes/public-widget.js';
 import { PUBLIC_PRIVACY_PREFIX, createPrivacyRouter } from './routes/privacy.js';
+import { DEMO_PREFIX, createDemoRouter } from './routes/demo.js';
 import { createOpenApiRouter } from './openapi/router.js';
 import type { DirectRoute, RouteMount } from './openapi/live-routes.js';
 import { correlationMiddleware } from './middleware/correlation.js';
@@ -124,6 +125,7 @@ export function createApp(options: CreateAppOptions): Express {
     limiter: deps.rateLimiter,
     logger: deps.logger,
     publicBaseUrl: env.appBaseUrl,
+    demo: deps.demoService,
   });
 
   const widgetsRouter = createWidgetsRouter({
@@ -154,6 +156,12 @@ export function createApp(options: CreateAppOptions): Express {
     analytics: deps.analyticsService,
     memberships: deps.membershipService,
     workspaces: deps.workspaceService,
+    logger: deps.logger,
+  });
+
+  const demoRouter = createDemoRouter({
+    demo: deps.demoService,
+    limiter: deps.rateLimiter,
     logger: deps.logger,
   });
 
@@ -246,6 +254,15 @@ export function createApp(options: CreateAppOptions): Express {
   app.use(PUBLIC_PRIVACY_PREFIX, privacyRouter);
 
   /**
+   * The public sandbox's own endpoints (blueprint 14.3).
+   *
+   * Outside sessions and CSRF like the other public surfaces, and read-only.
+   * The hourly reset is deliberately NOT here: it is a scheduled job, because a
+   * route that wipes a tenant is a route that wipes a tenant.
+   */
+  app.use(DEMO_PREFIX, demoRouter);
+
+  /**
    * The API contract and its reference UI (blueprint 10.1).
    *
    * Public and unauthenticated on purpose: it describes the SHAPE of the API,
@@ -274,6 +291,7 @@ export function createApp(options: CreateAppOptions): Express {
     { prefix: `${API_PREFIX}/events`, router: eventsRouter },
     { prefix: PUBLIC_WIDGET_PREFIX, router: publicWidgetRouter },
     { prefix: PUBLIC_PRIVACY_PREFIX, router: privacyRouter },
+    { prefix: DEMO_PREFIX, router: demoRouter },
   ];
   (app as AppWithRoutes).routeMounts = mounted;
   (app as AppWithRoutes).directRoutes = [{ method: 'GET', path: API_PREFIX }];
