@@ -62,14 +62,14 @@ commands:
     command: npm run test:integration
     description: >-
       Tenancy, auth, workspace/RBAC, widgets, submissions, and the contact
-      inbox, delivery, analytics, consent, and retention against real MongoDB,
-      Redis, and Mailpit (297 tests as of Stage 11).
+      inbox, delivery, analytics, consent, retention, and the OpenAPI contract
+      against real MongoDB, Redis, and Mailpit (303 tests as of Stage 12a).
       Needs `docker compose up -d --wait mongo redis mailpit`.
   test_e2e:
     command: npm run test:e2e
     description: >-
       Browser journeys plus axe accessibility checks against WCAG 2.2 AA,
-      driven through the real UI (117 tests as of Stage 11). Playwright starts
+      driven through the real UI (142 tests as of Stage 12a). Playwright starts
       the API, the dashboard, and the separate-origin demo itself; the same
       Docker services must be up.
   lint:
@@ -96,10 +96,15 @@ base_urls:
     web: http://localhost:5173
     demo_origin: http://localhost:5174
     mailpit: http://localhost:8025
+    # Built in Stage 12a. Swagger UI, and the document it renders.
+    api_docs: http://localhost:5173/api-reference
+    openapi: http://localhost:5173/api/v1/openapi.json
+    landing: http://localhost:5173/
+    product_docs: http://localhost:5173/docs/install
   production:
     app: TBD # filled_in_by: Stage 14
     demo_origin: TBD # filled_in_by: Stage 14
-    api_docs: TBD # filled_in_by: Stage 12 built, Stage 14 deployed
+    api_docs: TBD # filled_in_by: Stage 14 (built in Stage 12a)
 
 # -----------------------------------------------------------------------------
 # Probe endpoints. Health probes are implemented and verified; the public

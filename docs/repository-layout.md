@@ -1,6 +1,6 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 11.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+**Status: Stage 12a.** All nine workspaces exist. `packages/config`, `packages/contracts`,
 `packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
 rest remain deliberate shells until the stage that fills them.
 
@@ -343,6 +343,24 @@ recovery UI, the API's "recoverable until" field, and the purge sweep cannot dis
 **A startup catch-up sweep runs alongside the daily schedule** (9.5, 5.2). A BullMQ job scheduler
 holds one pending iteration and re-arms from the upsert, so it does not backfill - the schedule
 guarantees "eventually" and only the boot-time pass guarantees "not skipped".
+
+### What Stage 12a added
+
+| Path                                          | Contents                                                                    |
+| --------------------------------------------- | --------------------------------------------------------------------------- |
+| `apps/server/src/http/openapi/document.ts`    | The OpenAPI 3.1 document; request bodies generated from the real validators |
+| `apps/server/src/http/openapi/live-routes.ts` | Reads the mount table, so the document can be checked against reality       |
+| `apps/server/src/http/openapi/router.ts`      | Serves the document and vendored Swagger UI at `/api-reference`             |
+| `apps/web/src/pages/public/`                  | Landing page, docs shell, five guides, and the four policy pages            |
+| `apps/web/src/components/PublicShell.tsx`     | Header, footer, and skip link for every unauthenticated page                |
+
+**The mount table is the mounting.** `createApp` declares its CSRF-guarded routers as an array and
+iterates it to mount them, then exposes it. Express 5 keeps mount prefixes in a closure where they
+cannot be read back, and a hand-kept list beside the `app.use` calls would be a second source of
+truth that could drift - which is the exact failure the contract check exists to catch.
+
+**Swagger UI is at `/api-reference`, not `/docs`.** The React application owns `/docs/*` for the
+written guides, and blueprint 5.1 puts both on one Render service in production.
 
 ### End-to-end tests
 

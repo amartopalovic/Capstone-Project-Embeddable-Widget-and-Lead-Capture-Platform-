@@ -258,6 +258,18 @@ test results, remaining limitations, and confirmation of the exit gate.
   - **Goal:** Make the product understandable and evaluable without assistance.
   - **Exit gate:** A new visitor can understand the product, run the demo, find the API and embed
     docs, and never mistake the portfolio deployment for an SLA-backed service.
+  - [x] **12a — Public site, documentation, and OpenAPI** _(2026-08-30)_
+    - A landing page written for an evaluator rather than a buyer: the embed snippet as the hero,
+      the route a lead travels instead of a feature list, and the free-tier posture disclosed in a
+      section of its own rather than in small print.
+    - Five documentation guides — install, domains and targeting, consent, webhooks with worked
+      signature verification in two languages, and troubleshooting organised by symptom.
+    - An OpenAPI 3.1 document whose request bodies are generated from the Zod validators the routes
+      run, served through vendored Swagger UI, with a test asserting its paths match the routes the
+      running server dispatches in both directions.
+    - The four policy pages of 4.8, workspace-neutral and plain about being a portfolio project.
+    - 25 browser tests including 11 axe scans, and 6 contract tests.
+  - [ ] **12b — The separate anonymous demo** _(not started)_
 
 - [ ] **Stage 13 — Security, accessibility, resilience, and observability hardening**
   - **Goal:** Verify cross-cutting requirements before deployment rather than treating them as

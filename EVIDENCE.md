@@ -309,12 +309,12 @@ by the stage noted.
 | C7  | Role and verified-email gates on the server, never only in React                            | `PROVEN` - enforced server-side, and the UI hides controls using capabilities the SERVER derives from that same table | Stage 4                              |
 | C8  | Strict Origin allowlist and correct CORS/preflight behavior                                 | `NOT YET IMPLEMENTED`                                                                                                 | Stages 6, 7                          |
 | C9  | Platform-owned payload schemas and 32 KB body limit                                         | `NOT YET IMPLEMENTED`                                                                                                 | Stage 7                              |
-| C10 | Honeypot, timing heuristic, rate limits, quotas, 24-hour idempotency                        | `NOT YET IMPLEMENTED`                                                                                                 | Stage 7                              |
-| C11 | No raw IP persistence and monthly HMAC rotation                                             | `NOT YET IMPLEMENTED`                                                                                                 | Stage 7                              |
+| C10 | Honeypot, timing heuristic, rate limits, quotas, 24-hour idempotency                        | `PROVEN` - see Part D-detail, Stage 7                                                                                 | Stage 7                              |
+| C11 | No raw IP persistence and monthly HMAC rotation                                             | `PROVEN` - see Part D-detail, Stages 7 and 10a                                                                        | Stages 7, 10                         |
 | C12 | Encryption of readable secrets with key-version support                                     | `PROVEN` for the TOTP secret - AES-256-GCM with key version                                                           | Stages 3, 9                          |
 | C13 | Output escaping, safe template variables, no arbitrary HTML/CSS/JS                          | `IN PROGRESS` - auth UI escapes output and accepts no HTML; widget templates in Stages 5, 6, 9                        | Stages 5, 6, 9                       |
 | C14 | Validated redirects and CTA destinations                                                    | `NOT YET IMPLEMENTED`                                                                                                 | Stages 5, 6                          |
-| C15 | Webhook SSRF defenses and HMAC signing                                                      | `NOT YET IMPLEMENTED`                                                                                                 | Stage 9                              |
+| C15 | Webhook SSRF defenses and HMAC signing                                                      | `PROVEN` - see Part D-detail, Stage 9                                                                                 | Stage 9                              |
 | C16 | Security headers and an appropriate Content Security Policy                                 | `NOT YET IMPLEMENTED`                                                                                                 | Stage 13                             |
 | C17 | PII and secret redaction in logs, errors, analytics, and monitoring                         | `NOT YET IMPLEMENTED`                                                                                                 | Stage 13                             |
 | C18 | Dependency review, lockfile integrity, vulnerability and secret scanning in CI              | `IN PROGRESS` - detail below                                                                                          | Stage 1 baseline, completed Stage 13 |
@@ -335,9 +335,9 @@ by the stage noted.
 | D7  | Outbox prevents a transient Redis enqueue failure from losing promised work                                | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stages 7, 9                    |
 | D8  | Transient-only retry, five attempts with backoff, dead letter, and manual replay                           | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 9                        |
 | D9  | Brevo daily budget priority reserve and visible deferred states                                            | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 9                        |
-| D10 | SSE workspace isolation, heartbeats, and bounded reconnect                                                 | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stages 8, 10                   |
-| D11 | Raw interaction events expire after 90 days leaving aggregates intact                                      | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 10                       |
-| D12 | Every recovery window and permanent purge (contact, widget, workspace, account)                            | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 11                       |
+| D10 | SSE workspace isolation, heartbeats, and bounded reconnect                                                 | `PROVEN` - see Part D-detail, Stages 8a and 10a                                                                                                                                                 | Stages 8, 10                   |
+| D11 | Raw interaction events expire after 90 days leaving aggregates intact                                      | `PROVEN` - see Part D-detail, Stage 10a GATE 2                                                                                                                                                  | Stage 10                       |
+| D12 | Every recovery window and permanent purge (contact, widget, workspace, account)                            | `PROVEN` - see Part D-detail, Stage 11 GATE 1                                                                                                                                                   | Stage 11                       |
 | D13 | Repeatable migrations and explicit index management on a clean database                                    | `PROVEN` - see Part D-detail                                                                                                                                                                    | Stage 2                        |
 | D14 | Liveness and readiness endpoints; degraded optional providers do not make the API unready                  | `IN PROGRESS` - detail below                                                                                                                                                                    | Stage 1 skeleton, Stage 13     |
 | D15 | WCAG 2.2 AA audit with zero critical automated violations on critical pages and widgets                    | `IN PROGRESS` - axe clean on every auth page; manual audit and full page set in Stage 13                                                                                                        | Stage 13                       |
@@ -2068,6 +2068,144 @@ test. Both token-consuming pages now record which token they have already acted 
   directly by the tests and the catch-up is proven against a clock jump; the Render behaviour it is
   designed for cannot be observed until Stage 14.
 
+---
+
+## Part D-detail - Stage 12a public site and API contract evidence
+
+Stage 12 is split. **12a is the public face of the main application** - landing page, documentation,
+the OpenAPI contract, and the policy pages. The separate anonymous demo with its hourly reset is
+12b, so Stage 12 stays OPEN.
+
+### The exit gate, proven through the browser
+
+```
+node node_modules/@playwright/test/cli.js test public-site public-site-accessibility
+  25 passed
+```
+
+| Claim                                          | Test                                                                 |
+| ---------------------------------------------- | -------------------------------------------------------------------- |
+| A visitor understands the product              | `the landing page explains the product and shows what you install`   |
+| The free-tier posture is disclosed, not buried | `the portfolio and free-tier disclosure is on the landing page`      |
+| They can find the docs                         | `a visitor can reach every documentation page from the landing page` |
+| They can read the policies                     | `a visitor can read all four policy pages`                           |
+| They can exercise the API contract             | `Swagger UI opens from the docs and renders this API`                |
+| None of it needs an account                    | `none of the public site needs a session`                            |
+| It exposes no tenant data                      | `the public site exposes no tenant data`                             |
+
+The last two are the ones worth their weight. `none of the public site needs a session` clears
+cookies first and walks all eleven pages, asserting each rendered its own `h1` and that the context
+still holds zero cookies afterwards - a page that works only because a developer happened to be
+signed in has failed this stage, however good it looks.
+
+Eleven axe scans, one per page, plus a heading-structure check that axe does not perform: exactly
+one `h1` per page and no skipped levels, which is what a screen-reader user navigates a long policy
+page by. Zero critical or serious violations.
+
+### The OpenAPI document cannot drift
+
+Blueprint 10.1 makes OpenAPI "the contract source". The failure that ruins a contract source is
+drift - a route is added, the spec is not, and the published document quietly starts lying. A spec
+that lies is worse than no spec, because a reader trusts it. Two mechanisms make that a build
+failure rather than a discovery.
+
+**Request bodies are generated from the validators the routes run.** Every request shape in the
+document comes from `z.toJSONSchema` over the SAME Zod object the route parses with. Nobody
+transcribed the 12-character password minimum into the contract, so nobody can forget to update it;
+there is a test asserting exactly that value arrives from the schema rather than from a literal.
+Zod 4 does this natively, so it cost no dependency.
+
+**The path list is checked against the running server.** `openapi.integration.test.ts` builds the
+real app through the production composition root, reads the routes it dispatches, and asserts the
+document's paths match in BOTH directions - an undocumented route and a documented-but-absent route
+each fail, and separately, so a failure says which way it drifted.
+
+```
+node node_modules/vitest/vitest.mjs run --project integration-server openapi.integration
+  Tests 6 passed (6)
+```
+
+It found one route immediately: `DELETE /api/v1/workspaces/current` was undocumented. That is the
+check working on its first run rather than a hypothetical.
+
+The other four assertions cover the parts a path list does not: every operation carries a summary,
+a description, and at least one response; every tag used is declared; the document contains no
+connection string, no key prefix, and no `example` values at all - the most plausible way a
+real-looking credential would get into a published contract; and requesting it while a workspace
+with a distinctive name exists returns nothing containing that name.
+
+### Reading the mount table rather than Express's internals
+
+The first version of the route check walked Express's own router stack to recover mount prefixes.
+Express 5 keeps them in a closure over a compiled matcher, so they are not readable, and the check
+silently compared unprefixed paths - `POST /revoke-all` against `POST /api/v1/sessions/revoke-all`,
+failing for the wrong reason.
+
+The fix was to stop guessing. `createApp` now declares its CSRF-guarded routers as an array and
+iterates it to mount them, and exposes the full table for the check. That table is not a
+description of where the routers are mounted; it is what mounts them, so it cannot disagree with
+the app.
+
+### Swagger UI is vendored, not linked
+
+Served from the `swagger-ui-dist` package rather than a CDN. A CDN would be one line shorter and
+would break the promise in blueprint 15.1 that one Docker command brings the whole thing up - an
+evaluator without internet access would get a blank page where the API contract should be. It also
+keeps the reference on the same origin and in the same release as the API it describes.
+
+It is mounted at `/api-reference`, deliberately not `/docs`. The React application owns `/docs/*`
+for the written guides, and blueprint 5.1 puts both on one Render service in production - a shared
+prefix would mean the server's static mount shadowing every guide page, or the reverse, depending
+on registration order. Two names, no ambiguity.
+
+### What the documentation says, and how it is kept true
+
+Five guides, written from what the product does today. The samples are the real ones: the embed
+snippet matches `embedSnippet` in the server's widget domain including the `async` attribute and
+the identifier alphabet, which drops `l`, `o`, `0`, and `1` so an id survives being read aloud. The
+webhook page carries working verification code in two languages, and names the three ways a
+receiver gets signing wrong - signing the parsed body instead of the raw bytes, ignoring the
+timestamp, and comparing with `===`. A browser test asserts all three are named, because prose that
+omits them produces receivers that look correct and are not.
+
+Troubleshooting is organised by the symptom somebody actually has rather than by subsystem, because
+a person whose widget will not appear does not yet know whether that is a targeting, publishing, or
+domain problem - which is precisely why they are reading it.
+
+### The policy pages
+
+Privacy, terms, storage and cookies, and acceptable use, as blueprint 4.8 requires. Written as real
+policy for what this actually is: a portfolio project with no legal entity behind it. That is
+stated at the top of each page rather than in a final paragraph, because somebody deciding whether
+to put data here needs it before they read anything else.
+
+They are workspace-neutral and say so. A customer collecting leads with this platform is the
+controller of that data and needs their own privacy policy; these describe the platform.
+
+The storage notice is the one that would normally be filler. It says what is actually true: the
+widget sets no cookies at all and writes one dismissal flag to the host site's own local storage;
+the dashboard sets two strictly-necessary cookies; and there is no consent banner because a banner
+offering a choice that does not exist is theatre.
+
+### What is still missing
+
+- **The separate anonymous demo is Stage 12b** - the seeded examples of all three widget types, the
+  safe public feed, the hourly reset, and the disabled side effects. `apps/demo` today is the
+  cross-origin test fixture Stage 6 built, not the public demo 14.3 describes.
+- **The landing page has no screenshots.** It describes the product and shows the artifact you
+  install; it does not show the inbox or the dashboards. Deliberate for this stage - a screenshot
+  goes stale silently and this stage had no way to keep one honest - but a reader has to take the
+  interface on trust until they sign up.
+- **Documentation has no per-page table of contents.** The webhook and troubleshooting pages are
+  long enough that one would help, and the left nav only shows page-level structure.
+- **The OpenAPI document describes responses rather than generating them.** Request bodies come
+  from the real validators; response DTOs in this codebase are TypeScript interfaces that are
+  constructed and never parsed, so there is no runtime object to derive from. Inventing Zod mirrors
+  for them would create exactly the second source of truth this stage exists to avoid, so responses
+  are documented by status and shape instead. That half of the contract can still drift.
+- **No `Retry-After` or rate-limit headers are documented** because none are sent. A caller learns
+  about a limit from a 429 and nothing else.
+
 ## Change log
 
 | Date       | Stage | Change                                                                                                                                                               |
@@ -2098,3 +2236,4 @@ test. Both token-consuming pages now record which token they have already acted 
 | 2026-08-29 | 10a | Blueprint Stage 10, sub-stage 10a. Analytics BACKEND: the public interaction-event endpoint with Origin/quota/rate hardening and a per-widget rotating visitor pseudonym, runtime funnel instrumentation, idempotent daily aggregation, a 90-day retention sweep that never deletes an un-aggregated day, the five funnel formulas as pure functions, and the remaining two SSE event types. Both monthly meters became real, on the workspace timezone boundary. Evidenced by 26 new unit tests and 20 new integration tests. Stage 10 stays OPEN pending 10b (dashboards + browser E2E). |
 | 2026-08-30 | 10b | Blueprint **Stage 10 COMPLETE**. B9 moved to `PROVEN` and B10 to `PROVEN` for all four meters. The eight dashboards of 4.9 on one page, from a single authenticated `workspace.view` read; a rate with no denominator renders as "no data" and, where the cause is structural, says why; live updates ride the 8a stream with no second connection; reads combine today with the stored aggregates per 13.2 step 4. Evidenced by 11 new browser tests (101 total) including 3 axe scans and a keyboard-only pass, and 6 new integration tests (266 total) for the read contract a browser cannot see. **No new capability names**; the section 11 table is unchanged. No charting library was added and the widget runtime bundle is unchanged. The visual pass found five real defects, including an empty state that claimed a freshness delay this stage had removed. |
 | 2026-08-30 | 11 | Blueprint **Stage 11 COMPLETE**. B8 moved to `PROVEN` except its policy pages (Stage 12); D20 to `IN PROGRESS`. Consent state machine with single/double opt-in and immutable evidence; workspace-wide suppression that outlives the contact as a salted hash; email-verified export and deletion on the account-verification token construction; workspace-configurable retention measured from a deliberate anchor; and all four 30-day windows of the 9.5 table actually firing, with actor references anonymised rather than cascade-deleted and a bounded startup catch-up sweep. Account deletion and recovery, which had no route before. Evidenced by 30 new unit tests (347 total), 31 new integration tests (297 total), and 16 new browser tests (117 total) including 5 axe scans. **No new capability names**; the section 11 table is unchanged. Migration `010_privacy` applied. Found and fixed a Stage 9 gap: the in-process worker was never started outside the tests, so every schedule since then had never run in a deployed process. |
+| 2026-08-30 | 12a | Blueprint Stage 12, sub-stage 12a. The PUBLIC face of the main application: a landing page written for an evaluator rather than a buyer, five documentation guides, an OpenAPI 3.1 document served through Swagger UI, and the four policy pages of 4.8. The contract cannot drift: request bodies are generated by `z.toJSONSchema` from the same Zod validators the routes parse with, and a test asserts the document's paths match the routes the running server dispatches in both directions - it found an undocumented route on its first run. Swagger UI is vendored rather than loaded from a CDN, so one Docker command still brings everything up. Evidenced by 6 new integration tests (303 total) and 25 new browser tests (142 total), including 11 axe scans with zero critical or serious violations. Also corrected six stale rows in this file - C10, C11, C15, D10, D11, and D12 read `NOT YET IMPLEMENTED` while their proofs were recorded in Part D-detail below them. Stage 12 stays OPEN pending 12b (the separate anonymous demo). |

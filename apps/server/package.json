@@ -27,7 +27,8 @@
     "ioredis": "^5.9.0",
     "mongodb": "^6.21.0",
     "nodemailer": "^9.0.6",
-    "otpauth": "^9.5.1"
+    "otpauth": "^9.5.1",
+    "swagger-ui-dist": "^5.32.14"
   },
   "devDependencies": {
     "@lcp/config": "*",

@@ -258,7 +258,16 @@ test.describe('GATE 3: live updates never cross tenants - EXIT GATE', () => {
      * reconnect is a fresh authorization rather than a resumed trust. The
      * reconnect is forced by switching the browser offline and back, which is
      * what the client's bounded backoff is written for.
+     *
+     * Given twice the default budget, because this test deliberately waits out
+     * a backoff that can reach 30 seconds - and it spends 20-odd seconds before
+     * that setting up two tenants. An earlier attempt at this only widened the
+     * assertion's own window to 45 seconds and left the test at the default 60,
+     * so the assertion could never actually run to completion: the test timed
+     * out first, and looked like a product failure rather than a budget too
+     * small for what it was asked to observe.
      */
+    test.setTimeout(120_000);
     await createOwnerWithWorkspace(page, 'an-reconnect');
     const publicId = await publishWidgetForLeads(page, 'an-reconnect');
     await sendFunnelEvents(page, publicId, ['impression']);

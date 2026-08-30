@@ -24,6 +24,19 @@ import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage.jsx';
 import { ConsentPage } from './pages/ConsentPage.jsx';
 import { PrivacyRequestPage } from './pages/PrivacyRequestPage.jsx';
 import { PrivacyConfirmPage } from './pages/PrivacyConfirmPage.jsx';
+import { LandingPage } from './pages/public/LandingPage.jsx';
+import { InstallDoc } from './pages/public/docs/InstallDoc.jsx';
+import { DomainsDoc } from './pages/public/docs/DomainsDoc.jsx';
+import { ConsentDoc } from './pages/public/docs/ConsentDoc.jsx';
+import { WebhooksDoc } from './pages/public/docs/WebhooksDoc.jsx';
+import { ApiDoc } from './pages/public/docs/ApiDoc.jsx';
+import { TroubleshootingDoc } from './pages/public/docs/TroubleshootingDoc.jsx';
+import {
+  AcceptableUsePage,
+  PrivacyPolicyPage,
+  StoragePage,
+  TermsPage,
+} from './pages/public/PolicyPages.jsx';
 
 /**
  * Application routes.
@@ -54,7 +67,32 @@ import { PrivacyConfirmPage } from './pages/PrivacyConfirmPage.jsx';
  * themselves rather than relying on the route to be exact.
  */
 const router = createBrowserRouter([
-  { path: '/', element: <Navigate to="/workspace" replace /> },
+  /*
+   * --- the public site (Stage 12a) ---
+   *
+   * `/` is the landing page rather than a redirect into the workspace. Until
+   * this stage the root sent everybody to sign-in, which is the right answer
+   * for a customer and the wrong one for the far more common visitor here: an
+   * evaluator with no account, who needs to find out what this is.
+   *
+   * A signed-in person is one click from the dashboard in the header, and the
+   * workspace routes are unchanged.
+   */
+  { path: '/', element: <LandingPage /> },
+
+  { path: '/docs/install', element: <InstallDoc /> },
+  { path: '/docs/domains', element: <DomainsDoc /> },
+  { path: '/docs/consent', element: <ConsentDoc /> },
+  { path: '/docs/webhooks', element: <WebhooksDoc /> },
+  { path: '/docs/api', element: <ApiDoc /> },
+  { path: '/docs/troubleshooting', element: <TroubleshootingDoc /> },
+  { path: '/docs', element: <Navigate to="/docs/install" replace /> },
+
+  { path: '/policies/privacy', element: <PrivacyPolicyPage /> },
+  { path: '/policies/terms', element: <TermsPage /> },
+  { path: '/policies/storage', element: <StoragePage /> },
+  { path: '/policies/acceptable-use', element: <AcceptableUsePage /> },
+  { path: '/policies', element: <Navigate to="/policies/privacy" replace /> },
 
   // --- auth surface (Stage 3a/3b) ---
   { path: '/register', element: <RegisterPage /> },

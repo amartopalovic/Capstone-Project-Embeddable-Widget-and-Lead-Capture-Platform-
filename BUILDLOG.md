@@ -2774,3 +2774,160 @@ environment, and `.env.example` now records that two more derived values depend 
    sees no product, no company, and no way to learn what this is. Stage 12's public site is the
    natural place to fix that, and it is a deliberate hole rather than an oversight.
 5. **CI has still never run**, because no remote is configured.
+
+## Stage 12a - Public site, documentation, and OpenAPI (2026-08-30)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Blueprint Stage 12, sub-stage 12a of 2. The public face of the main
+application. The separate anonymous demo is 12b, so Stage 12 stays open on the checklist.
+
+### What was done
+
+- `apps/server/src/http/openapi/`: the OpenAPI 3.1 document, a router serving it and Swagger UI,
+  and the route-introspection helper the contract check uses.
+- `apps/server/src/http/app.ts`: the CSRF-guarded routers are now declared as a mount table and
+  iterated, and the table is exposed for the contract check.
+- `apps/web/src/components/PublicShell.tsx` and `CodeBlock.tsx`: chrome for the public site, and a
+  copyable code sample.
+- `apps/web/src/pages/public/`: the landing page, a docs shell, five guides, and the four policy
+  pages.
+- `e2e/tests/public-site.spec.ts` and `public-site-accessibility.spec.ts`: 25 browser tests.
+- `apps/server/tests/openapi.integration.test.ts`: 6 contract tests.
+- `swagger-ui-dist` added to `apps/server`. The only new dependency this stage.
+
+### Key decisions
+
+**The document is generated where it can be, and checked where it cannot.** Request bodies come
+from `z.toJSONSchema` over the exact Zod objects the routes validate with, so the published contract
+carries the real bounds and patterns and nobody can forget to update one. Responses are described
+rather than generated, because response DTOs here are TypeScript interfaces that the server
+constructs and never parses - there is no runtime object to derive from, and inventing Zod mirrors
+for them would create the second source of truth this whole approach exists to avoid. Said plainly
+in the file rather than left as an apparent inconsistency.
+
+**Drift is a build failure.** A test builds the real app through the production composition root,
+reads the routes it dispatches, and compares both directions against the document. It found
+`DELETE /api/v1/workspaces/current` undocumented on its first run.
+
+**The mount table is the mounting.** Getting the live route list right meant knowing each router's
+prefix, and Express 5 keeps those in a closure over a compiled matcher. Rather than parse internals
+or keep a hand-written list beside the `app.use` calls, `createApp` now declares the guarded
+routers as data and iterates that array to mount them. It is not a description of where they are
+mounted; it is what mounts them.
+
+**Swagger UI is vendored.** A CDN would be shorter and would break blueprint 15.1's promise that
+one Docker command brings everything up. Mounted at `/api-reference` rather than `/docs`, because
+the React application owns `/docs/*` for the guides and both sit on one Render service in
+production - a shared prefix would have one shadowing the other.
+
+**The landing page is built for an evaluator, not a buyer.** That is the actual audience, and
+pricing tiers and testimonials would answer none of their questions while reading as worse
+engineering. So the hero is the embed snippet - the artifact you install, and the fastest honest
+answer to "is this real" - and the page is organised as the route a lead travels rather than as a
+feature list. The ordering is numbered because the order is genuine: nothing reaches the inbox that
+did not survive the checks.
+
+**The free-tier disclosure is a section, not small print.** For this audience, stating limits
+plainly is a credibility signal rather than a liability, so it sits directly under the hero with
+its own heading.
+
+**Policies say what is actually true.** The storage notice is the one that would normally be
+filler; it states that the widget sets no cookies at all, that the dashboard sets two
+strictly-necessary ones, and that there is no consent banner because a banner offering a choice
+that does not exist is theatre.
+
+### Where AI failed or was corrected
+
+- **I wrote a route-introspection helper against Express internals that silently produced wrong
+  answers.** It recovered mount prefixes from `layer.regexp`, which Express 5 no longer exposes, so
+  every route came back unprefixed - `POST /revoke-all` instead of
+  `POST /api/v1/sessions/revoke-all`. The contract test failed, but for the wrong reason, and a
+  less careful reading would have "fixed" it by loosening the comparison. Replaced with the mount
+  table above.
+- **The landing page's hero snippet was wrong in two ways at once**, which is embarrassing on a
+  page whose entire argument is that the product is real: it used `defer` where the builder prints
+  `async`, and its example identifier contained a `1`, which the real alphabet excludes precisely
+  so ids survive being read aloud. Caught by checking the generator rather than by looking at it.
+- **The hero snippet was then truncated on screen.** At 1280px the box cut it off at
+  `data-widget="w_8fk2`, so the most important artifact on the page was displayed with its end
+  missing. Letting the browser wrap it instead broke inside `data-widget`, at the hyphen, which
+  reads like a typo. The line breaks are now in the string - legal HTML between attributes, so it
+  still pastes identically.
+- **An axe scan caught a real keyboard trap I had introduced everywhere.** Every code sample is a
+  `pre` with `overflow-x: auto`, which makes it a scrollable region; a region a mouse can scroll and
+  a keyboard cannot puts the content past the right edge out of reach entirely (WCAG 2.1.1). Every
+  code block is now focusable and labelled.
+- **`/docs` collided with itself.** I mounted Swagger UI at `/docs` on the API and then gave the
+  React app `/docs/install` and friends. In development the Vite proxy hid it; in production, where
+  blueprint 5.1 puts both on one service, one would have shadowed the other. Moved the reference to
+  `/api-reference`.
+- **The OpenAPI description said "two halves" and then listed three surfaces.** Spotted in the
+  rendered Swagger UI rather than in the source, which is the argument for looking at the output.
+- **I found six stale rows in `EVIDENCE.md`** while looking for where to record this stage: C10,
+  C11, C15, D10, D11, and D12 all read `NOT YET IMPLEMENTED` while their proofs were written into
+  Part D-detail of the same file by Stages 7, 9, 10a, and 11. An evaluator reading the index would
+  have concluded that a large part of the product does not exist. Corrected to point at the
+  existing detail. This was not introduced by this stage and it is worth asking how it survived
+  four stages of "update EVIDENCE.md".
+- **`typescript-lsp` returned a stale cross-file index again.** `findReferences` on `DOCS_PATH`
+  reported one usage where the disk has fifteen. Document symbols and hover were correct. Verified
+  with `grep`; `tsc` remained the authority. Same failure Stage 11 recorded.
+- **A fix I made in Stage 11 turned out to be half a fix.** The analytics reconnect test waits out
+  an SSE backoff that can reach 30 seconds; Stage 11 widened its assertion window to 45 seconds and
+  left the test's own budget at the default 60. Since the test spends twenty-odd seconds setting up
+  two tenants first, the assertion could never run to completion - the test timed out before its
+  own window elapsed, and presented as a product failure rather than as a budget too small for what
+  it was asked to observe. The test now gets 120 seconds. Worth recording because the Stage 11
+  entry describes that fix as though it were finished.
+
+### Verification performed
+
+Every command run directly through `node`, because README 5.4's `&`-in-path issue breaks `npm run`
+in this checkout.
+
+```
+tsc (9 projects, incl. e2e)          no errors
+eslint .                             clean
+prettier --check .                   All matched files use Prettier code style!
+vitest unit    (3 projects)          Test Files 15 passed (15)   Tests 347 passed (347)
+vitest integration (2 projects)      Test Files 14 passed (14)   Tests 303 passed (303)
+playwright (public-site specs)       25 passed
+playwright (full suite)              142 passed
+```
+
+A visual pass over the landing page, two documentation pages, a policy page, and the rendered
+Swagger UI drove three of the corrections above.
+
+### Plugin usage this stage
+
+- **`frontend-design` - used substantively, and it changed the brief.** Its most useful pressure
+  was on who the landing page is actually for. Once that was named - an evaluator, not a buyer -
+  the hero stopped being a headline over a gradient and became the embed snippet, the feature list
+  became the route a lead travels, and the free-tier disclosure moved from the footer to a section
+  under the fold-line. It also produced the rule that the docs shell caps its measure well below
+  the column width, which matters more on long policy prose than anywhere else in this product.
+- **`typescript-lsp` - worked, with the same caveat as Stage 11.** Document symbols and hover
+  resolved correctly across the new OpenAPI modules; the cross-file reference index was a stage
+  behind. Useful for navigation, not sufficient as a diagnostics pass on its own.
+- **`context7` - not consulted.** The brief allowed it for OpenAPI or Swagger UI integration
+  patterns "if a genuine question arises". None did: Zod 4's `toJSONSchema` is in the installed
+  package's own types, `swagger-ui-dist`'s single documented entry point is
+  `getAbsoluteFSPath()`, and the OpenAPI 3.1 shapes used here are the ones the format has had for
+  years. Inventing a consultation to have used the tool would have been the wrong call.
+
+### Open questions for a human
+
+1. **`EVIDENCE.md`'s status table drifted for four stages without anyone noticing.** Six rows were
+   wrong. The per-stage D-detail sections were accurate throughout, so the failure is specifically
+   in maintaining the index. It may be worth deriving that table from the detail sections rather
+   than maintaining both.
+2. **The landing page shows no interface.** It describes the product and shows the snippet, but a
+   reader cannot see the inbox or the dashboards without signing up. A screenshot would help and
+   would also go stale silently, which is why this stage did not add one - Stage 12b's demo is the
+   better answer.
+3. **Response schemas in the OpenAPI document are descriptive.** Request bodies cannot drift;
+   responses can. Closing that would mean Zod objects for response DTOs the server currently
+   constructs directly.
+4. **The policy pages carry a hard-coded "last updated" date.** It is correct today and there is
+   nothing that will notice when it stops being.
+5. **CI has still never run**, because no remote is configured.

@@ -17,6 +17,8 @@ import { createDeliveriesRouter } from './routes/deliveries.js';
 import { createAnalyticsRouter } from './routes/analytics.js';
 import { PUBLIC_WIDGET_PREFIX, createPublicWidgetRouter } from './routes/public-widget.js';
 import { PUBLIC_PRIVACY_PREFIX, createPrivacyRouter } from './routes/privacy.js';
+import { createOpenApiRouter } from './openapi/router.js';
+import type { DirectRoute, RouteMount } from './openapi/live-routes.js';
 import { correlationMiddleware } from './middleware/correlation.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { sessionMiddleware, type SessionCookieOptions } from './middleware/session.js';
@@ -65,7 +67,8 @@ export function createApp(options: CreateAppOptions): Express {
 
   // Health endpoints sit outside the versioned API and before session handling,
   // so a probe never depends on Redis being reachable.
-  app.use('/health', createHealthRouter(healthService));
+  const healthRouter = createHealthRouter(healthService);
+  app.use('/health', healthRouter);
 
   app.use(sessionMiddleware(deps.sessionService, deps.userRepository, cookie.name));
 
@@ -182,16 +185,31 @@ export function createApp(options: CreateAppOptions): Express {
    * directly. They are protected by throttling and generic responses instead.
    * Everything reached with an existing session does require a token.
    */
+  /**
+   * The mount table.
+   *
+   * Declared as data and then iterated, rather than written as a run of
+   * `app.use` calls, for one reason: Stage 12a's contract check needs to know
+   * where every router lives in order to prove the OpenAPI document matches
+   * what is served, and Express 5 keeps mount prefixes in a closure where they
+   * cannot be read back. A separate list of "where things are mounted" would be
+   * a second source of truth that could drift; this table IS the mounting, so
+   * it cannot.
+   */
+  const csrfGuarded: readonly RouteMount[] = [
+    { prefix: `${API_PREFIX}/sessions`, router: sessionsRouter },
+    { prefix: `${API_PREFIX}/mfa`, router: mfaRouter },
+    { prefix: `${API_PREFIX}/workspaces`, router: workspacesRouter },
+    { prefix: `${API_PREFIX}/members`, router: membersRouter },
+    { prefix: `${API_PREFIX}/invitations`, router: invitationsRouter },
+    { prefix: `${API_PREFIX}/widgets`, router: widgetsRouter },
+    { prefix: `${API_PREFIX}/contacts`, router: contactsRouter },
+    { prefix: `${API_PREFIX}/deliveries`, router: deliveriesRouter },
+    { prefix: `${API_PREFIX}/analytics`, router: analyticsRouter },
+  ];
+
   app.use(`${API_PREFIX}/auth`, authRouter);
-  app.use(`${API_PREFIX}/sessions`, doubleCsrfProtection, sessionsRouter);
-  app.use(`${API_PREFIX}/mfa`, doubleCsrfProtection, mfaRouter);
-  app.use(`${API_PREFIX}/workspaces`, doubleCsrfProtection, workspacesRouter);
-  app.use(`${API_PREFIX}/members`, doubleCsrfProtection, membersRouter);
-  app.use(`${API_PREFIX}/invitations`, doubleCsrfProtection, invitationsRouter);
-  app.use(`${API_PREFIX}/widgets`, doubleCsrfProtection, widgetsRouter);
-  app.use(`${API_PREFIX}/contacts`, doubleCsrfProtection, contactsRouter);
-  app.use(`${API_PREFIX}/deliveries`, doubleCsrfProtection, deliveriesRouter);
-  app.use(`${API_PREFIX}/analytics`, doubleCsrfProtection, analyticsRouter);
+  for (const mount of csrfGuarded) app.use(mount.prefix, doubleCsrfProtection, mount.router);
 
   /**
    * The SSE stream is authenticated but NOT behind the CSRF guard.
@@ -227,9 +245,38 @@ export function createApp(options: CreateAppOptions): Express {
    */
   app.use(PUBLIC_PRIVACY_PREFIX, privacyRouter);
 
+  /**
+   * The API contract and its reference UI (blueprint 10.1).
+   *
+   * Public and unauthenticated on purpose: it describes the SHAPE of the API,
+   * never any tenant's data, and an evaluator has to be able to read it without
+   * an account. Mounted last among the real routes so nothing it serves can
+   * shadow an API path.
+   */
+  app.use(createOpenApiRouter({ serverUrl: env.appBaseUrl }));
+
   app.get(API_PREFIX, (_request, response) => {
     response.status(200).json({ api: API_PREFIX, status: 'ok' });
   });
+
+  /**
+   * Everything that was mounted, for the contract check.
+   *
+   * Attached to the app rather than returned, so `createApp`'s signature is
+   * unchanged and nothing in production has to carry it around. The health
+   * router is included because blueprint 10.2 lists Operations as an API group
+   * and the probes are part of the published contract.
+   */
+  const mounted: readonly RouteMount[] = [
+    { prefix: '/health', router: healthRouter },
+    { prefix: `${API_PREFIX}/auth`, router: authRouter },
+    ...csrfGuarded,
+    { prefix: `${API_PREFIX}/events`, router: eventsRouter },
+    { prefix: PUBLIC_WIDGET_PREFIX, router: publicWidgetRouter },
+    { prefix: PUBLIC_PRIVACY_PREFIX, router: privacyRouter },
+  ];
+  (app as AppWithRoutes).routeMounts = mounted;
+  (app as AppWithRoutes).directRoutes = [{ method: 'GET', path: API_PREFIX }];
 
   app.use((request, response) => {
     response
@@ -246,4 +293,27 @@ export function createApp(options: CreateAppOptions): Express {
   app.use(errorHandler(deps.logger));
 
   return app;
+}
+
+/**
+ * The app, plus the mount table it was built from.
+ *
+ * Only the contract check reads these. Exposed as a typed accessor rather than
+ * a loose cast at each call site, so there is one place that knows the shape.
+ */
+export interface AppWithRoutes extends Express {
+  routeMounts?: readonly RouteMount[];
+  directRoutes?: readonly DirectRoute[];
+}
+
+export function mountedRoutesOf(app: Express): {
+  readonly mounts: readonly RouteMount[];
+  readonly direct: readonly DirectRoute[];
+} {
+  const withRoutes = app as AppWithRoutes;
+  const mounts = withRoutes.routeMounts;
+  if (mounts === undefined) {
+    throw new Error('This app was not built by createApp, so its mount table is unknown.');
+  }
+  return { mounts, direct: withRoutes.directRoutes ?? [] };
 }

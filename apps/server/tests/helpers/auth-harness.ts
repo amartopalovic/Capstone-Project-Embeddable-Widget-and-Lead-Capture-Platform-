@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import Redis from 'ioredis';
 import { MongoConnection, runMigrations } from '@lcp/database';
 import { createLogger, type LogRecord } from '@lcp/contracts';
+import type { Express } from 'express';
 import type { Db } from 'mongodb';
 import { buildDependencies, type AppDependencies } from '../../src/composition.js';
 import { createApp } from '../../src/http/app.js';
@@ -56,6 +57,12 @@ export class MutableClock implements Clock {
 
 export interface AuthHarness {
   readonly baseUrl: string;
+  /**
+   * The Express app itself, for the tests that inspect the API rather than
+   * call it - Stage 12a's contract check reads the router stack to prove the
+   * OpenAPI document matches what is actually dispatched.
+   */
+  readonly app: Express;
   readonly db: Db;
   readonly redis: Redis;
   readonly deps: AppDependencies;
@@ -179,6 +186,7 @@ export async function createAuthHarness(options: HarnessOptions = {}): Promise<A
 
   return {
     baseUrl,
+    app,
     db: mongo.db,
     redis,
     deps,
