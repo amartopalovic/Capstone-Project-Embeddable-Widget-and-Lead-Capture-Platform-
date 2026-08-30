@@ -32,6 +32,9 @@ secrets/
 # Local-only Git history privacy maintenance helper
 privacy-history-rewrite.mjs
 
+# Local project documentation
+/docs/
+
 # ---------------------------------------------------------------------------
 # Build output and generated artifacts
 # ---------------------------------------------------------------------------
