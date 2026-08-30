@@ -1,6 +1,6 @@
 # Embeddable Widget & Lead-Capture Platform
 
-> **Project status: Stage 9 of 16 complete, Stage 10 underway.**
+> **Project status: Stage 10 of 16 complete, Stage 11 next.**
 > Authentication and the multi-workspace user model both work end to end through a real
 > accessible interface: onboarding, the workspace switcher, the full role matrix, invitations,
 > ownership transfer, and workspace delete/recover. Proven by 125 unit, 110 integration, and 37
@@ -10,10 +10,11 @@
 > Published widgets render on a genuinely separate origin, visitors submit through a hardened path,
 > the leads land in a role-aware inbox, side effects actually happen — notification and confirmation
 > email, signed webhooks, retry with dead-letter and replay — and the widget now records funnel
-> events that aggregate into durable daily counters. **All six acceptance probes pass locally.**
-> Proven by 317 unit, 260 integration, and 90 browser end-to-end tests. The analytics DASHBOARDS do
-> not exist yet (Stage 10b), and there is no unsubscribe or retention automation (Stage 11). Every
-> command, link, and proof marked _planned_ or _TBD_ below does not work today.
+> events that aggregate into durable daily counters — now read back by eight analytics dashboards
+> that update live and never report a rate they cannot compute. **All six acceptance probes pass
+> locally.** Proven by 317 unit, 266 integration, and 101 browser end-to-end tests. There is no
+> unsubscribe or retention automation yet (Stage 11). Every command, link, and proof marked
+> _planned_ or _TBD_ below does not work today.
 
 ---
 
@@ -250,8 +251,8 @@ Run these on the host after `npm ci`:
 | `npm run format:check`     | Prettier formatting check                                                                                                | Real      |
 | `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                                             | Real      |
 | `npm run test`             | Unit tests, no infrastructure needed (317 tests, incl. the role matrix and widget rules)                                 | Real      |
-| `npm run test:integration` | Tenancy, auth, RBAC, widgets, submissions, inbox, delivery, and analytics against real MongoDB/Redis/Mailpit (260 tests) | Real      |
-| `npm run test:e2e`         | Browser journeys plus axe accessibility checks, driven through the real UI (90 tests)                                    | Real      |
+| `npm run test:integration` | Tenancy, auth, RBAC, widgets, submissions, inbox, delivery, and analytics against real MongoDB/Redis/Mailpit (266 tests) | Real      |
+| `npm run test:e2e`         | Browser journeys plus axe accessibility checks, driven through the real UI (101 tests)                                   | Real      |
 | `npm run migrate`          | Apply committed migrations and indexes; repeatable                                                                       | Real      |
 | `npm run build`            | Production build of every workspace                                                                                      | Real      |
 | BullMQ queue tests         | Background job integration                                                                                               | _Stage 9_ |

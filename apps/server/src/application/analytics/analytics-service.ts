@@ -12,10 +12,27 @@ import {
   type WorkspaceRecord,
   type WorkspaceScope,
 } from '@lcp/database';
-import { WORKSPACE_LIMITS, type InteractionEventInput, type Logger } from '@lcp/contracts';
+import {
+  ANALYTICS_RANGES,
+  WORKSPACE_LIMITS,
+  type AnalyticsOverview,
+  type AnalyticsQuery,
+  type DimensionRow,
+  type FunnelCountsDto,
+  type FunnelRatesDto,
+  type InteractionEventInput,
+  type Logger,
+  type WidgetPerformanceRow,
+} from '@lcp/contracts';
 import { monthStartInZone } from '../../domain/submission/quota.js';
 import { visitorPseudonym } from '../../domain/analytics/visitor-pseudonym.js';
-import { EMPTY_FUNNEL, type FunnelCounts } from '../../domain/analytics/funnel.js';
+import {
+  EMPTY_FUNNEL,
+  addCounts,
+  funnelMetrics,
+  statusConversion,
+  type FunnelCounts,
+} from '../../domain/analytics/funnel.js';
 import type { Clock } from '../../ports/clock.js';
 import type { EventPublisher } from '../../ports/event-publisher.js';
 
@@ -42,6 +59,19 @@ export interface AnalyticsServiceDeps {
   readonly events: InteractionEventRepository;
   readonly daily: DailyAnalyticsRepository;
   readonly ipHmacSecret: string;
+  /** Reads for the dashboards (blueprint 4.9), added in Stage 10b. */
+  readonly contacts: {
+    countsByStatus(scope: WorkspaceScope, since?: Date): Promise<Record<string, number>>;
+  };
+  readonly deliveries: {
+    countsByStatus(scope: WorkspaceScope): Promise<Record<string, number>>;
+  };
+  readonly abuse: {
+    countsByType(
+      scope: WorkspaceScope,
+      since: Date,
+    ): Promise<{ readonly type: string; readonly day: string; readonly count: number }[]>;
+  };
   readonly clock: Clock;
   readonly logger: Logger;
   /**
@@ -381,6 +411,193 @@ export class AnalyticsService {
       .sort((a, b) => a.day.localeCompare(b.day));
   }
 
+  /**
+   * Everything the eight dashboards need, in one read (blueprint 4.9, 13.2).
+   *
+   * Assembled on the SERVER, rates included. The UI renders what it is given
+   * and never divides: blueprint 13.2 defines the formulas, 10a implemented
+   * them once as pure functions, and a browser recomputing them would be a
+   * second copy that can disagree with the first. It also means the "null means
+   * no data, not zero per cent" rule is enforced in one place rather than
+   * trusted to every chart.
+   */
+  async overview(
+    scope: WorkspaceScope,
+    timezone: string,
+    query: AnalyticsQuery,
+    widgetNames: ReadonlyMap<string, string>,
+  ): Promise<AnalyticsOverview> {
+    const now = this.#deps.clock.now();
+    const days = ANALYTICS_RANGES[query.range];
+
+    /**
+     * The range is resolved in the WORKSPACE's timezone, because that is the
+     * calendar the aggregates were keyed by. Using UTC here would shift the
+     * window by up to a day for anybody east or west of it and quietly drop or
+     * double an edge day.
+     */
+    const toDay = query.to ?? localDayInZone(now, timezone);
+    const fromDay =
+      query.from ?? localDayInZone(new Date(now.getTime() - (days - 1) * 86_400_000), timezone);
+
+    /**
+     * Roll up the days that can still be receiving events, before reading.
+     *
+     * Blueprint 13.2 step 4: the dashboard "reads aggregates for historical
+     * ranges and may combine recent raw data for freshness". This is that
+     * clause, implemented as "make sure the recent days are rolled up" rather
+     * than by merging raw rows into the response - which keeps ONE code path
+     * producing counters and means the dashboard cannot disagree with the
+     * scheduled sweep about what a day contained.
+     *
+     * Bounded to today and yesterday. Older days cannot receive new events, so
+     * re-aggregating ninety of them on every page load would spend a scan to
+     * arrive at the numbers already stored. Aggregation is idempotent, so doing
+     * this alongside the hourly job is safe.
+     */
+    for (const day of recentDays(now, timezone)) {
+      if (day >= fromDay && day <= toDay) await this.aggregateDay(scope, day);
+    }
+
+    const slices = await this.#deps.daily.listAllDimensions(scope, fromDay, toDay);
+    const scoped =
+      query.widgetId === undefined
+        ? slices
+        : slices.filter((row) => row.widgetId.toHexString() === query.widgetId);
+
+    // --- totals and the daily series --------------------------------------
+
+    const totalSlices = scoped.filter((row) => row.dimension === 'total');
+
+    const byDay = new Map<string, FunnelCounts & { visitors: number }>();
+    for (const row of totalSlices) {
+      const existing = byDay.get(row.day) ?? { ...EMPTY_FUNNEL, visitors: 0 };
+      byDay.set(row.day, {
+        ...addCounts(existing, countsOf(row)),
+        visitors: existing.visitors + row.visitors,
+      });
+    }
+
+    /**
+     * Every day in the range, including the empty ones.
+     *
+     * A trend line that silently skips quiet days is a lie about shape: two
+     * points a fortnight apart drawn adjacent look like continuous traffic.
+     */
+    const daily = eachDay(fromDay, toDay).map((day) => {
+      const found = byDay.get(day);
+      return {
+        day,
+        counts: toCountsDto(found ?? { ...EMPTY_FUNNEL, visitors: 0 }, found?.visitors ?? 0),
+      };
+    });
+
+    const totals = totalSlices.reduce<FunnelCounts>(
+      (acc, row) => addCounts(acc, countsOf(row)),
+      EMPTY_FUNNEL,
+    );
+    const totalVisitors = totalSlices.reduce((acc, row) => acc + row.visitors, 0);
+
+    // --- per widget --------------------------------------------------------
+
+    const perWidget = new Map<string, { counts: FunnelCounts; visitors: number }>();
+    for (const row of totalSlices) {
+      const key = row.widgetId.toHexString();
+      const existing = perWidget.get(key) ?? { counts: EMPTY_FUNNEL, visitors: 0 };
+      perWidget.set(key, {
+        counts: addCounts(existing.counts, countsOf(row)),
+        visitors: existing.visitors + row.visitors,
+      });
+    }
+
+    const byWidget: WidgetPerformanceRow[] = [...perWidget.entries()]
+      .map(([widgetId, value]) => ({
+        widgetId,
+        name: widgetNames.get(widgetId) ?? 'Removed widget',
+        counts: toCountsDto(value.counts, value.visitors),
+        rates: toRatesDto(value.counts),
+      }))
+      .sort((a, b) => b.counts.impressions - a.counts.impressions);
+
+    // --- dimension breakdowns ---------------------------------------------
+
+    const dimension = (name: string): DimensionRow[] => {
+      const grouped = new Map<string, { counts: FunnelCounts; visitors: number }>();
+      for (const row of scoped) {
+        if (row.dimension !== name || row.dimensionValue === null) continue;
+        const existing = grouped.get(row.dimensionValue) ?? { counts: EMPTY_FUNNEL, visitors: 0 };
+        grouped.set(row.dimensionValue, {
+          counts: addCounts(existing.counts, countsOf(row)),
+          visitors: existing.visitors + row.visitors,
+        });
+      }
+      return (
+        [...grouped.entries()]
+          .map(([value, entry]) => ({ value, counts: toCountsDto(entry.counts, entry.visitors) }))
+          .sort((a, b) => b.counts.impressions - a.counts.impressions)
+          // "Top" domains and pages, per blueprint 4.9 - a workspace with a
+          // thousand distinct URLs does not want a thousand rows.
+          .slice(0, 10)
+      );
+    };
+
+    // --- the three non-funnel dashboards ----------------------------------
+
+    const rangeStart = dayStartInZone(fromDay, timezone);
+    const [statusCounts, deliveryCounts, abuseRows] = await Promise.all([
+      this.#deps.contacts.countsByStatus(scope, rangeStart),
+      this.#deps.deliveries.countsByStatus(scope),
+      this.#deps.abuse.countsByType(scope, rangeStart),
+    ]);
+
+    const cohortSize = Object.values(statusCounts).reduce((acc, n) => acc + n, 0);
+    const qualifiedOrConverted =
+      (statusCounts['qualified'] ?? 0) + (statusCounts['converted'] ?? 0);
+
+    const abuseByType: Record<string, number> = {};
+    const abuseByDay = new Map<string, number>();
+    for (const row of abuseRows) {
+      abuseByType[row.type] = (abuseByType[row.type] ?? 0) + row.count;
+      abuseByDay.set(row.day, (abuseByDay.get(row.day) ?? 0) + row.count);
+    }
+
+    return {
+      from: fromDay,
+      to: toDay,
+      timezone,
+      totals: toCountsDto(totals, totalVisitors),
+      rates: toRatesDto(totals),
+      daily,
+      byWidget,
+      byCountry: dimension('country'),
+      byCity: dimension('city'),
+      byDomain: dimension('domain'),
+      byPage: dimension('page'),
+      status: {
+        counts: statusCounts,
+        cohortSize,
+        qualifiedOrConverted,
+        conversion: statusConversion(qualifiedOrConverted, cohortSize),
+      },
+      delivery: {
+        delivered: deliveryCounts['delivered'] ?? 0,
+        failed: deliveryCounts['failed'] ?? 0,
+        deadLetter: deliveryCounts['dead_letter'] ?? 0,
+        pending:
+          (deliveryCounts['queued'] ?? 0) +
+          (deliveryCounts['delayed'] ?? 0) +
+          (deliveryCounts['retrying'] ?? 0),
+      },
+      abuse: {
+        byType: abuseByType,
+        daily: [...abuseByDay.entries()]
+          .map(([day, count]) => ({ day, count }))
+          .sort((a, b) => a.day.localeCompare(b.day)),
+        total: Object.values(abuseByType).reduce((acc, n) => acc + n, 0),
+      },
+    };
+  }
+
   /** Events this workspace has recorded in its own current month (4.10). */
   async eventsThisMonth(scope: WorkspaceScope, timezone: string): Promise<number> {
     return this.#deps.events.countSince(scope, monthStartInZone(this.#deps.clock.now(), timezone));
@@ -388,6 +605,97 @@ export class AnalyticsService {
 }
 
 // ---------------------------------------------------------------------------
+
+/** Today and yesterday, in the workspace's zone - the days still in motion. */
+function recentDays(now: Date, timeZone: string): readonly string[] {
+  return [
+    localDayInZone(new Date(now.getTime() - 86_400_000), timeZone),
+    localDayInZone(now, timeZone),
+  ];
+}
+
+function countsOf(row: {
+  impressions: number;
+  opens: number;
+  ctaClicks: number;
+  formStarts: number;
+  submissions: number;
+  openEligible: boolean;
+}): FunnelCounts {
+  return {
+    impressions: row.impressions,
+    opens: row.opens,
+    ctaClicks: row.ctaClicks,
+    formStarts: row.formStarts,
+    submissions: row.submissions,
+    // Only an openable widget's impressions count toward the open-rate
+    // denominator (blueprint 13.2).
+    eligibleImpressions: row.openEligible ? row.impressions : 0,
+  };
+}
+
+function toCountsDto(counts: FunnelCounts, visitors: number): FunnelCountsDto {
+  return { ...counts, visitors };
+}
+
+function toRatesDto(counts: FunnelCounts): FunnelRatesDto {
+  const metrics = funnelMetrics(counts);
+  return {
+    openRate: metrics.openRate,
+    formStartRate: metrics.formStartRate,
+    submissionConversion: metrics.submissionConversion,
+    ctaClickThrough: metrics.ctaClickThrough.value,
+    ctaBasis: metrics.ctaClickThrough.basis,
+  };
+}
+
+/** Every `YYYY-MM-DD` from `from` to `to` inclusive. */
+function eachDay(from: string, to: string): string[] {
+  const days: string[] = [];
+  const cursor = new Date(`${from}T00:00:00.000Z`);
+  const end = new Date(`${to}T00:00:00.000Z`);
+  // Bounded, so a malformed range cannot spin: 400 days is far past the 90 the
+  // longest preset asks for.
+  for (let guard = 0; cursor <= end && guard < 400; guard += 1) {
+    days.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return days;
+}
+
+/**
+ * The instant a local calendar day begins, in UTC.
+ *
+ * Used to bound the collections that store real timestamps rather than a
+ * `localDay` string - contacts and abuse events - so their cohort matches the
+ * aggregate's window instead of being a day out for anybody not on UTC.
+ */
+function dayStartInZone(day: string, timeZone: string): Date {
+  const midday = new Date(`${day}T12:00:00.000Z`);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(midday);
+  const get = (type: string): number =>
+    Number(parts.find((part) => part.type === type)?.value ?? '0');
+  const localAsUtc = Date.UTC(
+    get('year'),
+    get('month') - 1,
+    get('day'),
+    get('hour'),
+    get('minute'),
+    get('second'),
+  );
+  const offsetMs = localAsUtc - midday.getTime();
+  const [year = 1970, month = 1, dayOfMonth = 1] = day.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, dayOfMonth, 0, 0, 0) - offsetMs);
+}
 
 /**
  * The calendar day an instant falls in, for a given zone, as `YYYY-MM-DD`.

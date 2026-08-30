@@ -256,3 +256,36 @@ export async function openInbox(page: Page): Promise<void> {
   await page.goto('/workspace/contacts');
   await expect(page.getByRole('heading', { level: 1, name: /^Leads in / })).toBeVisible();
 }
+
+// ---------------------------------------------------------------------------
+// Analytics (Stage 10b)
+// ---------------------------------------------------------------------------
+
+/**
+ * Post funnel events to the real public endpoint.
+ *
+ * Posted directly rather than driven through a rendered widget: the runtime's
+ * instrumentation has its own coverage, and a dashboard test needs a KNOWN
+ * shape of data - four impressions and two opens, exactly - which scripted
+ * browser interaction cannot promise.
+ */
+export async function sendFunnelEvents(
+  page: Page,
+  publicId: string,
+  types: readonly string[],
+  pageUrl = `${LEAD_ORIGIN}/pricing`,
+): Promise<void> {
+  const response = await page.request.post(`http://localhost:5173/widget/v1/events/${publicId}`, {
+    headers: { origin: LEAD_ORIGIN, 'content-type': 'application/json' },
+    data: { events: types.map((type) => ({ type, pageUrl })) },
+  });
+  expect(response.status()).toBe(202);
+}
+
+/** Open the analytics dashboards and wait for them to settle. */
+export async function openAnalytics(page: Page): Promise<void> {
+  await page.goto('/workspace/analytics');
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'How your widgets are doing' }),
+  ).toBeVisible();
+}

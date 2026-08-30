@@ -2,6 +2,7 @@ import type { Db } from 'mongodb';
 import type Redis from 'ioredis';
 import { createLogger, type Logger } from '@lcp/contracts';
 import {
+  AbuseEventRepository,
   ContactActivityRepository,
   ContactRepository,
   DailyAnalyticsRepository,
@@ -85,6 +86,13 @@ import type { BreachChecker } from './ports/breach-checker.js';
 
 export interface AppDependencies {
   readonly logger: Logger;
+  /**
+   * The raw handle, for the two routes that read a collection another service
+   * owns - widget names for the analytics dashboards, consent for the contact
+   * timeline. Exposed deliberately rather than smuggled through a service that
+   * has no business owning the lookup.
+   */
+  readonly db: Db;
   readonly authService: AuthService;
   readonly sessionService: SessionService;
   readonly mfaService: MfaService;
@@ -326,6 +334,11 @@ export function buildDependencies(
     db,
     events: new InteractionEventRepository(db),
     daily: new DailyAnalyticsRepository(db),
+    // The three non-funnel dashboards read from collections other stages own,
+    // through the narrowest port each needs rather than the whole repository.
+    contacts: new ContactRepository(db),
+    deliveries: new DeliveryRepository(db),
+    abuse: new AbuseEventRepository(db),
     // The same master secret the submission path uses; the visitor pseudonym
     // is domain-separated from the IP pseudonym by its own subkey label.
     ipHmacSecret: env.ipHmacSecret,
@@ -501,6 +514,7 @@ export function buildDependencies(
 
   return {
     logger,
+    db,
     widgetService,
     publicWidgetService,
     submissionService,

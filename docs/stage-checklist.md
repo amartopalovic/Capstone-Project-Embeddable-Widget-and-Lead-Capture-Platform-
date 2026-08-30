@@ -204,7 +204,7 @@ test results, remaining limitations, and confirmation of the exit gate.
   - **Exit gate:** Forced provider failures never fail a submission; retry classification,
     idempotency, dead-letter, and replay tests pass.
 
-- [ ] **Stage 10 — Funnel events, analytics aggregation, and complete live updates**
+- [x] **Stage 10 — Funnel events, analytics aggregation, and complete live updates** _(2026-08-30)_
   - **Goal:** Deliver the selected analytics without over-retaining visitor data.
   - **Exit gate:** Seeded deterministic data produces verified metrics; raw-event cleanup leaves
     aggregates intact; reconnecting SSE does not cross tenants.
@@ -221,7 +221,18 @@ test results, remaining limitations, and confirmation of the exit gate.
     - The five funnel formulas as pure functions, with `null` rather than `0` for a zero
       denominator, ready for 10b to consume.
     - `usage.changed` and `delivery.status_changed` added to the Stage 8a stream, completing 13.1.
-  - [ ] **10b — Dashboards and browser E2E** _(not started)_
+  - [x] **10b — Dashboards, live-update UI, and browser E2E** _(2026-08-30)_
+    - The eight required dashboards on one page, all from a single authenticated aggregate read on
+      `workspace.view` - no rate is ever recomputed in the browser.
+    - A rate with no denominator renders as "no data", and where the cause is structural the page
+      says what it is instead of leaving a bare dash beside a healthy count.
+    - No charting library: every chart is drawn as a background on the real table cell that holds
+      the number, so the accessible version cannot drift from the picture and the bundle budgets
+      are untouched.
+    - Live updates ride the existing workspace stream from 8a - no second SSE connection.
+    - Reads combine today with the stored aggregates (13.2 step 4), so a dashboard is never a day
+      behind the traffic it reports.
+    - **No new capability names**; `capabilities.ts` is unchanged.
 
 - [ ] **Stage 11 — Consent, unsubscribe, privacy, and retention automation**
   - **Goal:** Complete the data-rights and deletion promises.

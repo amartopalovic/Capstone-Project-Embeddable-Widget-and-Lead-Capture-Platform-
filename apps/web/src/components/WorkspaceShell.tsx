@@ -131,6 +131,8 @@ function WorkspaceBar({
           <ShellLink to="/workspace/widgets">Widgets</ShellLink>
           {/* Every role may view contacts, so this link is never conditional. */}
           <ShellLink to="/workspace/contacts">Inbox</ShellLink>
+          {/* Every role may view the dashboard (blueprint 11, workspace.view). */}
+          <ShellLink to="/workspace/analytics">Analytics</ShellLink>
           {/*
            * `delivery.view` is `limited` for a Member rather than denied, so
            * the link is shown to everyone and the page itself omits the

@@ -255,21 +255,31 @@ real queue behavior in Stage 9.
 - **Requirement:** Impression, open, CTA click, form start, and successful submission events;
   trends, funnel, per-widget, geo, source, status conversion, delivery health, and abuse
   dashboards; 90-day raw-event retention with daily aggregates thereafter.
-- **Status:** `NOT YET IMPLEMENTED` — planned for **Stage 10**.
-- **Evidence:** _none_
+- **Status:** `PROVEN` — all five events are ingested, aggregated, and rendered, and all eight
+  dashboards read the aggregates.
+- **What is proven:** the five funnel events travel the public endpoint through Origin, quota, and
+  rate-limit checks into raw storage, roll up idempotently into daily counters, and are read back
+  by one authenticated `workspace.view` endpoint that serves every dashboard. Seeded deterministic
+  traffic renders the exact figures it implies, in the browser. Raw events retire at 90 days behind
+  a sweep that aggregates a day before it can delete it, and the rendered figures survive that.
+- **What is not:** the country and city dimensions are populated from submissions only; the ingest
+  path deliberately does not call a geo provider for 20,000 events a month (blueprint 5.1 keeps
+  that budget for the submission path), so those two dashboards are empty for widget traffic alone.
+- **Evidence:** see Part D-detail, Stages 10a and 10b.
 
 ### B10. Usage limits (§4.10)
 
 - **Requirement:** Visible meters and per-workspace hard limits of 10 active widgets, 10 users,
   2,000 accepted submissions per workspace month, and 20,000 interaction events per workspace
   month, using workspace-timezone month boundaries.
-- **Status:** `IN PROGRESS` — the meters exist and two of the four are real. The 10-user limit was
-  enforced in Stage 4a and the 10-active-widget limit in Stage 5a. Submission and interaction-event
-  counting is **Stage 7** and **Stage 10**, and timezone-correct month boundaries are **Stage 10**.
-- **What is proven:** creating an eleventh active widget is refused with `quota_exceeded`, the
-  meter reports a real count, and soft-deleting a widget frees a slot because trash is not active.
-  The two unbuilt meters still report null rather than a fabricated zero.
-- **Evidence:** see Part D-detail, Stage 5a.
+- **Status:** `PROVEN` — all four limits are enforced and all four meters report real counts.
+- **What is proven:** the 10-user limit (Stage 4a) and the 10-active-widget limit (Stage 5a) are
+  refused with `quota_exceeded`; the 2,000 submissions and 20,000 interaction-events per workspace
+  month are counted and enforced on the WORKSPACE's timezone boundary, through one shared
+  `monthStartInZone` so the meter and the gate cannot disagree about when a month turned. All four
+  meters are rendered on the workspace overview, and both monthly ones announce themselves on the
+  live stream.
+- **Evidence:** see Part D-detail, Stages 5a, 7, and 10a.
 
 ---
 
@@ -1673,6 +1683,121 @@ Auckland workspace confirms an event before that boundary is excluded.
 
 ---
 
+---
+
+## Part D-detail - Stage 10b analytics dashboard evidence
+
+10b is the half a reader can see: the eight dashboards blueprint 4.9 names, the live updates riding
+the stream 8a built, and the browser proof that closes Stage 10.
+
+### The three gate claims, proven through the browser
+
+```
+node node_modules/@playwright/test/cli.js test analytics-journey analytics-accessibility
+  11 passed (2.4m)
+```
+
+| Gate | Test                                                | What it proves                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `GATE 1: seeded data produces verified metrics` (5) | A funnel shaped 4 seen / 2 opened / 1 started / 1 sent renders exactly those figures across all eight dashboards; a rate with no denominator renders as "no data" and the table contains no `0.0%`; a workspace with no traffic gets an empty state rather than a page of noughts; the range picker drives the whole page; a lead qualified through the real inbox appears in the status dashboard. |
+| 2    | `GATE 2: cleanup leaves aggregates intact` (1)      | The figures rendered before a reload are the figures rendered after it, because the page reads the durable counters rather than the raw rows retention will retire.                                                                                                                                                                                                                                 |
+| 3    | `GATE 3: live updates never cross tenants` (2)      | A submission moves this workspace's dashboard with nothing reloaded, while a second tenant's open dashboard stays empty; and after the connection is dropped and restored, a submission made by the other tenant mid-reconnect never appears here.                                                                                                                                                  |
+
+The data is seeded through the real public event endpoint, so what the dashboard renders travelled
+the Origin check, quota, rate limit, storage, and aggregation - it was never written straight into
+the aggregate collection.
+
+Three axe scans cover the page empty, populated with all eight dashboards, and with the day-by-day
+disclosure open; a fourth test asserts the charts resolve as real tables by role, and a fifth drives
+the range picker and the disclosure from the keyboard alone. Zero critical or serious violations.
+
+Six new integration tests assert the read contract itself, which a browser cannot see: that a rate
+with no denominator is `null` in the JSON and not `0`, that an unknown range is refused with 400,
+that an anonymous caller gets 401, that two workspaces never see each other's figures, that widget
+names are resolved at read time rather than frozen into the aggregate, and that today is counted
+without waiting for the nightly roll-up.
+
+### One endpoint for eight dashboards
+
+`GET /api/v1/analytics` on `workspace.view`, the row of the section 11 matrix the workspace overview
+already uses. **Stage 10b adds no capability names and does not touch the matrix.**
+
+Eight requests would mean eight round trips, eight chances for the range to drift between them, and
+a page that renders internally inconsistent totals while it loads. The dashboards are all slices of
+one range of one workspace's data, so they are one read.
+
+Widget names are resolved from the widget collection on each read rather than denormalised into the
+aggregate. The counters are keyed by id and outlive the widget - 4.9 keeps aggregates after raw
+events expire, and 9.5 keeps historical contacts after a widget is deleted - so a name frozen at
+aggregation time would put one widget under two names in a single chart. There is a test.
+
+### Freshness without recomputing
+
+Blueprint 13.2 step 4 permits a dashboard read to "combine recent raw data for freshness". The read
+aggregates today and yesterday before serving, which is bounded, idempotent by construction (the
+counters are recomputed and upserted on a unique key), and needs no test-only API surface. Without
+it a dashboard would be a day behind the traffic it reports, which is not a dashboard.
+
+Every rate still comes from the server. The browser does not divide anywhere on this page.
+
+### No charting library
+
+Every shape these dashboards need is one of three - a daily series, a funnel, and a ranked list -
+and all three are a handful of elements with a width. A library would cost 50-150 KB against budgets
+8.3 enforces with tests, and would bring its own DOM, focus behaviour, ARIA, and colour opinions,
+three of which would fight the design system and the WCAG 2.2 AA bar every other surface here meets.
+The widget runtime bundle is unchanged at 15,120 B raw / 5,980 B gzip against the 20 KB / 8 KB
+budgets - the charts live in the platform app, not the embed.
+
+**The chart is the table.** The usual accessible chart ships a visually-hidden table beside the
+picture, which is a second copy of the data that can drift from the first. Here the bar is drawn as
+a background on the real table cell that already holds the number: one node carries both, a screen
+reader gets an ordinary table, and there is nothing to keep in sync. The day-by-day series is the
+one exception - its bars are `aria-hidden` decoration over a real table behind a native disclosure,
+because a 90-row table should not be open by default.
+
+### "No data" is never 0%
+
+The single most important correctness rule on the page. A rate is `null` when its denominator is
+zero, and `null` renders as an em dash with a screen-reader "No data" - never as 0%, which would
+assert that people arrived and did not act.
+
+The visual pass found the place where that rule is right and still reads as a bug: an inline contact
+form is permanently visible, so it has no eligible impressions and its open rate is genuinely
+undefined - but the dash sits beside a healthy count of opens, which looks broken. Where the cause
+is structural the page now says it: "always visible, so there is no open step". Nothing is computed
+to decide that; two counts the server already sent choose the sentence.
+
+### What the visual pass changed
+
+Screenshots of the populated, empty, and disclosure-open states, reviewed against the design brief:
+
+- The delivery panel rendered four noughts where every other panel says in words that it has
+  nothing. A grid of zeroes reads as a broken counter rather than a quiet week, particularly beside
+  "Blocked and throttled", which does say so. It now has an empty state.
+- The day-by-day disclosure had no affordance - a mono micro-label that looked like a stray caption
+  rather than a control. It now carries a rotating marker.
+- The status and abuse tables were both headed "Name". They now say "Status" and "Reason".
+- The empty state claimed numbers "are rolled up once a day, so the most recent hour or two may not
+  be here", which the on-read freshness above made untrue. Copy that lies about the system is worse
+  than no copy.
+- `WorkspaceHomePage`'s doc comment still said only the user meter was real, which Stage 10a made
+  untrue. Corrected in place.
+
+### What is still missing
+
+- **Country and city are empty for widget traffic.** The dimensions are computed, indexed, and
+  rendered, but the ingest path deliberately does not call a geo provider for 20,000 events a month
+  per workspace - blueprint 5.1 keeps that budget for the submission path. Both dashboards populate
+  from submissions, so a workspace with views and no leads sees two empty panels. This is a stated
+  product decision, not an unfinished one.
+- **Delivery health here is a headline, not the operations view.** Four counters and a link to the
+  Stage 9 delivery page, which is where replay and per-delivery detail live.
+- **The hourly aggregation schedule is still unproven in CI.** The sweep runs when workers are
+  started in-process; the tests call it directly. Unchanged from 10a.
+- **No arbitrary date range in the UI.** The picker offers the three ranges 4.9 names, though the
+  query schema already accepts an explicit `from`/`to` pair.
+
 ## Change log
 
 | Date       | Stage | Change                                                                                                                                                               |
@@ -1701,3 +1826,4 @@ Auckland workspace confirms an event before that boundary is excluded.
 | 2026-08-29 | 8b | Blueprint **Stage 8 COMPLETE**. Contact inbox UI: search, the full filter set behind a disclosure, keyset pagination, deterministic sort, bulk selection with a capability-driven action bar, inline merge, canonical editing with a designed conflict state, the lead timeline, the trash, streaming export, and live arrival over SSE. Evidenced by 16 new browser tests (88 total), including 6 axe scans covering the empty, no-results, conflict, and trash states plus a keyboard-only pass. The browser found a real defect review missed: export was hidden inside the collapsed filter panel. |
 | 2026-08-29 | 9 | Blueprint **Stage 9 COMPLETE**. BullMQ queue families, outbox reconciliation, five-attempt exponential backoff with jitter, transient-only retry, dead-letter and manual replay, per-widget verified recipients, controlled email templates, SSRF-safe HMAC-signed webhooks with 24-hour rotation overlap, and the workspace delivery health view. Evidenced by 53 new unit tests and 31 new integration tests, including the full 18.4 provider matrix. **No new capability names**; the section 11 table is unchanged. The E2E database was reset with the user's explicit authorization, closing the migration gap Stage 8b recorded: `applied 7, skipped 0`. |
 | 2026-08-29 | 10a | Blueprint Stage 10, sub-stage 10a. Analytics BACKEND: the public interaction-event endpoint with Origin/quota/rate hardening and a per-widget rotating visitor pseudonym, runtime funnel instrumentation, idempotent daily aggregation, a 90-day retention sweep that never deletes an un-aggregated day, the five funnel formulas as pure functions, and the remaining two SSE event types. Both monthly meters became real, on the workspace timezone boundary. Evidenced by 26 new unit tests and 20 new integration tests. Stage 10 stays OPEN pending 10b (dashboards + browser E2E). |
+| 2026-08-30 | 10b | Blueprint **Stage 10 COMPLETE**. B9 moved to `PROVEN` and B10 to `PROVEN` for all four meters. The eight dashboards of 4.9 on one page, from a single authenticated `workspace.view` read; a rate with no denominator renders as "no data" and, where the cause is structural, says why; live updates ride the 8a stream with no second connection; reads combine today with the stored aggregates per 13.2 step 4. Evidenced by 11 new browser tests (101 total) including 3 axe scans and a keyboard-only pass, and 6 new integration tests (266 total) for the read contract a browser cannot see. **No new capability names**; the section 11 table is unchanged. No charting library was added and the widget runtime bundle is unchanged. The visual pass found five real defects, including an empty state that claimed a freshness delay this stage had removed. |

@@ -6,7 +6,7 @@ import {
   type DailyAnalyticsRecord,
   type InteractionEventRecord,
 } from '@lcp/database';
-import type { WidgetConfig, WidgetDetail } from '@lcp/contracts';
+import type { AnalyticsOverview, WidgetConfig, WidgetDetail } from '@lcp/contracts';
 import {
   STRONG_PASSWORD,
   TestClient,
@@ -772,5 +772,111 @@ describe('tenancy on the analytics surface (blueprint 9.1)', () => {
     expect(firstTotals[0]?.opens).toBe(1);
     expect(secondTotals[0]?.impressions).toBe(1);
     expect(secondTotals[0]?.opens).toBe(0);
+  }, 90_000);
+});
+
+// ===========================================================================
+// The authenticated read surface (blueprint 4.9, 13.2 step 4)
+// ===========================================================================
+
+describe('the analytics read endpoint', () => {
+  /**
+   * Stage 10b's dashboards all come from this one response, so the contract
+   * they depend on is asserted here rather than only through what a browser
+   * happens to render. A rendered em dash proves the page did the right thing
+   * with a null; only a JSON assertion proves the null was there to begin with.
+   */
+
+  it('refuses a caller with no session', async () => {
+    const anonymous = new TestClient(harness.baseUrl);
+    const response = await anonymous.get('/api/v1/analytics');
+    expect(response.status).toBe(401);
+  });
+
+  it('rejects a range that is not one of the three offered', async () => {
+    const owner = await verifiedOwner('read-range');
+    const response = await owner.api.get('/api/v1/analytics?range=all-time');
+    expect(response.status).toBe(400);
+  });
+
+  it('serves each workspace only its own figures', async () => {
+    const first = await verifiedOwner('read-a');
+    const second = await verifiedOwner('read-b');
+    const a = await publishWidget(first, 'read-a');
+    const b = await publishWidget(second, 'read-b');
+
+    await sendEvents(a.publicId, ['impression', 'impression', 'open']);
+    await sendEvents(b.publicId, ['impression']);
+
+    const mine = (await first.api.get('/api/v1/analytics')).body as AnalyticsOverview;
+    const theirs = (await second.api.get('/api/v1/analytics')).body as AnalyticsOverview;
+
+    expect(mine.totals.impressions).toBe(2);
+    expect(theirs.totals.impressions).toBe(1);
+    expect(mine.byWidget.map((row) => row.widgetId)).toEqual([a.widgetId]);
+    expect(theirs.byWidget.map((row) => row.widgetId)).toEqual([b.widgetId]);
+  }, 90_000);
+
+  it('reports a rate with no denominator as null, never zero', async () => {
+    /**
+     * The single most important rule on this surface. A contact form is
+     * permanently visible and so has no eligible impressions, which makes the
+     * open rate genuinely undefined - not zero. Zero would assert that people
+     * arrived and did not act.
+     */
+    const owner = await verifiedOwner('read-null');
+    await publishWidget(owner, 'read-null');
+    const widget = await publishWidget(owner, 'read-null-2');
+    await sendEvents(widget.publicId, ['impression', 'impression']);
+
+    const body = (await owner.api.get('/api/v1/analytics')).body as AnalyticsOverview;
+
+    expect(body.totals.impressions).toBe(2);
+    expect(body.totals.eligibleImpressions).toBe(0);
+    expect(body.rates.openRate).toBeNull();
+    expect(body.rates.openRate).not.toBe(0);
+    expect(body.status.conversion).toBeNull();
+  }, 90_000);
+
+  it('names widgets as they are now, not as they were when the day was rolled up', async () => {
+    /**
+     * The aggregate stores ids, and the name is resolved on read. Denormalising
+     * it would freeze the name at aggregation time, so a widget renamed midway
+     * through a range would appear under two names in one chart - and blueprint
+     * 4.9 keeps aggregates long after the raw events are gone.
+     */
+    const owner = await verifiedOwner('read-name');
+    const widget = await publishWidget(owner, 'read-name');
+    await sendEvents(widget.publicId, ['impression']);
+
+    const before = (await owner.api.get('/api/v1/analytics')).body as AnalyticsOverview;
+    expect(before.byWidget[0]?.name).toBe('read-name widget');
+
+    await harness.db
+      .collection(COLLECTIONS.widgets)
+      .updateOne({ _id: new ObjectId(widget.widgetId) }, { $set: { name: 'Renamed widget' } });
+
+    const after = (await owner.api.get('/api/v1/analytics')).body as AnalyticsOverview;
+    expect(after.byWidget[0]?.name).toBe('Renamed widget');
+    expect(after.byWidget[0]?.counts.impressions).toBe(1);
+  }, 90_000);
+
+  it('includes today without waiting for the nightly roll-up', async () => {
+    /**
+     * Blueprint 13.2 step 4 lets a dashboard read combine recent raw data for
+     * freshness. Nothing here runs the aggregator: the events are sent, and the
+     * next read is expected to account for them, because a dashboard that shows
+     * nothing until tomorrow is not a dashboard.
+     */
+    const owner = await verifiedOwner('read-fresh');
+    const widget = await publishWidget(owner, 'read-fresh');
+    await sendEvents(widget.publicId, ['impression', 'open', 'form_start', 'submission']);
+
+    const body = (await owner.api.get('/api/v1/analytics?range=7d')).body as AnalyticsOverview;
+
+    expect(body.totals.impressions).toBe(1);
+    expect(body.totals.submissions).toBe(1);
+    expect(body.timezone).toBe('Europe/Berlin');
+    expect(body.daily).not.toHaveLength(0);
   }, 90_000);
 });

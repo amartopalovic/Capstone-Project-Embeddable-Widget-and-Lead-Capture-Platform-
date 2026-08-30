@@ -2448,3 +2448,145 @@ still inside the 20 KB / 8 KB budgets blueprint 8.3 sets.
    pseudonyms, deliberately, so a weekly unique-visitor number is not derivable and should not be
    presented as one in 10b.
 6. **CI has still never run**, because no remote is configured.
+
+## Stage 10b - Analytics dashboards, live-update UI, and browser E2E (2026-08-30)
+
+**Assistant:** Claude Opus 5, via Claude Code.
+**Scope authorized:** Blueprint Stage 10, sub-stage 10b of 2. Dashboards, the live-update UI, and
+the browser proof that closes Stage 10.
+
+### What was done
+
+- `apps/server/src/http/routes/analytics.ts`: `GET /api/v1/analytics` on `workspace.view` - the one
+  authenticated read that serves all eight dashboards. 10a had left no read route at all.
+- `apps/server/src/application/analytics/analytics-service.ts`: `overview()`, assembling the eight
+  slices from the stored aggregates and aggregating today and yesterday first for freshness.
+- `packages/database`: three narrow reads added rather than widened - all dimension slices in one
+  query, contact counts by status, and abuse counts by type and day.
+- `packages/contracts`: the row DTOs the dashboards consume, the closed range list, and the query
+  schema.
+- `apps/web/src/components/charts.tsx`: the chart primitives - `Rate`, `Funnel`, `BarTable`,
+  `DaySeries`, `Stat`, `Panel`, `NoData`. No charting library.
+- `apps/web/src/pages/AnalyticsPage.tsx`: the eight dashboards, the range picker, the empty state,
+  and live refresh over the existing workspace stream.
+- `e2e/tests/analytics-journey.spec.ts` and `analytics-accessibility.spec.ts`: 11 browser tests
+  covering the three gates, three axe scans, and a keyboard-only pass.
+- Six integration tests for the read contract itself.
+
+### Key decisions
+
+**No charting library.** Three shapes are needed - a daily series, a funnel, a ranked list - and all
+three are elements with a width. A library costs 50-150 KB against budgets 8.3 enforces with tests,
+and arrives with its own DOM, focus behaviour, ARIA, and colour opinions, three of which fight the
+design system and the WCAG bar every other surface here meets. The widget runtime bundle is
+unchanged at 15,120 B raw / 5,980 B gzip; the charts are in the platform app, not the embed.
+
+**The chart is the table, rather than a chart beside a hidden table.** The conventional accessible
+chart ships a visually-hidden data table next to the picture, which is a second copy that can drift
+from the first. Here the bar is a background on the real table cell that already holds the number:
+one node carries both, a screen reader reads an ordinary table, and nothing needs keeping in sync.
+The day-by-day series is the deliberate exception - `aria-hidden` bars over a real table behind a
+native disclosure, because a 90-row table should not be open by default.
+
+**One endpoint, not eight.** Eight requests would mean eight chances for the range to drift between
+them and a page that renders inconsistent totals while it loads. The dashboards are all slices of
+one range of one workspace's data.
+
+**Widget names resolved on read.** The aggregate keys by id and outlives the widget (4.9 keeps
+aggregates after raw events expire; 9.5 keeps contacts after a widget is deleted). A name frozen at
+aggregation time would put one widget under two names in a single chart.
+
+**Aggregating today on read, rather than a test-only seam.** The dashboards read aggregates, but
+nothing had aggregated today - and in the E2E environment workers do not run, so nothing ever would.
+13.2 step 4 explicitly permits a read to combine recent raw data for freshness, so the read
+aggregates today and yesterday first: bounded, idempotent by construction, and no API surface that
+exists only for tests. A dashboard a day behind the traffic it reports is not a dashboard.
+
+**Rates are never computed in the browser.** The server sends `number | null` and the UI renders it.
+The one place the page reads counts to make a decision is choosing whether to explain WHY a rate is
+undefined - and that is a sentence, not a number.
+
+### Where AI failed or was corrected
+
+- **I labelled a headline stat "People" over a figure that double-counts.** `totals.visitors` sums
+  per-day distinct visitors, so a person who returns on ten days is ten people. Stage 10a's own
+  buildlog had recorded this exact trap as an open question for 10b - and I walked into it anyway.
+  The stat is now "Busiest day", the largest true statement the aggregate supports, and the contract
+  field carries a comment saying a range total is not a unique-visitor figure.
+- **The empty state promised a freshness delay this stage had removed.** It said numbers "are rolled
+  up once a day, so the most recent hour or two may not be here", written before the on-read
+  aggregation existed. Copy that describes the system wrongly is worse than no copy.
+- **Three of the eleven browser tests failed for reasons in the tests, not the product.**
+  `check()` on a visually-hidden radio was intercepted by its own styled label - the label is what a
+  person clicks, so the test now clicks it and asserts the radio's checked state. `Enter` was
+  pressed on a `details` element rather than the `summary` that actually takes focus. And two live
+  tests sent the funnel event AFTER the lead: 10a announces the interaction meter only every hundred
+  events, so the event that wakes the page is the lead's, and the funnel event has to already be
+  stored when the refetch lands.
+- **The delivery panel rendered four noughts with no empty state**, beside an abuse panel that says
+  "Nothing has been blocked in this range." Found by looking at a screenshot, not by review.
+- **The day-by-day disclosure had no affordance** - a mono micro-label indistinguishable from the
+  captions around it. Also found visually.
+- **`WorkspaceHomePage`'s doc comment still claimed only the user meter was real**, which Stage 10a
+  had made untrue. The same class of stale-comment defect 10a itself caught twice.
+- **A dead `eventCounter` variable** in the E2E helpers, caught by lint.
+- **I began by treating `npm run` as working.** It does not in this checkout: README 5.4 records
+  that `&` in the repository path breaks npm's cmd.exe shims on Windows, and every script has to be
+  invoked through `node node_modules/<tool>` directly. Diagnosed rather than worked around blindly.
+
+### Verification performed
+
+Every command run directly through `node` because of the `&`-in-path issue above.
+
+```
+tsc (9 projects, incl. e2e)          no errors
+eslint .                             clean
+prettier --check .                   All matched files use Prettier code style!
+vitest unit    (3 projects)          Test Files 14 passed (14)   Tests 317 passed (317)
+vitest integration (2 projects)      Test Files 12 passed (12)   Tests 266 passed (266)
+playwright (analytics specs)         11 passed (2.4m)
+playwright (full suite)              101 passed (16.5m)
+vite build widget-runtime            15.12 kB raw / 5.98 kB gzip  (budgets 20 KB / 8 KB)
+vite build web                       531.16 kB raw / 152.86 kB gzip  (platform app, unbudgeted)
+tsc build server, vite build demo    both succeeded
+```
+
+A visual pass on the populated, empty, and disclosure-open states drove five of the corrections
+listed above. Secret scan of the staged diff: no credentials, tokens, or real addresses; every
+address in the new tests is `@example.invalid`.
+
+### Plugin usage this stage
+
+- **`typescript-lsp` - worked.** Document symbols across `charts.tsx` and the new route resolved
+  against disk, hover confirmed `Rate`'s `number | null` signature and its documentation, and
+  `findReferences` confirmed the router is wired into `app.ts` at two sites. No staleness.
+- **`frontend-design` - used substantively.** The brief given to it named the existing tokens,
+  typefaces, and conventions and asked it to EXTEND the system rather than invent a language, which
+  is what a dashboard added to a shipped product needs. Its two most useful pressures were on the
+  chart-library question and on treating empty and low-data states as designed states rather than
+  fallbacks - the second directly produced the delivery-panel fix.
+- **`context7` - not consulted.** The brief said to use it only if a genuine question arose. None
+  did: no new dependency was added, and every API used here (React 19, Tailwind v4, the existing SSE
+  hook) was already established in Stages 4b-9.
+
+### Open questions for a human
+
+1. **Country and city stay empty for widget traffic**, by design - 20,000 events a month per
+   workspace would exhaust ip-api's free tier, and 5.1 keeps that budget for submissions. A
+   workspace with views and no leads sees two empty panels, which looks like a gap even though it
+   is a decision. Worth saying so in the panel itself if it confuses an evaluator.
+2. **The query schema accepts `from`/`to`, and the UI does not offer them.** The three ranges are
+   what 4.9 names; an arbitrary range is a small addition if it is wanted.
+3. **Nothing still proves the hourly aggregation schedule fires** - unchanged from 10a. The on-read
+   freshness added here means a dashboard is correct even if that schedule never ran, which lowers
+   the stakes but does not close the gap.
+4. **The `submission` funnel event still fires at the runtime's form seam**, so it counts a visitor
+   reaching the stage rather than an accepted lead. The funnel and the inbox will disagree slightly
+   until that seam posts a real submission.
+5. **One unhandled `MongoServerError` was logged during the full browser run** and failed nothing -
+   a single `request.unhandled_error` during a workspace-accessibility test that passed. The same
+   signature appeared once in Stage 10a's run, in a different spec. It is not reproducible on
+   demand, it predates this sub-stage, and no test depends on it; recorded here rather than
+   dismissed, because an unhandled database error reaching the request handler is worth a look
+   before Stage 13's resilience work.
+6. **CI has still never run**, because no remote is configured.

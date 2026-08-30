@@ -1,6 +1,6 @@
 # Repository layout — conceptual ownership map
 
-**Status: Stage 10a.** All nine workspaces exist. `packages/config`, `packages/contracts`,
+**Status: Stage 10b.** All nine workspaces exist. `packages/config`, `packages/contracts`,
 `packages/database`, `packages/test-utils`, and `apps/server` now carry real content; the
 rest remain deliberate shells until the stage that fills them.
 
@@ -304,6 +304,23 @@ cannot check that, so a week of failed aggregation would become a week of destro
 **Aggregation recomputes and upserts** onto a unique workspace/day/widget/dimension key, so a
 retried job produces the same numbers rather than doubling them.
 
+### What Stage 10b added
+
+| Path                                       | Contents                                                                      |
+| ------------------------------------------ | ----------------------------------------------------------------------------- |
+| `apps/server/src/http/routes/analytics.ts` | `GET /api/v1/analytics` on `workspace.view` - one read for all eight boards   |
+| `apps/web/src/components/charts.tsx`       | `Rate`, `Funnel`, `BarTable`, `DaySeries`, `Stat`, `Panel` - no chart library |
+| `apps/web/src/pages/AnalyticsPage.tsx`     | The eight dashboards, the range picker, and live refresh over the 8a stream   |
+
+**One endpoint, not eight.** The dashboards are slices of one range of one workspace's data.
+Splitting them would mean eight chances for the range to drift and a page that renders
+inconsistent totals while it loads.
+
+**The chart is the table.** Bars are drawn as backgrounds on the real table cells that hold the
+numbers, so there is no visually-hidden duplicate that can drift out of step with the picture.
+
+**Reads aggregate today first** (13.2 step 4), so a dashboard is never a day behind its traffic.
+
 ### End-to-end tests
 
 `e2e/` holds the Playwright suite: `fixtures.ts` (shared axe scanner, Mailpit
@@ -311,7 +328,8 @@ helpers, throttle isolation, and the post-sign-in landing constants),
 `helpers/journeys.ts` (register, verify, sign in, onboard, invite, and accept as
 a second browser context), and `tests/` (`auth-journey.spec.ts`,
 `accessibility.spec.ts`, `workspace-journey.spec.ts`,
-`workspace-accessibility.spec.ts`). `playwright.config.ts` at the root starts the
+`workspace-accessibility.spec.ts`, `analytics-journey.spec.ts`,
+`analytics-accessibility.spec.ts`). `playwright.config.ts` at the root starts the
 API and web servers itself and expects Mongo, Redis, and Mailpit to be up.
 
 ### What `apps/server` gained in Stage 4

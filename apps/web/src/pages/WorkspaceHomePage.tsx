@@ -8,11 +8,13 @@ import { Alert, Meter, RoleChip } from '../components/ui.jsx';
  * Workspace overview: who you are here, and the usage meters from blueprint
  * 4.10.
  *
- * Only the user meter has a real number at this stage. The rest are reported as
- * not-yet-tracked rather than as zero, which is the same distinction the API
- * makes by sending null: "nothing has happened" and "this is not counted yet"
- * are different claims, and showing a confident 0 would quietly make the wrong
- * one.
+ * All four meters carry real numbers as of Stage 10a; the two monthly ones
+ * count against the WORKSPACE's timezone month, not the server's.
+ *
+ * A meter the API reports as null is still rendered as not-yet-tracked rather
+ * than as zero. "Nothing has happened" and "this is not counted yet" are
+ * different claims, and a confident 0 would quietly make the wrong one - the
+ * same rule the analytics dashboards hold to for a rate with no denominator.
  */
 export function WorkspaceHomePage(): React.JSX.Element {
   const { active, user } = useWorkspace();

@@ -16,6 +16,7 @@ import { WidgetBuilderPage } from './pages/WidgetBuilderPage.jsx';
 import { ContactsPage } from './pages/ContactsPage.jsx';
 import { ContactDetailPage } from './pages/ContactDetailPage.jsx';
 import { ContactTrashPage } from './pages/ContactTrashPage.jsx';
+import { AnalyticsPage } from './pages/AnalyticsPage.jsx';
 import { DeliveryPage } from './pages/DeliveryPage.jsx';
 import { MembersPage } from './pages/MembersPage.jsx';
 import { AuditLogPage } from './pages/AuditLogPage.jsx';
@@ -75,6 +76,7 @@ const router = createBrowserRouter([
       { path: 'contacts', element: <ContactsPage /> },
       { path: 'contacts/trash', element: <ContactTrashPage /> },
       { path: 'contacts/:contactId', element: <ContactDetailPage /> },
+      { path: 'analytics', element: <AnalyticsPage /> },
       { path: 'delivery', element: <DeliveryPage /> },
       { path: 'members', element: <MembersPage /> },
       { path: 'audit', element: <AuditLogPage /> },

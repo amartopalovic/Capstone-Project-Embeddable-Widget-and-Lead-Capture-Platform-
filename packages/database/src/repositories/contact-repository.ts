@@ -129,6 +129,29 @@ export class ContactRepository extends WorkspaceScopedRepository<ContactRecord> 
     );
   }
 
+  /**
+   * How many active contacts sit in each status (blueprint 13.2).
+   *
+   * Feeds "status conversion = Contacts reaching Qualified or Converted within
+   * the selected cohort". Counted here rather than by loading contacts and
+   * grouping in memory: a workspace's whole lead list is the wrong thing to
+   * pull across for five numbers.
+   */
+  async countsByStatus(scope: WorkspaceScope, since?: Date): Promise<Record<string, number>> {
+    const filter: Record<string, unknown> = { recordStatus: 'active' };
+    // The cohort is "contacts first seen in the range", so a lead that arrived
+    // last year and converted today is not counted as this week's conversion.
+    if (since !== undefined) filter['firstSubmissionAt'] = { $gte: since };
+
+    const rows = await this.collection
+      .aggregate<{ _id: string; n: number }>([
+        { $match: this.scopedFilter(scope, filter as Filter<ContactRecord>) },
+        { $group: { _id: '$status', n: { $sum: 1 } } },
+      ])
+      .toArray();
+    return Object.fromEntries(rows.map((row) => [row._id, row.n]));
+  }
+
   /** Distinct tag names in use, so the inbox can offer them as filters. */
   async distinctTags(scope: WorkspaceScope): Promise<string[]> {
     const values = await this.collection.distinct(

@@ -210,6 +210,25 @@ export class DailyAnalyticsRepository extends WorkspaceScopedRepository<DailyAna
     return (await this.count(scope, { day } as Filter<DailyAnalyticsRecord>)) > 0;
   }
 
+  /**
+   * Every slice in a range, across all dimensions.
+   *
+   * One query rather than five, because the dashboard needs all of them at
+   * once and the range is bounded by days: reading them separately would be
+   * five scans of the same index for data the caller is about to merge anyway.
+   */
+  async listAllDimensions(
+    scope: WorkspaceScope,
+    fromDay: string,
+    toDay: string,
+  ): Promise<WithId<DailyAnalyticsRecord>[]> {
+    return this.findMany(
+      scope,
+      { day: { $gte: fromDay, $lte: toDay } } as Filter<DailyAnalyticsRecord>,
+      { sort: { day: 1 } },
+    );
+  }
+
   async listRange(
     scope: WorkspaceScope,
     fromDay: string,

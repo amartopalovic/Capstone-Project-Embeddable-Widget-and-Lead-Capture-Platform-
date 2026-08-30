@@ -7,6 +7,8 @@ import {
   type Capability,
   type ContactDetail,
   type ContactPage,
+  type AnalyticsOverview,
+  type AnalyticsRange,
   type ContactSummary,
   type DeliveryHealth,
   type InvitableRole,
@@ -413,4 +415,19 @@ export const deliveryApi = {
 
   removeRecipient: (recipientId: string) =>
     api.delete<void>(`/deliveries/recipients/${recipientId}`),
+};
+
+// ---------------------------------------------------------------------------
+// Analytics endpoints (Stage 10b)
+// ---------------------------------------------------------------------------
+
+/**
+ * One read for all eight dashboards.
+ *
+ * The response carries every rate already computed. Nothing in this client
+ * divides, and nothing should: blueprint 13.2 defines the formulas and the
+ * server owns the one implementation of them.
+ */
+export const analyticsApi = {
+  overview: (range: AnalyticsRange) => api.get<AnalyticsOverview>(`/analytics?range=${range}`),
 };

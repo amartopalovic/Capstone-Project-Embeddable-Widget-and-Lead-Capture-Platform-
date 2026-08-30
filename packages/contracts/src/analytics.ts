@@ -84,6 +84,14 @@ export interface FunnelCountsDto {
   readonly formStarts: number;
   readonly submissions: number;
   readonly eligibleImpressions: number;
+  /**
+   * Distinct visitors, counted PER DAY and per slice.
+   *
+   * The aggregate keeps a count rather than the pseudonyms behind it, so
+   * adding this across a range double-counts anyone who came back - a range
+   * total is NOT a unique-visitor figure and must never be presented as one.
+   * The counts above are events and add up cleanly; this one does not.
+   */
   readonly visitors: number;
 }
 
@@ -107,22 +115,77 @@ export interface DimensionRow {
   readonly counts: FunnelCountsDto;
 }
 
+/** One widget's slice, with its own derived rates (blueprint 4.9). */
+export interface WidgetPerformanceRow {
+  readonly widgetId: string;
+  readonly name: string;
+  readonly counts: FunnelCountsDto;
+  readonly rates: FunnelRatesDto;
+}
+
+/** Contacts by status, and the conversion derived from them (13.2). */
+export interface StatusBreakdown {
+  readonly counts: Readonly<Record<string, number>>;
+  readonly cohortSize: number;
+  readonly qualifiedOrConverted: number;
+  readonly conversion: number | null;
+}
+
+/** Delivery health headline, for dashboard 7 (blueprint 4.9). */
+export interface DeliveryHealthSummary {
+  readonly delivered: number;
+  readonly failed: number;
+  readonly deadLetter: number;
+  readonly pending: number;
+}
+
+/** Spam and throttling activity, for dashboard 8 (blueprint 4.9, 7.4). */
+export interface AbuseSummary {
+  readonly byType: Readonly<Record<string, number>>;
+  readonly daily: readonly { readonly day: string; readonly count: number }[];
+  readonly total: number;
+}
+
 export interface AnalyticsOverview {
   readonly from: string;
   readonly to: string;
+  /** The workspace timezone the day boundaries were computed in (4.10). */
+  readonly timezone: string;
   readonly totals: FunnelCountsDto;
   readonly rates: FunnelRatesDto;
   readonly daily: readonly DailyPoint[];
-  readonly byWidget: readonly (DimensionRow & { readonly widgetId: string })[];
+  readonly byWidget: readonly WidgetPerformanceRow[];
   readonly byCountry: readonly DimensionRow[];
   readonly byCity: readonly DimensionRow[];
   readonly byDomain: readonly DimensionRow[];
   readonly byPage: readonly DimensionRow[];
-  /** Contacts reaching Qualified or Converted, over the cohort (13.2). */
-  readonly statusConversion: number | null;
+  readonly status: StatusBreakdown;
+  readonly delivery: DeliveryHealthSummary;
+  readonly abuse: AbuseSummary;
 }
 
+/**
+ * The ranges the picker offers.
+ *
+ * A closed list rather than an arbitrary span: every option maps to a day count
+ * the server resolves against the WORKSPACE's timezone, so "last 7 days" means
+ * the same seven days to the picker, the query, and the aggregate.
+ */
+export const ANALYTICS_RANGES = {
+  '7d': 7,
+  '30d': 30,
+  '90d': 90,
+} as const;
+export type AnalyticsRange = keyof typeof ANALYTICS_RANGES;
+
+export const ANALYTICS_RANGE_LABELS: Readonly<Record<AnalyticsRange, string>> = {
+  '7d': 'Last 7 days',
+  '30d': 'Last 30 days',
+  '90d': 'Last 90 days',
+};
+
 export const analyticsQuerySchema = z.object({
+  range: z.enum(['7d', '30d', '90d']).default('30d'),
   /** Inclusive `YYYY-MM-DD` bounds in the workspace's own timezone. */
   from: z
     .string()
