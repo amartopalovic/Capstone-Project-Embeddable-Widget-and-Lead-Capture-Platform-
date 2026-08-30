@@ -29,6 +29,9 @@ node_modules/
 secrets/
 .secrets/
 
+# Local-only Git history privacy maintenance helper
+privacy-history-rewrite.mjs
+
 # ---------------------------------------------------------------------------
 # Build output and generated artifacts
 # ---------------------------------------------------------------------------
