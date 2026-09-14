@@ -39,6 +39,19 @@ const apiOrigin = new URL(rawApiOrigin).origin;
  * 12b it is also what blueprint 14.3 asks of the public sandbox, which must be
  * "hosted on a different provider subdomain from the API".
  */
+/**
+ * Which interfaces the development server listens on (Stage 14 audit H4).
+ *
+ * The default is loopback: an unauthenticated development server, its proxy to
+ * the API, and whatever data is in the local database should not be reachable
+ * from the LAN. Running inside the Compose container is the one case that needs
+ * every interface, because Docker forwards the published port to the
+ * container's own address rather than its loopback - so docker-compose.yml sets
+ * VITE_DEV_HOST there, and binds the HOST side of that mapping to 127.0.0.1
+ * instead.
+ */
+const devHost = process.env['VITE_DEV_HOST'] ?? 'localhost';
+
 export default defineConfig({
   define: { __PLATFORM_ORIGIN__: JSON.stringify(apiOrigin) },
   plugins: [
@@ -60,7 +73,7 @@ export default defineConfig({
     }),
   ],
   server: {
-    host: '0.0.0.0',
+    host: devHost,
     port: 5174,
   },
   build: {

@@ -47,8 +47,12 @@ services:
         value: Lead Capture Platform
       - key: BREACH_CHECK_REMOTE
         value: 'true'
+      # Off for launch (Stage 14 audit finding H5). The free ip-api.com endpoint
+      # has no HTTPS, so enrichment would put every visitor's IP address into an
+      # unencrypted outbound request. The country/city dashboard already renders
+      # "no data" when geo is disabled, so nothing breaks by leaving it off.
       - key: GEO_ENABLED
-        value: 'true'
+        value: 'false'
       - key: GEO_TIMEOUT_MS
         value: '1500'
       - key: SENTRY_DSN

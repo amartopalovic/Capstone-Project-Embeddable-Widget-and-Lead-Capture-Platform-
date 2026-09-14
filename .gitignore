@@ -32,8 +32,16 @@ secrets/
 # Local-only Git history privacy maintenance helper
 privacy-history-rewrite.mjs
 
-# Local project documentation
-/docs/
+# Project documentation. The directory is ignored by default and three files
+# are published deliberately: the stage record, the architecture summary, and
+# the repository map. The security audit, the deployment runbook, and the
+# secret-rotation procedure stay local - note that ignoring them only keeps
+# FUTURE edits out of the repository; the versions committed before this rule
+# are still in the published history.
+/docs/*
+!/docs/stage-checklist.md
+!/docs/architecture-summary.md
+!/docs/repository-layout.md
 
 # ---------------------------------------------------------------------------
 # Build output and generated artifacts

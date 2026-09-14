@@ -6,6 +6,13 @@
 # No Brevo, Atlas, Upstash, Render, or geo-provider credentials are required.
 # There are no secrets in this file; every value is a local development default.
 #
+# Every published port is bound to 127.0.0.1 (Stage 14 audit finding H4). None
+# of these services authenticates, so publishing them on every interface put
+# local databases, Redis state, and captured email in reach of anything on the
+# LAN. Only the HOST side of each mapping changes: inside the Compose network
+# the services still reach each other by name on their container ports, which
+# is what `server` does below.
+#
 # An explicit project name is set because the containing directory name may
 # include characters that Compose would otherwise normalise unpredictably.
 name: lead-capture-platform
@@ -24,7 +31,7 @@ services:
     image: mongo:8
     command: ['--replSet', 'rs0', '--bind_ip_all']
     ports:
-      - '27017:27017'
+      - '127.0.0.1:27017:27017'
     volumes:
       - mongo-data:/data/db
     healthcheck:
@@ -45,7 +52,7 @@ services:
     image: redis:8-alpine
     command: ['redis-server', '--appendonly', 'yes']
     ports:
-      - '6379:6379'
+      - '127.0.0.1:6379:6379'
     volumes:
       - redis-data:/data
     healthcheck:
@@ -58,8 +65,8 @@ services:
     # Local email inspection. SMTP on 1025, web UI on 8025.
     image: axllent/mailpit:latest
     ports:
-      - '1025:1025'
-      - '8025:8025'
+      - '127.0.0.1:1025:1025'
+      - '127.0.0.1:8025:8025'
     environment:
       MP_MAX_MESSAGES: '500'
       MP_SMTP_AUTH_ACCEPT_ANY: '1'
@@ -75,7 +82,7 @@ services:
       dockerfile: Dockerfile.dev
     command: ['npm', 'run', 'dev', '-w', '@lcp/server']
     ports:
-      - '3000:3000'
+      - '127.0.0.1:3000:3000'
     environment:
       NODE_ENV: development
       PORT: '3000'
@@ -112,9 +119,14 @@ services:
       dockerfile: Dockerfile.dev
     command: ['npm', 'run', 'dev', '-w', '@lcp/web']
     ports:
-      - '5173:5173'
+      - '127.0.0.1:5173:5173'
     environment:
       NODE_ENV: development
+      # Vite now binds loopback by default (audit H4). Inside a container that
+      # would be unreachable through the published port, so the container - and
+      # only the container - asks for every interface. The host side of the
+      # mapping above is still 127.0.0.1.
+      VITE_DEV_HOST: 0.0.0.0
 
   demo:
     # Deliberately a different port, and therefore a genuinely different origin
@@ -125,9 +137,14 @@ services:
       dockerfile: Dockerfile.dev
     command: ['npm', 'run', 'dev', '-w', '@lcp/demo']
     ports:
-      - '5174:5174'
+      - '127.0.0.1:5174:5174'
     environment:
       NODE_ENV: development
+      # Vite now binds loopback by default (audit H4). Inside a container that
+      # would be unreachable through the published port, so the container - and
+      # only the container - asks for every interface. The host side of the
+      # mapping above is still 127.0.0.1.
+      VITE_DEV_HOST: 0.0.0.0
 
 volumes:
   mongo-data:
