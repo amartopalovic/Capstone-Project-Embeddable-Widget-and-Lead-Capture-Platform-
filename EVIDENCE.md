@@ -2750,3 +2750,98 @@ artifact inspection also found and removed a literal localhost footer link from 
 
 The exit gate is **open**. These `NOT RUN` rows are evidence of the credential boundary, not failures
 silently omitted and not passes inferred from local tests.
+
+### Correction (2026-09-16) - Render build: devDependencies omitted under `NODE_ENV=production`
+
+Environment: Linux `node:24` container (Node 24.21.0, npm 11.19.0), clean clone of `cc7e9fe`. Render's
+build environment cannot be invoked directly, and the working folder's `&` breaks `npm run` on
+Windows. `RENDER_GIT_COMMIT` was set to `cc7e9fe` to mirror the build command's
+`VITE_RELEASE=$RENDER_GIT_COMMIT`.
+
+**Reproduce - pre-fix install (`npm ci`) with `NODE_ENV=production`:**
+
+```text
+$ NODE_ENV=production npm ci
+exit=0
+
+--- devDependency presence ---
+typescript: ABSENT
+vite: ABSENT
+@types/node: ABSENT
+tsx: ABSENT
+vitest: ABSENT
+.bin/tsc: ABSENT
+.bin/vite: ABSENT
+
+$ VITE_RELEASE=$RENDER_GIT_COMMIT npm run build
+exit=127
+```
+
+Build output, one block per workspace, repeated for `@lcp/contracts`, `@lcp/database`,
+`@lcp/test-utils`, and `@lcp/ui`:
+
+```text
+> @lcp/contracts@0.1.0 build
+> tsc -p tsconfig.json
+
+sh: 1: tsc: not found
+npm error Lifecycle script `build` failed with error:
+npm error code 127
+
+> @lcp/widget-runtime@0.1.0 build
+> vite build
+
+sh: 1: vite: not found
+npm error Lifecycle script `build` failed with error:
+npm error code 127
+```
+
+The `vite: not found` line matches Render's log exactly. Render reported `TS2688: Cannot find type
+definition file for 'node'` where this reproduction reports `tsc: not found`. Both are missing
+devDependencies, and the difference is recorded as open in `BUILDLOG.md`. Lockfile: `typescript`
+5.9.3, `vite` 8.2.2, and `@types/node` 24.13.3 are all `"dev": true`.
+
+**Confirm - fixed install (`npm ci --include=dev`) with `NODE_ENV=production`,
+`node_modules` removed first:**
+
+```text
+$ NODE_ENV=production npm ci --include=dev
+exit=0
+
+--- devDependency presence ---
+typescript: present (5.9.3)
+vite: present (8.2.2)
+@types/node: present (24.13.3)
+tsx: present (4.23.12)
+vitest: present (4.1.11)
+.bin/tsc: present
+.bin/vite: present
+
+$ VITE_RELEASE=$RENDER_GIT_COMMIT npm run build
+exit=0
+
+--- artifacts CI requires ---
+found packages/contracts/dist/index.js
+found packages/widget-runtime/dist/widget-runtime.js
+found apps/server/dist/index.js
+found apps/server/dist/composition.js
+found apps/server/dist/scripts/migrate.js
+found apps/server/dist/scripts/seed.js
+found apps/web/dist/index.html
+found apps/demo/dist/index.html
+runtime NODE_ENV still: production
+```
+
+**Local gate (`docs/deployment-recovery.md` section 4 subset), same install, `NODE_ENV` unset:**
+
+| Command                | Result                                   |
+| ---------------------- | ---------------------------------------- |
+| `npm run format:check` | exit 0 - all matched files use Prettier  |
+| `npm run lint`         | exit 0                                   |
+| `npm run typecheck`    | exit 0                                   |
+| `npm run test`         | exit 0 - 19 test files, 394 tests passed |
+| `npm run build`        | exit 0                                   |
+
+Not re-run for this correction: integration tests, browser E2E, backup self-test, and secret scan.
+The deployed exit gate above is unchanged and still **open**. The Issue B release-step diagnosis
+(synthetic, disposable MongoDB only) is recorded in `BUILDLOG.md`.

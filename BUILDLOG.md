@@ -3338,3 +3338,183 @@ resolved `localhost` to an IPv6 socket that connected but never produced an SMTP
 Open by design: GitHub remote and first CI run; Atlas, Upstash, Brevo, Sentry and Render account
 configuration; real URLs; all five deployed results; encrypted restore against a real isolated Atlas
 database; and the 65-minute sleep/wake/delayed-scheduler rehearsal. Stage 15 is not ready to request.
+
+### Correction (2026-09-16) - Render build failure and the release step's database error
+
+This correction does not complete Stage 14; the deployed exit gate is still open.
+
+#### Issue A - the Render build installed no devDependencies (fixed)
+
+The first Blueprint deploy failed during the build, before `npm run release`: `tsc` reported
+`TS2688: Cannot find type definition file for 'node'` in every workspace package and
+`@lcp/widget-runtime` failed with `sh: 1: vite: not found`.
+
+Root cause: `NODE_ENV: production` is a service environment variable in `render.yaml`, and Render
+exposes service environment variables during the build as well as at runtime. npm treats
+`NODE_ENV=production` as `--omit=dev`, so `npm ci` skipped every devDependency. `typescript`,
+`vite`, and `@types/node` are all `"dev": true` in `package-lock.json`, and no production package
+depends on them, so the compile step had no compiler toolchain.
+
+Fix (`cc7e9fe`): the `lead-capture-platform` build command now starts with `npm ci --include=dev`.
+npm filters the omit list against the include list, so `--include=dev` wins regardless of
+`NODE_ENV`. `NODE_ENV` itself is unchanged and stays `production` for the running process. The
+preceding commit `ba85c9a` removed `maxShutdownDelaySeconds`, a paid-plan-only field that Render's
+free-tier Blueprint validation rejects.
+
+Checked and deliberately left alone:
+
+- `lead-capture-demo` also runs a plain `npm ci`, but nothing sets `NODE_ENV` for it: its only
+  variable is `VITE_API_ORIGIN`, it uses no environment group, and the repository has no `.npmrc`.
+- `.github/workflows/ci.yml` never sets `NODE_ENV`; `Dockerfile.dev` runs `npm ci` without it; and
+  `docker-compose.yml` sets `NODE_ENV: development` only in container runtime `environment`, after
+  the image's install step. None shares the defect.
+
+Reproduced and confirmed in a Linux `node:24` container (Node 24.21.0, npm 11.19.0) against a clean
+clone of `cc7e9fe`, because the working folder's `&` breaks `npm run` on Windows (README 5.4).
+Transcripts are in `EVIDENCE.md`.
+
+One discrepancy is recorded rather than explained away. The local reproduction failed with
+`sh: 1: tsc: not found` for the TypeScript packages, where Render's log showed `TS2688`. The
+`vite: not found` line matched exactly. Render's log implies a `tsc` binary was present there but
+`@types/node` was not. Nothing in the repository explains that: the lockfile makes a clean
+`NODE_ENV=production npm ci` unable to install `typescript` at all. The root cause and the fix are
+the same either way, and the next Render build log is the evidence that settles it.
+
+The fixed build also printed npm 11's `install-scripts` warning for `esbuild`, `msgpackr-extract`,
+and `@scarf/scarf`. The build and every gate command passed regardless. This is pre-existing and
+was not changed.
+
+#### Issue B - release step fails with "sensitive driver details suppressed" (diagnosed, not fixed)
+
+Atlas Network Access is open to `0.0.0.0/0` (confirmed by the operator), which rules out IP
+allow-listing. No real credential, cluster, or Render variable was accessed or changed.
+
+**What produces the message.** `migrate.ts`, `seed.ts`, and `index.ts` each end with
+`main().catch(() => console.error('... sensitive driver details suppressed ...'))`. The callback
+discards the error, so the line is not specific to authentication or networking. For `[migrate]` and
+`[seed]` it covers every failure inside `main()`, in order:
+
+1. `loadEnv()` validation. In production this throws when `ENCRYPTION_MASTER_KEY`, `SESSION_SECRET`,
+   or `IP_HMAC_SECRET` is empty or starts with `replace-me`, and for malformed numeric, list, or
+   `EMAIL_PROVIDER` values. No MongoDB problem is needed to produce the message.
+2. `new MongoClient(uri)` in the `MongoConnection` constructor, which parses the URI synchronously.
+3. `connect()`: DNS/SRV resolution, server selection (5-second timeout), and authentication.
+4. The migrations themselves, where authorization is enforced.
+
+`[server] Failed to start` is narrower. `instrument.ts` calls `loadEnv()` at module evaluation,
+before `index.ts` attaches its `catch`. A configuration error at server start therefore crashes with
+its real message, verified with `ENCRYPTION_MASTER_KEY` unset. The server's suppressed line means
+configuration loaded and a later step failed, such as the MongoDB or Redis connection.
+
+The prefix identifies the step. `release` is `migrate.js && seed.js`, so a `[migrate]` failure stops
+the chain and `[seed]` never runs. A `[seed]` line means migrate connected, authenticated, and
+completed.
+
+**Credential encoding.** The codebase neither percent-encodes credentials nor trims the value.
+`readString` returns `MONGODB_URI` verbatim and `MongoConnection` hands it straight to the driver. The
+operator must supply an already-encoded URI. The installed driver (6.21.0) `decodeURIComponent`s the
+user-info, and its behaviour with synthetic URIs was:
+
+| Stored value                       | Driver outcome                                                |
+| ---------------------------------- | ------------------------------------------------------------- |
+| Password with raw `:` `/` `#` `?`  | `MongoParseError: Password contains unescaped characters`     |
+| Password with raw `%`              | `MongoParseError: URI malformed`                              |
+| Password with raw `@`              | Parses without error, but the credentials are not as intended |
+| Same passwords percent-encoded     | Parses; password matches the intended value                   |
+| Leading space                      | `MongoParseError: Invalid scheme`                             |
+| Trailing space or trailing newline | Tolerated                                                     |
+| Truncated inside the password      | `MongoRuntimeError: Unable to parse ... with URL`             |
+
+That last error text contains a fragment of the password. The suppression is doing real work, and
+any future change that logs the error must not log its message.
+
+**authSource.** With no `authSource` option, the driver authenticates against the database in the
+URI path, or `admin` when there is none. For `mongodb+srv://` URIs, the driver then applies the
+cluster's DNS TXT `authSource` (Atlas publishes `admin`), but only when the URI did not set
+`authSource` explicitly (`node_modules/mongodb/lib/connection_string.js`). Atlas creates database
+users in `admin`. So an Atlas SRV URI with a `/leadcapture` path authenticates correctly, while an
+explicit `authSource=leadcapture`, or a non-SRV standard URI with a `/leadcapture` path, fails
+authentication. The TXT override was read from the driver source, not observed against Atlas DNS.
+`MONGODB_DB_NAME=leadcapture` selects the working database through `client.db(name)` and has no
+effect on `authSource`.
+
+**Role scope.** Every migration uses only `listCollections`, `createCollection`, `createIndexes`, and
+ordinary reads and writes, all within `readWrite`. `readWrite` on `leadcapture` is sufficient. A
+user scoped to a different database authenticates successfully and fails later with `Unauthorized`.
+
+**Disposable reproduction.** The compiled `migrate.js` from the Issue A build ran against a throwaway
+auth-enabled `mongo:8` container. The users were created in `admin` like Atlas users, with synthetic
+passwords that were never printed. A harness that mirrors `migrate.ts` step for step printed only
+the error class and code the entrypoint discards. Every failing row printed the identical
+suppressed line and exited 1:
+
+| Scenario                                                | Underlying failure (stage, class, code)               |
+| ------------------------------------------------------- | ----------------------------------------------------- |
+| Baseline: encoded password, `authSource=admin`          | none - `migration.complete`, exit 0                   |
+| Raw password containing `@ : /`                         | URI parse, `MongoRuntimeError`                        |
+| `/leadcapture` path, no `authSource`, non-SRV           | connect, `MongoServerError` 18 `AuthenticationFailed` |
+| Explicit `authSource=leadcapture`                       | connect, `MongoServerError` 18 `AuthenticationFailed` |
+| `readWrite` on `leadcapture_other` instead              | migrations, `MongoServerError` 13 `Unauthorized`      |
+| Unreachable host (stand-in for a paused/absent cluster) | connect, `MongoServerSelectionError` after 5 s        |
+| Leading whitespace in the stored value                  | URI parse, `MongoParseError`                          |
+| Trailing newline in the stored value                    | none - `migration.complete`, exit 0                   |
+| Truncated value                                         | URI parse, `MongoRuntimeError`                        |
+| Valid URI, `ENCRYPTION_MASTER_KEY` unset                | `loadEnv`, `Error`                                    |
+
+A paused Atlas M0 cluster was not reproducible locally. The unreachable-host row shows the class of
+failure it is expected to produce, not proof of Atlas's exact behaviour.
+
+**Operator checklist, in order.** Cheapest and most discriminating first:
+
+1. **Read the exact prefix** in the Render build log: `[migrate]` or `[seed]`. `[seed]` means the
+   connection, authentication, and migrations all succeeded, which removes items 3 to 6.
+2. **Confirm every `sync: false` value is set in Render**, especially `ENCRYPTION_MASTER_KEY`
+   (non-empty, not `replace-me...`). A missing value produces the identical line.
+3. **Confirm the Atlas cluster is running, not paused.** Atlas pauses idle M0 clusters.
+4. **Re-enter `MONGODB_URI` from Atlas's Connect dialog** as the `mongodb+srv://` form, with no
+   leading whitespace and no truncation. Percent-encode the password (`encodeURIComponent`), or
+   rotate it to letters and digits only so no encoding is needed. A raw `@` fails at authentication
+   rather than at parsing, so a parsed URI does not prove the password is right.
+5. **Remove any explicit `authSource` other than `admin`** from the URI.
+6. **In Atlas Database Access, confirm the application user has `readWrite` on exactly
+   `leadcapture`**, matching `MONGODB_DB_NAME`, rather than another database or a differently cased
+   name.
+
+Once the release step passes, restore the runbook's section 2 posture. Replace Atlas's `0.0.0.0/0`
+entry with Render's Frankfurt outbound CIDR ranges. `docs/deployment-recovery.md` says explicitly not
+to use `0.0.0.0/0`, and the open entry is a standing deviation, not an accepted configuration.
+
+**Reported, not fixed.** The catch-all makes these failures indistinguishable in the deploy log. It
+is the reason this issue could not be diagnosed from Render's output. Logging the error's class,
+`code`, and `codeName`, never its message, would separate every row above without exposing the URI.
+This is error-handling code in three entrypoints and may reflect a locked decision, so it was left
+unchanged for a human decision.
+
+#### Verification performed
+
+- Issue A reproduction: plain `npm ci` under `NODE_ENV=production` left `typescript`, `vite`,
+  `@types/node`, `tsx`, and `vitest` absent, and `npm run build` exited 127.
+- Issue A confirmation: `npm ci --include=dev` under `NODE_ENV=production` installed all five, the
+  build exited 0, and every artifact CI checks was present, including the compiled migrate and seed
+  entrypoints.
+- Section 4 local gate, on the same clean Linux install with `NODE_ENV` unset: `format:check`,
+  `lint`, `typecheck`, `test` (19 files, 394 tests), and `build` all exited 0. Integration, E2E,
+  backup self-test, and secret scan were not part of this correction's gate and were not re-run.
+- Issue B: synthetic URI parsing against the installed driver, plus ten compiled-entrypoint
+  scenarios against a disposable auth-enabled `mongo:8`. The containers, network, and synthetic
+  password files were removed afterwards.
+
+#### Plugin usage in this correction
+
+- **`context7` - used.** npm CLI config definitions confirmed that `--include` overrides the
+  `NODE_ENV=production` omit. Render's documentation confirmed that service environment variables
+  are available during both build and runtime. MongoDB Node driver documentation confirmed that
+  user-info must be percent-encoded. Context7 had no explicit statement of `authSource` defaulting,
+  so that came from the installed driver's source, not from memory. No documentation conflicted with
+  the task's stated root cause.
+- **`typescript-lsp` - used.** `documentSymbol` on `migrate.ts`, and `findReferences` on `loadEnv`
+  and `MongoConnection`, established the complete set of callers. That found the `instrument.ts`
+  call which makes server-start configuration errors unsuppressed. The LSP tool exposes no
+  diagnostics operation, so "TypeScript diagnostics unaffected" rests on `npm run typecheck` exiting 0.
+- **`frontend-design` - installed and enabled, not invoked.** No UI, layout, or visual change was
+  involved.
