@@ -7,7 +7,7 @@ services:
     branch: main
     autoDeployTrigger: checksPass
     buildCommand: >-
-      npm ci && VITE_RELEASE=$RENDER_GIT_COMMIT npm run build &&
+      npm ci --include=dev && VITE_RELEASE=$RENDER_GIT_COMMIT npm run build &&
       RELEASE=$RENDER_GIT_COMMIT npm run release
     startCommand: npm run start:production
     healthCheckPath: /health/ready
