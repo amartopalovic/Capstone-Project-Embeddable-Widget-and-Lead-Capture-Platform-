@@ -1,6 +1,6 @@
 # Embeddable Widget & Lead-Capture Platform
 
-> **Project status: Stage 12 of 16 complete, Stage 13 next.**
+> **Project status: Stage 14 of 16 complete, Stage 15 next. Deployed and live — see §6.**
 > Authentication and the multi-workspace user model both work end to end through a real
 > accessible interface: onboarding, the workspace switcher, the full role matrix, invitations,
 > ownership transfer, and workspace delete/recover. Proven by 125 unit, 110 integration, and 37
@@ -304,23 +304,26 @@ without `&`.
 
 ## 6. Deployment links
 
-> **Stage 14 is prepared but not deployed.** `render.yaml` now defines the free Frankfurt web
-> service and separate static demo, the production process serves the built React application, and
-> the release/backup/check commands are real. Live account creation and credentials are still
-> required, so no URL or deployed check is claimed yet. Follow
-> [`docs/deployment-recovery.md`](./docs/deployment-recovery.md).
+> **Deployed and verified on 2026-09-18** from release `91766bc`. One Render Free Web Service in
+> Frankfurt serves React, the API, the widget, SSE, and the worker; a separate free Render Static
+> Site serves the sandbox on its own origin. MongoDB Atlas, Upstash Redis, Brevo, and Sentry are all
+> free-tier. Smoke, cross-origin, auth, queue, encrypted restore, and the cold-start/delayed-queue
+> rehearsal all have recorded results in [`EVIDENCE.md`](./EVIDENCE.md).
 
-| Surface                        | URL            | Filled in by                            |
-| ------------------------------ | -------------- | --------------------------------------- |
-| Platform (React app + API)     | _Not deployed_ | Stage 14                                |
-| Separate-origin live demo      | _Not deployed_ | Stage 14                                |
-| API documentation (Swagger UI) | _Not deployed_ | Built in Stage 12, deployed in Stage 14 |
-| Health and readiness probes    | _Not deployed_ | Stage 14                                |
+| Surface                        | URL                                                                              | Status |
+| ------------------------------ | -------------------------------------------------------------------------------- | ------ |
+| Platform (React app + API)     | [lead-capture-platform.onrender.com](https://lead-capture-platform.onrender.com) | Live   |
+| Separate-origin live demo      | [lead-capture-demo.onrender.com](https://lead-capture-demo.onrender.com)         | Live   |
+| API documentation (Swagger UI) | [/api-reference](https://lead-capture-platform.onrender.com/api-reference)       | Live   |
+| Health and readiness probes    | [/health/ready](https://lead-capture-platform.onrender.com/health/ready)         | Live   |
 
-The deployment cannot be completed anonymously from this repository: it needs a public GitHub
-remote, Atlas and Upstash connection strings, a verified Brevo sender and API key, a Sentry DSN,
-and the two Render-generated origins. Those values are entered in provider dashboards and never
-committed.
+The free web service sleeps after 15 minutes without traffic. A measured cold wake took **33.4
+seconds**; the first request after an idle period is slow and then the service is normal. No
+keep-awake traffic is used. The hosted data is synthetic and there is no SLA — see §7.
+
+Provider credentials are entered in provider dashboards and never committed: Atlas and Upstash
+connection strings, a verified Brevo sender and API key, and a Sentry DSN. Anyone redeploying this
+repository needs their own.
 
 ---
 
@@ -421,11 +424,21 @@ a reader trying to decide what to trust.
 
 **Deployment**
 
-- **CI has still never executed**, because no remote is configured.
-- Stage 14's repository-side deployment is ready, but nothing is deployed and `capstone.yaml` still
-  has `TBD` for every production URL. That is an intentional stop at the real-credential boundary,
-  not a passing deployment claim.
-- Render's Free Web Service sleeps after 15 minutes and can take about a minute to wake. Release
+- **Browser-side error monitoring does not work in production.** `VITE_SENTRY_DSN` is set on the
+  service, but the dashboard's Content Security Policy allows `connect-src 'self'` only, so every
+  Sentry request from the browser is blocked. Readiness still reports error monitoring as up,
+  because the server probe only checks that a DSN is configured. Server-side Sentry is unaffected.
+  Open, with two candidate fixes recorded in `EVIDENCE.md`.
+- **A provider failure is hard to diagnose from the logs.** The Brevo sender computes an HTTP status
+  for a failed send but logs only `outcome: failed`, and the backup scripts end in a catch-all that
+  prints one generic sentence. During Stage 14 this masked six distinct failures — two email, four
+  backup — each of which needed a separate throwaway diagnostic to identify. Suppressing the
+  message is deliberate, because a driver error can echo a URI with its password; suppressing the
+  error's class and code is not.
+- **The deployed service became unreachable once**, for roughly six minutes on 2026-09-18, and
+  recovered only after a manual redeploy. The root cause was not established. There is no automatic
+  recovery for this on a free instance.
+- Render's Free Web Service sleeps after 15 minutes; a measured cold wake took 33.4 seconds. Release
   migration/seed runs once in each deploy build because Render's dedicated pre-deploy command is a
   paid-service feature; both operations are repeatable and the seed touches only the synthetic
   sandbox, so a cold wake cannot mask the delayed-queue check by reseeding it.

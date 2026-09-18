@@ -2,11 +2,12 @@
 # capstone.yaml - machine-readable evaluation manifest
 # =============================================================================
 #
-# STATUS: Stage 13 complete; Stage 14 repository preparation is in progress.
+# STATUS: Stage 14 complete. The application is deployed and the deployed gates are recorded.
 # All six acceptance probes pass locally and each names the command that runs it. Install, run,
 # seed, migrate, lint, typecheck, build, unit, integration, browser E2E, and the secret scan are
-# REAL and verified. Render/release/recovery configuration now exists, but every production URL
-# remains `TBD` until a credentialed deployment passes all five live checks.
+# REAL and verified. Smoke, cross-origin, auth, queue, encrypted restore, and the cold-start and
+# delayed-queue rehearsal were all run against the live deployment on 2026-09-18; the transcripts
+# are in EVIDENCE.md, including the failures that happened on the way.
 #
 # Stage 13 also corrected this file, which had been describing Stage 7 while the repository was at
 # Stage 12: three probe endpoints were still `TBD` after the stages that built them, and all six
@@ -33,8 +34,8 @@ project:
     submission path, collaborative lead inbox, and funnel analytics.
   authoritative_reference: Embeddable_Widget_Lead_Capture_Blueprint.md
   license: MIT
-  repository: TBD # filled_in_by: Stage 14
-  stage_completed: 13
+  repository: https://github.com/amartopalovic/Capstone-Project-Embeddable-Widget-and-Lead-Capture-Platform-
+  stage_completed: 14
   stages_total: 16
 
 # -----------------------------------------------------------------------------
@@ -133,10 +134,15 @@ base_urls:
     landing: http://localhost:5173/
     product_docs: http://localhost:5173/docs/install
   production:
-    status: awaiting_provider_credentials_and_live_gates
-    app: TBD # filled_in_by: Stage 14
-    demo_origin: TBD # filled_in_by: Stage 14
-    api_docs: TBD # filled_in_by: Stage 14 (built in Stage 12a)
+    # Deployed and verified 2026-09-18 from release 91766bc. The web service is a
+    # Render Free instance in Frankfurt: it sleeps after 15 minutes without
+    # traffic, and a measured cold wake took 33.4 seconds. Data is synthetic.
+    status: live_all_six_deployed_gates_recorded_in_evidence
+    app: https://lead-capture-platform.onrender.com
+    demo_origin: https://lead-capture-demo.onrender.com
+    api_docs: https://lead-capture-platform.onrender.com/api-reference
+    openapi: https://lead-capture-platform.onrender.com/api/v1/openapi.json
+    readiness: https://lead-capture-platform.onrender.com/health/ready
 
 # -----------------------------------------------------------------------------
 # Probe endpoints. Every one of these is implemented and verified.

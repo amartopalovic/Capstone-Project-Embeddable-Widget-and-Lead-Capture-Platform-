@@ -2740,13 +2740,14 @@ artifact inspection also found and removed a literal localhost footer link from 
 
 ### Deployed exit gate
 
-| Check             | Result                                                 |
-| ----------------- | ------------------------------------------------------ |
-| Smoke             | NOT RUN - no production URL                            |
-| Cross-origin      | NOT RUN - no production/demo URLs                      |
-| Auth              | NOT RUN - no verified Brevo sender or deployed account |
-| Queue side effect | NOT RUN - no deployed queue/provider credentials       |
-| Encrypted restore | NOT RUN - no Atlas rehearsal credentials/database      |
+| Check             | Result                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| Smoke             | PASS 2026-09-17 - see "Deployed checks (2026-09-17)" below                            |
+| Cross-origin      | PASS 2026-09-17 - see "Deployed checks (2026-09-17)" below                            |
+| Auth              | PASS 2026-09-18 attempt 3 - two prior failures (Brevo unauthorized IP) recorded below |
+| Queue side effect | PASS 2026-09-17 - `delivered` on attempt 1 and the real email arrived                 |
+| Encrypted restore | PASS 2026-09-18 - 21 collections, 50 documents, readiness 200 with 11 migrations      |
+| Cold start        | PASS 2026-09-18 - delayed reset ran after the sleep; 33.4 s wake measured             |
 
 The exit gate is **open**. These `NOT RUN` rows are evidence of the credential boundary, not failures
 silently omitted and not passes inferred from local tests.
@@ -2845,3 +2846,489 @@ runtime NODE_ENV still: production
 Not re-run for this correction: integration tests, browser E2E, backup self-test, and secret scan.
 The deployed exit gate above is unchanged and still **open**. The Issue B release-step diagnosis
 (synthetic, disposable MongoDB only) is recorded in `BUILDLOG.md`.
+
+### Deployed checks (2026-09-17) - smoke and cross-origin
+
+Provider: Render, Frankfurt, Free Web Service `lead-capture-platform` and free Static Site
+`lead-capture-demo`. Deployed release reported by readiness: `91766bcd7697861128e92e7b567a4df48facc2a6`.
+Run by Claude Code from the operator's machine (Windows, Node 24.13.0). The local working tree held one
+uncommitted change to `scripts/verify-deployment.mjs` (the demo-config CORS assertion, below); it is a
+client-side check script and is not part of the deployed release.
+
+- Production: `https://lead-capture-platform.onrender.com`
+- Demo: `https://lead-capture-demo.onrender.com`
+
+**`verify:deployment`** (invoked as `node scripts/verify-deployment.mjs`, the exact body of the npm
+script, because `npm run` breaks on this folder's `&`; README 5.4). Local clock 2026-09-17T13:01:56Z to
+13:01:58Z, exit 0:
+
+```text
+[deploy-check] PASS readiness (455 ms)
+[deploy-check] PASS React application (71 ms)
+[deploy-check] PASS API reference (65 ms)
+[deploy-check] PASS separate demo origin (393 ms)
+[deploy-check] PASS demo configuration CORS (84 ms)
+[deploy-check] PASS cross-origin widget configuration (86 ms)
+[deploy-check] PASS cross-origin sandbox submission (513 ms)
+[deploy-check] Public smoke and separate-origin checks passed. Auth, real delivery queue, cold-start, and restore checks are recorded separately because they require operator credentials or elapsed idle time.
+```
+
+The service was already awake (455 ms readiness); this is not a cold-start measurement.
+
+**Readiness body** (`GET /health/ready`, HTTP 200, 0.16 s):
+
+```text
+{"status":"ready","release":"91766bcd7697861128e92e7b567a4df48facc2a6","timestamp":"2026-09-17T13:01:57.882Z",
+ "dependencies":[{"name":"mongodb","status":"up","durationMs":3},{"name":"redis","status":"up","durationMs":2},
+ {"name":"migrations","status":"up","durationMs":3,"detail":"applied: 11"}],
+ "optional":[{"name":"email","status":"up","durationMs":2,"detail":"brevo: 0/200 side-effect messages used today"},
+ {"name":"geo","status":"degraded","durationMs":0,"detail":"disabled; submissions store no country"},
+ {"name":"error-monitoring","status":"up","durationMs":0,"detail":"sentry"}]}
+```
+
+**Demo config CORS headers** (`GET /demo/v1/config` with `Origin: https://lead-capture-demo.onrender.com`):
+
+```text
+HTTP/1.1 200 OK
+access-control-allow-origin: *
+cross-origin-resource-policy: cross-origin
+vary: Origin
+```
+
+The body contained three public widget ids and
+`"seededAt":"2026-09-17T13:00:00.051Z","resetsAt":"2026-09-17T14:00:00.051Z"`.
+
+**Demo feed shows the event** (runbook section 5 cross-origin requirement; `GET /demo/v1/feed`, HTTP 200):
+
+```text
+{"entries":[{"kind":"submission","widgetName":"Contact form","occurredAt":"2026-09-17T13:01:49.771Z","fieldCount":2}],
+ "totals":{"submissions":1,"views":0},"seededAt":"2026-09-17T13:00:00.051Z","resetsAt":"2026-09-17T14:00:00.051Z"}
+```
+
+The one submission since the 13:00:00Z reset is the check's submission. Server timestamps run about 8 s
+behind the local clock (readiness stamped 13:01:57.882Z while the local clock read 13:02:0x), which
+accounts for `occurredAt` preceding the local run time. `GET /fixture.html` on the demo origin returned 200.
+
+**Demo-config CORS assertion resolved.** The committed check required `access-control-allow-origin` to
+equal the demo origin, which the implementation never sends. The server deliberately answers the sandbox
+routes with `*`: `apps/server/src/http/routes/demo.ts` lines 15-23 and 39;
+`apps/server/src/http/middleware/security-headers.ts` lines 109-117;
+`apps/server/src/http/openapi/document.ts` line 1201 ("CORS-open, because the demo is hosted on a
+different origin on purpose and nothing here is private"); `scripts/probe-public-security.mjs` line 106
+asserts exactly `*`; blueprint 14.3. The responses carry no credentials header, and MDN permits `*` for
+requests without credentials on public APIs. The check now accepts `*` or the echoed demo origin. The
+widget-config assertion still requires the exact demo origin. Whether to narrow the demo-config check to
+exactly `*`, matching the security probe, is left for a human decision.
+
+**Local validation on the same working tree:**
+
+| Command                               | Result                                                                                        |
+| ------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `npm run lint`                        | exit 1 - 7 `no-undef` errors, all in gitignored, untracked `logs/privacy-history-rewrite.mjs` |
+| `eslint . --ignore-pattern "logs/**"` | exit 0                                                                                        |
+| `npm run format:check`                | exit 0                                                                                        |
+| `npm run typecheck`                   | exit 0                                                                                        |
+| `npm run test`                        | exit 0 - 19 files, 394 tests passed                                                           |
+| `npm run build`                       | exit 0                                                                                        |
+
+npm scripts ran with `--script-shell` set to Git Bash, and ESLint through `node`, because cmd.exe splits
+this folder's path at `&`. The local file in `logs/` was not changed.
+
+### Deployed checks (2026-09-17) - auth gate attempt 1: FAILED
+
+Performed by the operator in a browser against `https://lead-capture-platform.onrender.com`, with the
+Render application log read by the operator and reported here. The operator's address is not recorded.
+
+Registration itself succeeded; the verification email never arrived. The Render log for release
+`91766bc` shows the provider call failing in the same millisecond as the registration:
+
+```text
+2026-09-17T13:33:11.223Z {"priority":"critical","provider":"brevo","outcome":"failed","usedToday":1,
+  "result":"degraded","level":"info","service":"server","environment":"production","event":"email.dispatched"}
+2026-09-17T13:33:11.234Z {"correlationId":"5dd269e1-...","userId":"6aabec16fa7da88174cd5867","result":"success",
+  "level":"info","service":"server","environment":"production","event":"auth.registered"}
+```
+
+Brevo rejected the transactional send. The account exists and is unverified, and no verification email
+was delivered, so the auth gate is **FAILED** pending a working provider configuration and a re-test.
+
+Two defects this exposed, both recorded rather than changed:
+
+1. **A failed verification email is invisible to the person registering.** `AuthService.register`
+   awaits `#sendVerification` and discards its result, then returns `accepted`. The user sees success
+   and waits for an email that was never accepted by the provider.
+2. **The provider's error is not logged.** `BrevoEmailSender` builds a `brevo_http_<status>` reason,
+   and `BudgetedEmailSender` logs only `outcome`. The deploy log therefore cannot distinguish an
+   invalid key from an unverified sender or a blocked source address. Logging the status code, never
+   the body, would separate them; the body can echo a recipient address, which blueprint 16.1 forbids
+   in logs.
+
+Also recorded from the same window: three `auth.login.failed` events at 13:31:26Z to 13:31:48Z before
+registration, then four `auth.throttled` events on the `login-account` rule between 13:38:09Z and
+13:40:49Z. The rate limiter behaved as designed against repeated sign-in attempts on an account that
+did not yet exist and then could not be verified.
+
+### Deployed checks (2026-09-17) - dashboard CSP blocks browser error monitoring
+
+Found by the operator in the browser console on the deployed dashboard, then confirmed here against the
+live service:
+
+```text
+$ curl -sD - -o /dev/null https://lead-capture-platform.onrender.com/login
+HTTP/1.1 200 OK
+content-security-policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+  img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'none';
+  form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'
+```
+
+The browser console showed repeated `Fetch API cannot load https://o<redacted>.ingest.de.sentry.io/api/
+<redacted>/envelope... Refused to connect because it violates the document's Content Security Policy`.
+
+`VITE_SENTRY_DSN` is set on the Render service, so the browser SDK initialises and posts to Sentry's
+ingest host, which `connect-src 'self'` forbids. Browser-side error monitoring is therefore inert in
+production, while `/health/ready` still reports `error-monitoring: up` because the server probe checks
+only that a DSN is configured. `dashboardCsp()` in `packages/contracts/src/security.ts` line 159 allows
+`'self'` plus the API origin and has never included an ingest host.
+
+No submission, session, or API request is affected: the dashboard calls its API on its own origin.
+
+Left for a human decision, because both options change deliberate security or observability posture:
+clear `VITE_SENTRY_DSN` on the service, or add the ingest origin to the dashboard `connect-src` and its
+tests.
+
+### Deployed checks (2026-09-18) - auth gate: PASSED on attempt 3
+
+Manual check, performed by the operator (repository owner) in a browser against
+`https://lead-capture-platform.onrender.com`, reported here and recorded on their confirmation. The
+operator's address is deliberately not recorded.
+
+**Cause of the two earlier failures.** Brevo refused the API call because Render's outbound IP address
+was not on the Brevo account's authorized-IP list. Brevo emailed the account owner asking whether the
+send was legitimate. Both refusals appear in the Render log for release `91766bc` as
+`email.dispatched` with `"provider":"brevo","outcome":"failed"`:
+
+```text
+2026-09-17T13:33:11.223Z  registration verification email   usedToday:1  outcome:failed
+2026-09-17T22:16:50.481Z  POST /api/v1/auth/verify/resend   usedToday:2  outcome:failed
+```
+
+Nothing in the application changed. The operator authorized the address in Brevo, then re-sent through
+`POST /api/v1/auth/verify/resend`, which the dashboard does not expose as a control.
+
+**Result after the fix**, all four confirmed by the operator on 2026-09-18:
+
+| Step                                                           | Observed                                 |
+| -------------------------------------------------------------- | ---------------------------------------- |
+| `email.dispatched` for the re-sent verification                | `"outcome":"sent"` in the Render log     |
+| Real Brevo verification email received and its link used       | Yes; account verified                    |
+| Unverified-email banner on `/workspace`                        | Gone after verification                  |
+| Sign out, sign in again at `/login`, load `/workspace/widgets` | Working session on a real workspace page |
+
+The timestamp of the successful `email.dispatched` line was not captured; the two failed attempts above
+are recorded with their exact times. The workspace shown before verification was `Amar`
+(`Europe/Sarajevo`), owner role, 1 active widget, 0 submissions.
+
+**Standing risk, not a failure.** Render free services do not have one fixed outbound address. If only
+the address used at the time was authorized in Brevo, a later send from a different Render address will
+be refused the same way, and it would present as a queue or delivery fault rather than an email
+configuration one.
+
+**Two defects this gate exposed remain open** and are described in the 2026-09-17 auth entry above:
+registration reports success even when the provider refuses the verification email, and the provider's
+HTTP status is computed but never logged. Neither was changed; both are left for a human decision.
+
+### Deployed checks (2026-09-17/18) - queue and real notification: delivery PASSED, recipient inbox pending
+
+Performed by Claude Code driving the operator's own signed-in Chrome session, at the operator's explicit
+request, against `https://lead-capture-platform.onrender.com` and
+`https://lead-capture-demo.onrender.com`. No password was entered and no mailbox was read. The workspace
+is `Amar` (owner, `Europe/Sarajevo`), which is an ordinary workspace and not the public sandbox.
+
+**Setup already in place**: widget `Test`, type `contact_form`, public id `w_7mq3avtjnhup6ppm`,
+`state: published`, revision 1, published `2026-09-17T22:29:43.191Z`, with
+`targeting.allowedDomains = ["lead-capture-demo.onrender.com"]`.
+
+**Recipient configured** through `POST /api/v1/deliveries/widgets/<widgetId>/recipients`, because no
+dashboard page exposes this control:
+
+```text
+status 201  { recipient.kind: "workspace_user", recipient.id: "6aac7003e0a077815da1942f" }
+```
+
+The address is the workspace owner's own verified account, so it was accepted as a verified
+`workspace_user` with no separate recipient confirmation. The address itself is not recorded here.
+
+**Submission**: the real published widget, rendered cross-origin by the loader on the separate demo
+origin at `/fixture.html?api=<platform>&w=w_7mq3avtjnhup6ppm`, filled field by field through the browser
+and submitted. Values were synthetic (`stage14-queue-check@example.invalid`). The widget showed its
+success state: "Thanks — we will be in touch shortly."
+
+**Delivery** (`GET /api/v1/deliveries`, same session):
+
+```text
+counts: {"queued":0,"delayed":0,"retrying":0,"delivered":1,"failed":0,"dead_letter":0}
+emailBudget: {"usedToday":4,"sideEffectUsedToday":1,"dailyLimit":300,"sideEffectLimit":200}
+delivery: {"id":"6aac7036e0a077815da19436","type":"workspace_notification","status":"delivered",
+           "attempts":1,"createdAt":"2026-09-17T22:56:54.330Z","deliveredAt":"2026-09-17T22:56:54.357Z",
+           "lastError":null}
+```
+
+The dashboard's Delivery page rendered the same single `TEAM NOTIFICATION / DELIVERED` row with a masked
+recipient and `1 ATTEMPT`, and the daily allowance meter read `1 / 200 used for notifications`.
+
+The whole path therefore worked end to end on the deployed system: cross-origin submission from the
+separate demo origin, workspace notification enqueued through BullMQ on Upstash, the worker sending
+through Brevo, and Brevo accepting the message on the first attempt with no retry and no error. `status`
+is `delivered`; the runbook's wording for this gate is `sent`, and no such status exists in this codebase
+(`DELIVERY_STATUS_VALUES` in `packages/contracts/src/delivery.ts`).
+
+**Inbox confirmed.** `delivered` in the dashboard means Brevo accepted the send, which is the strongest
+signal this application can observe by itself. The operator confirmed on 2026-09-18 that the real
+notification email arrived in the recipient inbox, which closes the remaining part of this gate.
+
+### Deployed checks (2026-09-18) - encrypted export and isolated restore rehearsal
+
+Run by the operator at their own terminal (Windows PowerShell), against the real Atlas cluster. No
+connection string, passphrase, or other secret was shared with the assistant, recorded here, or written
+to any file in this repository. Commands were invoked as `node scripts/<name>.mjs`, which is the exact
+body of the corresponding npm script, because `npm run` fails on a repository path containing `&`
+(README 5.4).
+
+MongoDB Database Tools 100.18.0, installed at `C:\Program Files\MongoDB\Tools\100\bin` and reached
+through `MONGODUMP_BIN` / `MONGORESTORE_BIN` because the installer did not put them on PATH.
+
+**Export** (`scripts/backup-export.mjs`, source database `leadcapture`):
+
+```text
+[backup] Encrypted and authenticated backup (7576 bytes).
+```
+
+**Crypto self-test** (`scripts/backup-crypto-self-test.mjs`): passed - AES-256-GCM streaming round trip
+verified and a wrong passphrase rejected.
+
+**Restore into the isolated database** (`scripts/backup-restore.mjs`, `BACKUP_REHEARSAL=true`,
+source `leadcapture`, target `leadcapture_restore_rehearsal`):
+
+```text
+[restore] Restored 21 collections and 50 documents into the rehearsal database.
+```
+
+The restore used a second Atlas database user granted `readWrite` on `leadcapture_restore_rehearsal`
+only, as the runbook requires. The production database was read by `mongodump` and never written. The
+script verified the whole ciphertext's authentication tag before `mongorestore` received any bytes, and
+`mongorestore` ran with `--nsFrom=leadcapture.* --nsTo=leadcapture_restore_rehearsal.*`.
+
+**Four failures happened first, and all four printed the same sentence**, because
+`scripts/backup-export.mjs` and `scripts/backup-restore.mjs` end in a catch-all that discards the error:
+
+```text
+[backup] Failed; sensitive details suppressed. Check configuration, tool availability and service access.
+```
+
+The actual causes, each identified only by re-running the same steps in a throwaway diagnostic that
+printed the error with URI-shaped tokens redacted:
+
+| Attempt | Real cause                                                                                                                                                                                                                                                             |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1       | `mongodump` not on PATH and `MONGODUMP_BIN` unset, so the child process could not start                                                                                                                                                                                |
+| 2       | `MONGODB_URI` held the platform's public HTTPS URL, not the Atlas URI: `scheme must be "mongodb" or "mongodb+srv"`                                                                                                                                                     |
+| 3       | `BACKUP_PASSPHRASE` shorter than the 16-character minimum in `scripts/backup-format.mjs`                                                                                                                                                                               |
+| 4       | The rehearsal Atlas user's privilege was scoped so narrowly that `listCollections` on the target database was denied: `(AtlasError) user is not allowed to do action [listCollections]`. `0 document(s) restored`, so the rehearsal database was not partially written |
+
+This is the same observability defect already recorded for the Brevo failure: suppressing the message is
+correct, because a driver error can echo a URI including its password, but the error's class and code
+carry no secret and would have separated all four cases immediately. Left unchanged for a human
+decision, together with the matching change in the email sender.
+
+**Still open for this gate**: the runbook also requires pointing a temporary local process at the
+rehearsal database and observing readiness. That result is recorded separately once run.
+
+#### Restore rehearsal, final step: a real process reading the restored database
+
+Run by the operator on their own machine, in the shell holding the rehearsal credential. The compiled
+server (`apps/server/dist/index.js`) was started against `leadcapture_restore_rehearsal` on port 3200
+with `EMAIL_PROVIDER=capture`, `GEO_ENABLED=false`, and local Redis from `docker compose`
+(`REDIS_KEY_PREFIX=lcp:restore-rehearsal`, so nothing shares keys with any other environment). The
+public Render service was never repointed.
+
+Startup, verbatim except for the server's own key ordering:
+
+```text
+{"...":"widget.runtime_loaded","hash":"ae345c610adb8575","bytes":17422,"result":"success"}
+{"port":3200,"emailProvider":"capture","errorMonitoring":"disabled","result":"success","event":"server.listening"}
+{"result":"success","days":1,"slices":3,"daysDeleted":0,"eventsDeleted":0,"skipped":0,"event":"analytics.sweep"}
+```
+
+`GET /health/ready` on `http://127.0.0.1:3200`, HTTP 200:
+
+```text
+{"status":"ready","release":"local-dev","timestamp":"2026-09-18T20:37:17.834Z",
+ "dependencies":[{"name":"mongodb","status":"up","durationMs":563},
+                 {"name":"redis","status":"up","durationMs":28},
+                 {"name":"migrations","status":"up","durationMs":44,"detail":"applied: 11"}],
+ "optional":[{"name":"email","status":"up","durationMs":12,"detail":"capture: 0/200 side-effect messages used today"},
+             {"name":"geo","status":"degraded","durationMs":0,"detail":"disabled; submissions store no country"},
+             {"name":"error-monitoring","status":"degraded","durationMs":0,"detail":"no DSN configured"}]}
+```
+
+`migrations: up, applied: 11` against the restored database is the substantive result: the 11 migration
+records survived the encrypted round trip and the running code accepts the restored schema as current.
+The two `degraded` optional probes are expected for a local rehearsal process with geo off and no Sentry
+DSN, and by design they cannot change readiness.
+
+One failure preceded this, and it was in the rehearsal harness rather than the application: the first
+readiness poll used `http://localhost:3200` and never connected, while the server was running normally.
+Windows resolves `localhost` to `::1` first and the server was answering on IPv4. Polling `127.0.0.1`
+succeeded immediately. The same trap is already recorded against host-run Mailpit in the Stage 14 log,
+and `apps/server/src/config/env.ts` documents it for `MAILPIT_SMTP_HOST`.
+
+The rehearsal database is left in place, holding the restored copy. Deleting it is a separate
+destructive action requiring explicit operator approval.
+
+### Deployed checks (2026-09-18) - cold start and delayed-queue rehearsal: PASSED
+
+Runbook section 7. The operator held both public URLs quiet and ran the timed requests; Claude Code took
+the public baseline and re-ran the deployment check. Times are UTC.
+
+**Baseline, 20:57-20:58.** Readiness 200 in 0.22 s on release
+`91766bcd7697861128e92e7b567a4df48facc2a6`; mongodb/redis/migrations up, `applied: 11`. Demo config
+`seededAt 2026-09-18T20:56:35.286Z`, `resetsAt 2026-09-18T21:56:35.286Z`. Operator diagnostics at
+20:58:28.850Z:
+
+```text
+sandbox-reset          waiting 0 active 0 delayed 1 failed 0 completed 15
+outbox-reconciliation  waiting 0 active 0 delayed 1 failed 0 completed 20
+analytics-aggregation  waiting 0 active 0 delayed 1 failed 0 completed 15
+retention-purge        waiting 0 active 0 delayed 1 failed 0 completed 2
+deadLetters total 0, unalerted 0
+redis commandsProcessed 210715, connectedClients 9
+retention lastSweepAt 2026-09-17T22:08:23.810Z, lastSweepResult completed
+```
+
+`sandbox-reset delayed: 1` before the idle period matters: the delayed job was already persisted in
+Upstash when the process stopped running.
+
+**After the quiet period.** Diagnostics at 22:09:00.686Z, and demo config read at the same time:
+
+```text
+demo      seededAt 2026-09-18T22:07:04.735Z, resetsAt 2026-09-18T23:07:04.735Z
+retention lastSweepAt 2026-09-18T22:07:04.934Z, lastSweepResult completed
+sandbox-reset          waiting 0 active 0 delayed 1 failed 0 completed 17
+analytics-aggregation  waiting 0 active 0 delayed 1 failed 0 completed 17
+retention-purge        waiting 0 active 0 delayed 1 failed 0 completed 3
+deadLetters total 0, unalerted 0
+redis commandsProcessed 223680, connectedClients 5
+```
+
+The sandbox reset ran at 22:07:04.735Z and the startup retention catch-up at 22:07:04.934Z, 200 ms
+apart, so the process started at ~22:07:04Z and immediately ran the sandbox reset that had fallen due at
+22:00:00Z while nothing was running. `seededAt` advanced by 70 minutes, the three widget public ids all
+changed, `completed` for `sandbox-reset` rose from 15 to 17, and `delayed` returned to 1 as the scheduler
+re-armed. That is the delayed BullMQ entry surviving in Upstash across the sleep and running after the
+wake, which is what this gate exists to prove.
+
+**Wake latency, measured on a second attempt.** The first attempt did not measure a cold start:
+readiness answered in 265 ms because something had already woken the service at 22:07:04Z, a few minutes
+before the operator's request. That run is recorded as not capturing the wake rather than being reported
+as a fast cold start. The operator then held both URLs quiet for a further 20 minutes - Render documents
+spin-down after 15 minutes of inactivity, and the hourly-job half of the gate was already evidenced - and
+timed the first request afterwards:
+
+```text
+Measure-Command { Invoke-WebRequest https://lead-capture-platform.onrender.com/health/ready -TimeoutSec 180 }
+TotalSeconds : 33.4433357
+StatusCode   : 200
+```
+
+**33.4 seconds** for the first request after the service slept, which is the actual observed value, not
+the runbook's "about a minute" expectation. No keep-awake traffic was used at any point.
+
+**Public deployment check re-run afterwards**, 22:47:20Z, exit 0:
+
+```text
+[deploy-check] PASS readiness (274 ms)
+[deploy-check] PASS React application (71 ms)
+[deploy-check] PASS API reference (138 ms)
+[deploy-check] PASS separate demo origin (405 ms)
+[deploy-check] PASS demo configuration CORS (71 ms)
+[deploy-check] PASS cross-origin widget configuration (96 ms)
+[deploy-check] PASS cross-origin sandbox submission (680 ms)
+```
+
+**One caveat, recorded rather than resolved.** `composition.ts` re-upserts the sandbox-reset scheduler at
+startup, so an advancing `seededAt` alone could in principle come from a re-created schedule rather than
+a surviving one. What separates the two here is the baseline: `delayed: 1` was observed on
+`sandbox-reset` before the sleep, and the reset fired within a second of process start rather than at the
+next interval boundary, which is the behaviour of an overdue job being promoted, not of a fresh
+schedule. What woke the service at 22:07:04Z was not established; the public URL is reachable by anyone,
+and crawler traffic is the likely explanation.
+
+### Service outage, 2026-09-18 ~20:44-20:50Z
+
+Recorded because it happened during this stage and was not a planned part of it. The platform web service
+stopped responding entirely: `curl` to `/demo/v1/config` and `/health/ready` each timed out after 180 s
+with no HTTP status, `/health/live` returned no headers at all, and the operator's browser console showed 503. The separate static demo answered 200 in 0.45 s throughout, so only the web service was affected.
+The operator redeployed the same commit from the Render dashboard and the service returned healthy at
+20:57Z, still on release `91766bc`. The root cause was not established: the Render events and logs for
+that window were not captured before the redeploy. A free-tier web service that can become unreachable
+until a manual redeploy, with no automatic recovery, is a real limitation of this hosting choice and is
+recorded as such rather than treated as a one-off.
+
+### Stage 14 completion record
+
+Per `docs/deployment-recovery.md` section 8, recorded only after all six deployed results existed.
+
+| Fact                | Value                                                                     |
+| ------------------- | ------------------------------------------------------------------------- |
+| Provider (platform) | Render, Free Web Service `lead-capture-platform`, region Frankfurt        |
+| Provider (demo)     | Render, free Static Site `lead-capture-demo`                              |
+| Database            | MongoDB Atlas free cluster, database `leadcapture`, 11 migrations applied |
+| Redis               | Upstash free, eviction disabled, key prefix `lcp:prod`                    |
+| Email               | Brevo free, 300/day, 200 reserved for side effects                        |
+| Error monitoring    | Sentry free (server-side only in practice - see the CSP finding)          |
+| Release commit      | `91766bcd7697861128e92e7b567a4df48facc2a6`                                |
+| Platform URL        | https://lead-capture-platform.onrender.com                                |
+| Demo URL            | https://lead-capture-demo.onrender.com                                    |
+| Credit card used    | None                                                                      |
+
+| Gate         | Result | When (UTC)       | Evidence                                                               |
+| ------------ | ------ | ---------------- | ---------------------------------------------------------------------- |
+| Smoke        | PASS   | 2026-09-17 13:01 | `verify:deployment` 7/7; readiness 200, mongo/redis/migrations up      |
+| Cross-origin | PASS   | 2026-09-17 13:01 | 202 submission from the demo origin; demo feed showed the event        |
+| Auth         | PASS   | 2026-09-18       | Attempt 3; two prior failures from Brevo's unauthorized-IP block       |
+| Queue        | PASS   | 2026-09-17 22:56 | Delivery `6aac7036e0a077815da19436` `delivered`, 1 attempt; email read |
+| Restore      | PASS   | 2026-09-18       | 21 collections, 50 documents; readiness 200 against the rehearsal DB   |
+| Cold start   | PASS   | 2026-09-18 22:07 | Overdue sandbox reset ran on wake; 33.4 s measured cold start          |
+
+Restore counts, as printed: `[restore] Restored 21 collections and 50 documents into the rehearsal
+database.` Export: `[backup] Encrypted and authenticated backup (7576 bytes).`
+
+Documentation updated at completion: `README.md` (deployment links, status, limitations),
+`capstone.yaml` (repository URL, production URLs, `stage_completed: 14`), `docs/stage-checklist.md`
+(Stage 14 checked; the progress line corrected from a stale "10 of 16" to 15 of 16), `EVIDENCE.md`,
+and `BUILDLOG.md`.
+
+**Dependency audit fixed at completion.** CI's runtime-dependency audit job had been failing on
+`main` since before this stage - four `nodemailer` advisories (high) and two `qs` advisories
+(moderate) - while its other three jobs passed. `npm audit fix` resolved both at patch level
+(`nodemailer` 9.0.6 to 9.1.1, `qs` 6.15.3 to 6.16.0, `package.json` unchanged) and `npm audit` then
+reported 0 vulnerabilities. This matters beyond hygiene: `render.yaml` sets
+`autoDeployTrigger: checksPass`, so while CI was red, `main` could not deploy itself, and the live
+release reached Render through a manual dashboard deploy rather than the CI-gated path the
+repository documents.
+
+**Open items carried out of Stage 14**, none of them silently closed:
+
+1. The dashboard CSP blocks browser-side Sentry ingest; readiness still reports error monitoring as
+   up. Two candidate fixes, both changing deliberate posture, so left for a human decision.
+2. The email sender and the two backup scripts suppress the provider/driver error entirely. Logging
+   the error's class and code, never its message, would have separated the six failures this stage
+   hit without exposing any secret.
+3. The `verify:deployment` demo-config assertion accepts `*` or an echoed origin; the security probe
+   asserts exactly `*`. Narrowing it is a one-line decision.
+4. The ~6-minute outage on 2026-09-18 has no established root cause.
+5. Atlas Network Access remains open to `0.0.0.0/0`. `docs/deployment-recovery.md` section 2 asks for
+   Render's Frankfurt outbound CIDR ranges instead. This is a standing deviation from the runbook.
+6. Only the Render outbound address in use at the time is known to be authorized in Brevo. If a
+   later send leaves from a different address it will be refused, and it would present as a delivery
+   fault rather than an email-configuration one.

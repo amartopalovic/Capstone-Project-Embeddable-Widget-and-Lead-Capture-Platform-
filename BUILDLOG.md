@@ -3518,3 +3518,87 @@ unchanged for a human decision.
   diagnostics operation, so "TypeScript diagnostics unaffected" rests on `npm run typecheck` exiting 0.
 - **`frontend-design` - installed and enabled, not invoked.** No UI, layout, or visual change was
   involved.
+
+### 2026-09-17 - smoke and cross-origin gates run against the live deployment
+
+This entry does not complete Stage 14; auth, queue, restore, and cold start are still open.
+
+The operator supplied the two Render origins. `verify:deployment` passed all seven assertions against
+release `91766bc`, and the public demo feed showed the check's submission. Transcripts are in
+`EVIDENCE.md`.
+
+Before the run, `scripts/verify-deployment.mjs` held an uncommitted edit that loosened the demo-config
+CORS assertion. The original assertion (equal to the demo origin) contradicted the implementation, which
+answers the sandbox routes with `*` on purpose. That is documented in the route, the CORS-policy
+middleware, the OpenAPI description, and the security probe, which asserts exactly `*`. The loosened
+check was kept on that evidence. It accepts `*` or the echoed origin, which is broader than the probe;
+narrowing it is an open human decision. No other assertion in the script was loosened.
+
+Found while preparing the operator checks and recorded rather than changed:
+
+- The runbook's queue gate says `sent`, but the delivery status is `delivered` (label "Delivered").
+- No dashboard page calls `deliveryApi.addRecipient`, so a notification recipient can only be added
+  through `POST /api/v1/deliveries/widgets/:widgetId/recipients`. The delivery id is not rendered in the
+  UI and is read from `GET /api/v1/deliveries`.
+- The server re-upserts the sandbox-reset scheduler at startup (`composition.ts`), so an advancing
+  `seededAt` after a wake does not by itself distinguish a surviving Redis entry from re-creation.
+- `npm run lint` fails on a gitignored local file in `logs/`; the tracked tree lints clean.
+- MongoDB Database Tools are not installed on this machine.
+
+Plugins: Context7 checked MDN CORS wildcard semantics, BullMQ job schedulers, MongoDB Database Tools
+restore flags, and Brevo's send endpoint. TypeScript LSP was used, but it resolved references only within
+a single file, so cross-file wiring was confirmed with grep and `npm run typecheck`. frontend-design was
+not invoked.
+
+### 2026-09-18/19 - Stage 14 completed: the deployment and all six deployed gates
+
+Stage 14 is now complete. The application runs on a Render Free Web Service in Frankfurt
+(`lead-capture-platform`) with the sandbox on a separate free Static Site (`lead-capture-demo`),
+against MongoDB Atlas, Upstash Redis, Brevo, and Sentry free tiers, on release `91766bc`. No credit
+card was used. Every result, including the failures, is in `EVIDENCE.md`.
+
+What was run, and by whom:
+
+- **Smoke and cross-origin** - `verify:deployment`, 7/7 twice, plus the public demo feed showing the
+  check's own submission. Run by the assistant.
+- **Auth** - operator, in a browser with their real inbox. Passed on the third attempt.
+- **Queue** - the assistant drove the operator's signed-in browser session at their request: a
+  recipient was configured through the API, a real published widget was submitted cross-origin from
+  the demo origin, and the workspace notification reached `delivered` on the first attempt. The
+  operator confirmed the email arrived.
+- **Encrypted restore** - operator, at their own terminal. No secret was requested, handled, or
+  recorded by the assistant. 21 collections and 50 documents restored into
+  `leadcapture_restore_rehearsal` behind a separately scoped Atlas user, then readiness 200 from a
+  local process pointed at that database with the 11 migrations intact.
+- **Cold start and delayed queue** - operator held both URLs quiet; the sandbox reset that fell due
+  during the sleep ran on wake, and a second, shorter quiet period produced a measured cold start of
+  33.4 s.
+
+What went wrong on the way, and why it is recorded rather than tidied away:
+
+- Brevo refused two verification emails because Render's outbound IP was not authorized. Nothing in
+  the application was wrong, and the application could not say so: `register` discards the send
+  result and reports success either way.
+- The backup export and restore failed four times - missing tool path, a pasted platform URL instead
+  of the Atlas URI, a passphrase under the 16-character minimum, and an over-narrow Atlas privilege -
+  and every one printed the same suppressed sentence.
+- The service became unreachable for about six minutes and recovered only after a manual redeploy.
+  Root cause unestablished; the Render events and logs for that window were not captured first.
+- The deployed dashboard CSP blocks browser-side Sentry ingest, so front-end error monitoring has
+  never worked in production while readiness reports it as up.
+
+Two code changes were made, both approved by the operator:
+
+- `scripts/verify-deployment.mjs`: the demo-config CORS assertion required the header to equal the
+  demo origin, which the server never sends. The sandbox routes answer `*` deliberately, documented
+  in the route, the CORS-policy middleware, the OpenAPI description, and the security probe, which
+  asserts exactly `*`. The check now accepts `*` or an echoed origin. Narrowing it to exactly `*` is
+  still open.
+- `package-lock.json`: `npm audit fix` took `nodemailer` 9.0.6 to 9.1.1 and `qs` 6.15.3 to 6.16.0,
+  both patch-level, `package.json` unchanged. CI's runtime-dependency audit had been failing on four
+  nodemailer advisories and two qs advisories since before this stage, while its other three jobs
+  passed. `render.yaml` uses `autoDeployTrigger: checksPass`, so a red CI means main does not deploy
+  itself; the live release reached Render through a manual deploy from the dashboard.
+
+Deliberately not changed, each awaiting a human decision: the Sentry CSP, and logging an error's
+class and code (never its message) in the email sender and the two backup scripts.

@@ -57,8 +57,11 @@ const demoConfigResponse = await expectResponse(
   { headers: { Origin: demo } },
 );
 const demoConfig = await demoConfigResponse.json();
-if (demoConfigResponse.headers.get('access-control-allow-origin') !== demo) {
-  throw new Error('demo config did not echo the separate demo origin');
+// The sandbox routes answer with `*` by design (apps/server/src/http/routes/demo.ts):
+// they expose nothing private. Either `*` or an echoed origin lets the demo read it.
+const demoConfigAllowOrigin = demoConfigResponse.headers.get('access-control-allow-origin');
+if (demoConfigAllowOrigin !== '*' && demoConfigAllowOrigin !== demo) {
+  throw new Error('demo config is not readable from the separate demo origin');
 }
 const widget = demoConfig.widgets?.find((candidate) => candidate.type === 'contact_form');
 if (widget?.publicId === undefined) throw new Error('demo config has no contact-form widget');

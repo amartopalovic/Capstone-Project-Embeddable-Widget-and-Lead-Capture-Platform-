@@ -3,7 +3,7 @@
 The project is implemented in 16 bounded stages (blueprint §19). Exactly one stage is requested per
 implementation prompt, and work stops when that stage's exit gate is green.
 
-**Progress: 10 of 16 stages complete.**
+**Progress: 15 of 16 stages complete.** (Stages 0-14; Stage 15 remains.)
 
 ## Stage execution rules (blueprint §19)
 
@@ -296,19 +296,27 @@ test results, remaining limitations, and confirmation of the exit gate.
     Policy - two separate defects, both found in a browser - and now can, which the sandbox's own
     strict policy proves on every run.
 
-- [ ] **Stage 14 — Production-demo deployment and recovery rehearsal**
+- [x] **Stage 14 — Production-demo deployment and recovery rehearsal**
   - **Goal:** Deploy the exact tested architecture to the selected free providers.
   - **Exit gate:** Clean deployment from main passes smoke, cross-origin, auth, queue, and restore
     checks without a credit card.
-  - **In progress (repository preparation, 2026-08-30).** The production process now serves the
-    built React application on the same origin as API/widget/SSE/worker; `render.yaml` defines a
-    Frankfurt Free Web Service, a separate free static demo, CI-gated main deploys, the environment
-    allowlist, release commands, readiness probe, and static security headers. Encrypted streaming
-    export/restore tooling refuses non-rehearsal targets and has an independent crypto self-test.
-    `docs/deployment-recovery.md` gives exact provider and five-gate procedures.
-  - **Still open:** provider accounts, real secrets, GitHub remote/CI execution, deployment URLs,
-    live smoke/cross-origin/auth/queue/restore results, and the 65-minute cold-start rehearsal. Stage
-    14 remains unchecked until those facts exist.
+  - _Completed 2026-09-18 on release `91766bc`, deployed to a Render Free Web Service in Frankfurt
+    (`lead-capture-platform`) with the sandbox on a separate free Static Site
+    (`lead-capture-demo`), against MongoDB Atlas, Upstash Redis, Brevo, and Sentry free tiers. No
+    credit card._
+  - **Deployed gates, all with transcripts in `EVIDENCE.md`:** smoke and cross-origin via
+    `verify:deployment` (7/7, plus the demo feed showing the submission); auth by real Brevo
+    verification email, sign-out and sign-in; queue by a cross-origin submission from the demo
+    origin producing a `delivered` workspace notification on the first attempt and a real email;
+    encrypted restore of 21 collections and 50 documents into an isolated
+    `leadcapture_restore_rehearsal` database behind a separately scoped Atlas user, with a local
+    process reaching readiness against it; and the cold-start rehearsal, where the hourly sandbox
+    reset that fell due during the sleep ran on wake and a measured cold start took 33.4 s.
+  - **Recorded honestly alongside the passes:** two failed auth attempts caused by Brevo refusing
+    Render's unauthorized IP; four failed backup attempts whose real causes were masked by a
+    catch-all error handler; a ~6-minute total service outage resolved by a manual redeploy, root
+    cause unestablished; and the dashboard CSP blocking browser-side Sentry ingest. The last two
+    remain open for a decision and are described in `EVIDENCE.md`.
 
 - [ ] **Stage 15 — Evaluation evidence and portfolio release**
   - **Goal:** Finish the submission pack and recruiter-facing story.
