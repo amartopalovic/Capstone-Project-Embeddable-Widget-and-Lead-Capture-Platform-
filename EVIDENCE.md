@@ -3332,3 +3332,20 @@ repository documents.
 6. Only the Render outbound address in use at the time is known to be authorized in Brevo. If a
    later send leaves from a different address it will be refused, and it would present as a delivery
    fault rather than an email-configuration one.
+
+#### CI on the completion commit
+
+GitHub Actions run `35404036236`, commit `887ee18` on `main`, 2026-09-18T23:01:43Z, all four jobs
+green:
+
+```text
+✓ Browser end-to-end and accessibility        10m22s
+✓ Integration tests (real MongoDB and Redis)   2m26s
+✓ Lint, type-check, test, build                1m01s
+✓ Dependencies, lockfile, vulnerabilities, and secrets  39s
+```
+
+This is the first fully green CI run since 2026-08-30. The four runs before it failed on the
+runtime-dependency audit alone, which `npm audit fix` cleared in this commit. It also restores the
+deployment path the repository documents: `render.yaml` sets `autoDeployTrigger: checksPass`, so with
+checks passing, `main` can deploy itself rather than needing a manual dashboard deploy.
