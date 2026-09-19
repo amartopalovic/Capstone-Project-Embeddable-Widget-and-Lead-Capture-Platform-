@@ -3525,3 +3525,41 @@ Traced with the TypeScript language server rather than by keyword search.
   change: screenshots taken during Stage 14 debugging were saved into the working directory and are
   not covered by `.gitignore`. They are untracked and were never committed, and they should be deleted
   or moved rather than left where `git add .` could catch them.
+
+### Stage 15 deployment of the invitation fix, and a service suspension
+
+`d6fa520` was pushed to `main` on 2026-09-19. CI run `35447293344` passed all four jobs - dependency
+and secret scanning (33 s), browser end-to-end and accessibility (11 m 53 s), integration against real
+MongoDB and Redis (2 m 35 s), and lint/typecheck/test/build (58 s). The browser suite passing on a
+clean runner also settles the one load-sensitive failure seen locally: it was memory pressure on the
+operator's machine, not the product.
+
+Immediately after CI went green, both Render services answered 503 with Render's own page: "This
+service has been suspended by its owner." The static demo was suspended too, which rules out an
+application fault, and a suspended service is distinct from the documented free-tier sleep - a
+sleeping service wakes on request, a suspended one does not. The operator resumed both services from
+the Render dashboard.
+
+After the resume, the CI-gated auto-deploy had landed: readiness reported release
+`d6fa5208187b5d687097bfd1e2e27117279153a0` at 2026-09-19T14:18:32Z, with mongodb, redis, and
+migrations up and `applied: 11`. This is the first deploy to reach production through
+`autoDeployTrigger: checksPass` rather than a manual dashboard deploy, so the documented CI-gated
+deployment path is now proven end to end rather than only configured.
+
+`verify:deployment` against the resumed deployment, 2026-09-19T14:18:46Z, exit 0:
+
+```text
+[deploy-check] PASS readiness (221 ms)
+[deploy-check] PASS React application (65 ms)
+[deploy-check] PASS API reference (70 ms)
+[deploy-check] PASS separate demo origin (118 ms)
+[deploy-check] PASS demo configuration CORS (72 ms)
+[deploy-check] PASS cross-origin widget configuration (84 ms)
+[deploy-check] PASS cross-origin sandbox submission (438 ms)
+```
+
+**Recorded as an open item.** Two suspensions have now interrupted this deployment: the unexplained
+six-minute outage on 2026-09-18, and this one on 2026-09-19. Neither root cause was established from
+the Render dashboard at the time. A free-tier service that can enter a suspended state and stay there
+until somebody presses Resume has no automatic recovery, and anybody evaluating the live URLs should
+expect that rather than be surprised by it.

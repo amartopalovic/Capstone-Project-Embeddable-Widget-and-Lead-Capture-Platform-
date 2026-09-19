@@ -471,9 +471,12 @@ a reader trying to decide what to trust.
   backup — each of which needed a separate throwaway diagnostic to identify. Suppressing the
   message is deliberate, because a driver error can echo a URI with its password; suppressing the
   error's class and code is not.
-- **The deployed service became unreachable once**, for roughly six minutes on 2026-09-18, and
-  recovered only after a manual redeploy. The root cause was not established. There is no automatic
-  recovery for this on a free instance.
+- **The deployment has been interrupted twice, and neither time recovered on its own.** On
+  2026-09-18 the web service became unreachable for roughly six minutes and came back only after a
+  manual redeploy; on 2026-09-19 both services returned Render's "service has been suspended by its
+  owner" page until they were resumed from the dashboard. Neither root cause was established at the
+  time. A suspended free service is not the same as the documented sleep - a sleeping service wakes
+  on the next request, a suspended one waits for a human - so treat the live URLs accordingly.
 - **Atlas Network Access is open to `0.0.0.0/0`.** The deployment runbook asks for Render's
   Frankfurt outbound CIDR ranges instead. This is a standing deviation, not an accepted setting.
 - **Only one Render outbound address is known to be authorized in Brevo.** Render free services do
