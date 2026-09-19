@@ -3291,7 +3291,7 @@ violations under `script-src 'self'`, which no automated test covers - recorded 
    page and the widget, and keyboard operation tested separately - but nobody has used this product
    with a screen reader.
 
-## Stage 14 - production-demo deployment and recovery rehearsal (in progress)
+## Stage 14 - production-demo deployment and recovery rehearsal
 
 Repository preparation completed on 2026-08-30. This is not a deployment-complete entry: no provider
 account, credential, URL, or live result existed in the workspace, so the Stage 14 stop condition was
@@ -3602,3 +3602,61 @@ Two code changes were made, both approved by the operator:
 
 Deliberately not changed, each awaiting a human decision: the Sentry CSP, and logging an error's
 class and code (never its message) in the email sender and the two backup scripts.
+
+## Stage 15 - evaluation evidence and portfolio release
+
+Documentation, verification, and one correction. No feature was added, no UI changed, and no
+architectural decision revisited.
+
+### What the stage was for, and what it actually found
+
+The plan was to finish the submission pack: map every requirement to a proof, finalise the README,
+re-run everything, and review roles, tenancy, retention, free-tier limits, and failure modes one last
+time. Most of that was confirmation. Two things were not.
+
+**The documentation had drifted further than expected.** `EVIDENCE.md` Part E - the twelve
+Definition-of-Done conditions, the table an evaluator is most likely to read first - still said
+`NOT YET IMPLEMENTED` for all twelve. It had been written in the Stage 4 era and never revisited,
+while the features it describes were built, tested, and in several cases deployed. Twelve rows were
+re-verified and rewritten, each naming its proof, plus twelve stale Part D rows and two Part B
+entries. The failure mode here is worth naming: an evidence file is only useful if its summary tables
+are maintained as carefully as its per-stage detail, and these were not. The per-stage sections were
+accurate throughout; the index above them was two months behind.
+
+**A passing test suite was hiding a real 500.** The browser run passed 164/164 while its server log
+carried two `MongoServerError` events. `POST /api/v1/invitations/accept` returned 500 when the same
+link was redeemed twice at once, because the invitation consume matched on `_id` alone despite a
+comment claiming it filtered on the invitation still being pending. Both redemptions inserted a
+membership and the unique index rejected the second. Nothing was corrupted - the index held, which is
+precisely why it went unnoticed for eleven stages - but a person whose invitation had worked was shown
+a server error. `EVIDENCE.md` has the full trace, the fix, and the failing-without-the-fix proof.
+
+Three details of the diagnosis are worth recording. The error handler logs an error's name and never
+its message, which is correct (a driver message can echo values §16.1 keeps out of logs) and which
+also meant the cause could not be read from the log - the message was obtained by instrumenting the
+handler temporarily and reverting it immediately. The reproduction came from a temporary Playwright
+spec that logged every response of 400 or worse; it was deleted afterwards. And the regression test
+was verified by stashing the fix, rebuilding, and watching it fail with `expected 500 not to be 500`,
+because a regression test that has never failed proves nothing.
+
+### The AI's part in this stage, honestly
+
+The two stale documentation items named in the prompt were real and were fixed. The much larger
+staleness in Part E was not in the prompt and was found by reading the file rather than trusting its
+summary - which is the correct outcome, but it is also a reminder that earlier stages marked their own
+work complete while leaving the shared index untouched.
+
+The invitation defect was found by treating a log line in a passing run as a defect rather than noise.
+It would have been easy, and wrong, to record "164/164 passed" and move on.
+
+One judgement call is flagged rather than buried: the fix changes behaviour for the losing request of
+a concurrent pair, which now receives 200 `already_a_member` instead of 500 when the membership
+exists. That is a deliberate improvement, not a silent semantic change - a sequential replay still
+returns 400, and the existing test asserting that still passes.
+
+### Verification
+
+Full suite re-run after the fix: 394 unit, 329 integration (the new race test included), 164 browser
+and accessibility, all six acceptance probes individually, plus format, lint, typecheck, build, seed,
+the secret scan, and the private-information audit. Every command and its result is in `EVIDENCE.md`
+under "Stage 15".

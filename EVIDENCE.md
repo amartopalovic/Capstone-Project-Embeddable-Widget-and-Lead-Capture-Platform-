@@ -231,16 +231,23 @@ real queue behavior in Stage 9.
 - **Requirement:** Contact unique by normalized email per workspace; every accepted submission
   creates an immutable Submission Event; manually edited canonical values are never silently
   overwritten; five lead statuses with archiving distinct from deletion.
-- **Status:** `NOT YET IMPLEMENTED` — write path in **Stage 7**, management in **Stage 8**.
-- **Evidence:** _none_
+- **Status:** `PROVEN` — write path built in Stage 7, management in Stage 8.
+- **Evidence:** `apps/server/tests/submission.integration.test.ts` (contact upsert unique per
+  workspace by normalized email, immutable Submission Event written in the same transaction) and
+  `contact.integration.test.ts` (manual canonical edits survive later submissions; the five lead
+  statuses; archive distinct from delete). See Part D-detail, Stages 7 and 8a.
 
 ### B7. Lead inbox and collaboration (§4.7)
 
 - **Requirement:** Search, filters, cursor pagination, deterministic sorting, role-aware single and
   bulk actions, Owner/Admin-only filtered CSV/JSON export, live SSE arrival, 30-day soft deletion
   and recovery.
-- **Status:** `NOT YET IMPLEMENTED` — planned for **Stage 8**.
-- **Evidence:** _none_
+- **Status:** `PROVEN` — built in Stage 8.
+- **Evidence:** `apps/server/tests/contact.integration.test.ts` covers literal-text search across
+  names, emails, and captured values; filters; cursor pagination with deterministic sorting;
+  role-aware single and bulk actions; Owner/Admin-only filtered CSV and JSON export, including that
+  it never exports another tenant's contacts; SSE arrival; and 30-day soft deletion with recovery.
+  See Part D-detail, Stages 8a and 8b.
 
 ### B8. Consent and contact privacy (§4.8)
 
@@ -353,28 +360,28 @@ customer website in existence — the entire product, switched off by a security
 
 ## Part D — Cross-cutting architecture proofs (blueprint §7–§16)
 
-| #   | Requirement                                                                                                | Status                                                                                                                                                                                          | Delivered by                   |
-| --- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| D1  | Tenant isolation: two seeded tenants cannot reach each other through any repository                        | `PROVEN` for foundation repositories - see Part D-detail                                                                                                                                        | Stage 2, re-proven per surface |
-| D2  | Tenant isolation across CRUD, search, export, analytics, SSE, trash, and recovery                          | `IN PROGRESS` - membership, invitation, audit, and workspace recovery paths proven isolated, at the API and now through the browser; export, analytics, SSE, and contact trash do not exist yet | Stages 8, 10                   |
-| D3  | Cache contract: 5-minute loader, 1-year immutable hashed runtime, 60-second config with ETag               | `PROVEN` - asserted both at the API and on the headers a real browser received                                                                                                                  | Stage 6                        |
-| D4  | A cached config cannot bypass unpublishing, deletion, a domain-rule change, or a quota block               | `IN PROGRESS` - the server stops serving immediately on all four; the submission-side half of the guarantee needs a submission endpoint                                                         | Stages 6, 7                    |
-| D5  | All three widget types render on a separate origin, multiple instances coexist, host CSS cannot break them | `PROVEN` - see Part D-detail, Stage 6                                                                                                                                                           | Stage 6                        |
-| D6  | Public config never leaks recipients, webhook URLs/secrets, notes, or tenant identifiers                   | `PROVEN` - the response is an allowlist, asserted key by key                                                                                                                                    | Stage 6                        |
-| D7  | Outbox prevents a transient Redis enqueue failure from losing promised work                                | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stages 7, 9                    |
-| D8  | Transient-only retry, five attempts with backoff, dead letter, and manual replay                           | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 9                        |
-| D9  | Brevo daily budget priority reserve and visible deferred states                                            | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 9                        |
-| D10 | SSE workspace isolation, heartbeats, and bounded reconnect                                                 | `PROVEN` - see Part D-detail, Stages 8a and 10a                                                                                                                                                 | Stages 8, 10                   |
-| D11 | Raw interaction events expire after 90 days leaving aggregates intact                                      | `PROVEN` - see Part D-detail, Stage 10a GATE 2                                                                                                                                                  | Stage 10                       |
-| D12 | Every recovery window and permanent purge (contact, widget, workspace, account)                            | `PROVEN` - see Part D-detail, Stage 11 GATE 1                                                                                                                                                   | Stage 11                       |
-| D13 | Repeatable migrations and explicit index management on a clean database                                    | `PROVEN` - see Part D-detail                                                                                                                                                                    | Stage 2                        |
-| D14 | Liveness and readiness endpoints; degraded optional providers do not make the API unready                  | `IN PROGRESS` - detail below                                                                                                                                                                    | Stage 1 skeleton, Stage 13     |
-| D15 | WCAG 2.2 AA audit with zero critical automated violations on critical pages and widgets                    | `IN PROGRESS` - axe clean on every auth page; manual audit and full page set in Stage 13                                                                                                        | Stage 13                       |
-| D16 | CI installs, type-checks, lints, tests, and builds every workspace before merge                            | `IN PROGRESS` - detail below                                                                                                                                                                    | Stage 1, extended per stage    |
-| D17 | One documented local command starts dependencies and apps; seed data is reproducible                       | `IN PROGRESS` - detail below                                                                                                                                                                    | Stage 1                        |
-| D18 | Clean deployment from main passes smoke, cross-origin, auth, queue, and restore checks                     | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 14                       |
-| D19 | Encrypted export/restore rehearsal succeeds                                                                | `NOT YET IMPLEMENTED`                                                                                                                                                                           | Stage 14                       |
-| D20 | Render sleep delays but does not permanently skip retention or queue work                                  | `IN PROGRESS` - the bounded startup catch-up sweep is built and proven against a clock jump; unproven on a real sleeping instance until Stage 14 deploys one                                    | Stages 11, 14                  |
+| #   | Requirement                                                                                                | Status                                                                                                                                                                                                                                                                       | Delivered by                   |
+| --- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| D1  | Tenant isolation: two seeded tenants cannot reach each other through any repository                        | `PROVEN` for foundation repositories - see Part D-detail                                                                                                                                                                                                                     | Stage 2, re-proven per surface |
+| D2  | Tenant isolation across CRUD, search, export, analytics, SSE, trash, and recovery                          | `PROVEN` - `tenant-isolation.integration.test.ts` covers reads, writes, deletes, spoofed workspaceId, and filter override; per-surface cases cover contacts (incl. search, bulk, export, trash), widgets, delivery replay/webhooks, analytics, SSE, privacy, and the sandbox | Stages 8, 10                   |
+| D3  | Cache contract: 5-minute loader, 1-year immutable hashed runtime, 60-second config with ETag               | `PROVEN` - asserted both at the API and on the headers a real browser received                                                                                                                                                                                               | Stage 6                        |
+| D4  | A cached config cannot bypass unpublishing, deletion, a domain-rule change, or a quota block               | `PROVEN` - the server stops serving on unpublish, delete, domain change, and quota block, and the submission side refuses the same four independently of any cached config (Stage 7 entries below)                                                                           | Stages 6, 7                    |
+| D5  | All three widget types render on a separate origin, multiple instances coexist, host CSS cannot break them | `PROVEN` - see Part D-detail, Stage 6                                                                                                                                                                                                                                        | Stage 6                        |
+| D6  | Public config never leaks recipients, webhook URLs/secrets, notes, or tenant identifiers                   | `PROVEN` - the response is an allowlist, asserted key by key                                                                                                                                                                                                                 | Stage 6                        |
+| D7  | Outbox prevents a transient Redis enqueue failure from losing promised work                                | `PROVEN` - see Part D-detail, Stage 9: the outbox row is written inside the submission transaction and the reconciler replays it, proven with an unreachable Redis at enqueue time                                                                                           | Stages 7, 9                    |
+| D8  | Transient-only retry, five attempts with backoff, dead letter, and manual replay                           | `PROVEN` - see Part D-detail, Stage 9: five attempts with exponential backoff and jitter, permanent 4xx never retried, dead letter and manual replay                                                                                                                         | Stage 9                        |
+| D9  | Brevo daily budget priority reserve and visible deferred states                                            | `PROVEN` - see Part D-detail, Stage 9; the reserve and the deferred state are also visible in the dashboard budget meter, and live in production as `brevo: 0/200 side-effect messages used today`                                                                           | Stage 9                        |
+| D10 | SSE workspace isolation, heartbeats, and bounded reconnect                                                 | `PROVEN` - see Part D-detail, Stages 8a and 10a                                                                                                                                                                                                                              | Stages 8, 10                   |
+| D11 | Raw interaction events expire after 90 days leaving aggregates intact                                      | `PROVEN` - see Part D-detail, Stage 10a GATE 2                                                                                                                                                                                                                               | Stage 10                       |
+| D12 | Every recovery window and permanent purge (contact, widget, workspace, account)                            | `PROVEN` - see Part D-detail, Stage 11 GATE 1                                                                                                                                                                                                                                | Stage 11                       |
+| D13 | Repeatable migrations and explicit index management on a clean database                                    | `PROVEN` - see Part D-detail                                                                                                                                                                                                                                                 | Stage 2                        |
+| D14 | Liveness and readiness endpoints; degraded optional providers do not make the API unready                  | `PROVEN` - readiness reports MongoDB, Redis, and migrations; degraded optional providers stay out of the status, verified live in production where geo shows `degraded` while status stays `ready`                                                                           | Stage 1 skeleton, Stage 13     |
+| D15 | WCAG 2.2 AA audit with zero critical automated violations on critical pages and widgets                    | `PROVEN` - see Part D-detail, Stage 13: axe WCAG 2.2 AA scans across every critical page and the widget itself, zero critical or serious violations                                                                                                                          | Stage 13                       |
+| D16 | CI installs, type-checks, lints, tests, and builds every workspace before merge                            | `PROVEN` - CI run `35404036236` on `887ee18`: lint/typecheck/test/build, integration, browser E2E with axe, and the dependency and secret job, all green                                                                                                                     | Stage 1, extended per stage    |
+| D17 | One documented local command starts dependencies and apps; seed data is reproducible                       | `PROVEN` - `docker compose up --build` plus `npm run seed`, re-executed command by command in Stage 15 (README §5.0)                                                                                                                                                         | Stage 1                        |
+| D18 | Clean deployment from main passes smoke, cross-origin, auth, queue, and restore checks                     | `PROVEN` - Stage 14: smoke, cross-origin, auth, queue, and restore all recorded against the live deployment                                                                                                                                                                  | Stage 14                       |
+| D19 | Encrypted export/restore rehearsal succeeds                                                                | `PROVEN` - Stage 14: 7,576-byte encrypted export, then 21 collections and 50 documents restored into an isolated rehearsal database with readiness passing against it                                                                                                        | Stage 14                       |
+| D20 | Render sleep delays but does not permanently skip retention or queue work                                  | `PROVEN` - proven in production: after a real sleep the overdue sandbox reset ran on wake and the startup retention catch-up advanced (Stage 14 cold-start entry)                                                                                                            | Stages 11, 14                  |
 
 ---
 
@@ -881,23 +888,29 @@ Of those, 43 unit tests and 32 integration tests are new in Stage 4a.
 
 ## Part E — Definition of done (blueprint §22)
 
-Version 1 is complete only when all twelve conditions hold. This table is the final checklist an
-evaluator can use; it is fully re-verified in **Stage 15**.
+Version 1 is complete only when all twelve conditions hold. Re-verified item by item in **Stage 15**
+on 2026-09-19 against the current repository and the live deployment. Every row names where the proof
+is, and an evaluator can re-run each one.
 
-| #   | Condition                                                                                                                                                  | Status                                                                                                                                                                  |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| E1  | Every locked blueprint decision is implemented or explicitly marked as an approved change                                                                  | `NOT YET IMPLEMENTED`                                                                                                                                                   |
-| E2  | All three widgets render and submit from a separate origin                                                                                                 | `NOT YET IMPLEMENTED`                                                                                                                                                   |
-| E3  | Owner/Admin/Member and verification permissions are enforced server-side and proven                                                                        | `NOT YET IMPLEMENTED`                                                                                                                                                   |
-| E4  | Tenant A cannot access Tenant B through CRUD, search, export, analytics, SSE, trash, or public identifiers                                                 | `NOT YET IMPLEMENTED`                                                                                                                                                   |
-| E5  | Caching, CORS/preflight, validation, payload limits, rate limits, spam controls, idempotency, geo fallback, and side-effect failure behavior are evidenced | `NOT YET IMPLEMENTED`                                                                                                                                                   |
-| E6  | Contacts, immutable Submission Events, consent, retention, privacy, and deletion rules work as documented                                                  | `NOT YET IMPLEMENTED`                                                                                                                                                   |
-| E7  | Brevo, webhook, BullMQ, Redis, and Render sleep states degrade visibly without corrupting primary data                                                     | `NOT YET IMPLEMENTED`                                                                                                                                                   |
-| E8  | Unit, integration, critical E2E, accessibility, and acceptance checks pass in CI                                                                           | `NOT YET IMPLEMENTED`                                                                                                                                                   |
-| E9  | Local Docker and public free deployment both work from documented instructions                                                                             | `NOT YET IMPLEMENTED`                                                                                                                                                   |
-| E10 | README, `capstone.yaml`, `EVIDENCE.md`, `BUILDLOG.md`, `.env.example`, and license are complete                                                            | `IN PROGRESS` — all six exist; README and `capstone.yaml` now carry real verified commands, but production URLs, probes, and limitations stay incomplete until Stage 15 |
-| E11 | No secrets or raw IP/lead PII appear in source history, logs, monitoring, or public demo output                                                            | `IN PROGRESS` — holds today (no code, no secrets committed); must be re-verified every stage                                                                            |
-| E12 | The public deployment clearly states it is a synthetic-data portfolio demo with free-tier limitations                                                      | `IN PROGRESS` — stated in README §7.1 and `capstone.yaml`; the deployment itself does not exist yet                                                                     |
+| #   | Condition                                                                                                                                                  | Status   | Proof                                                                                                                                                                                                                                       |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E1  | Every locked blueprint decision is implemented or explicitly marked as an approved change                                                                  | `PROVEN` | Part B, all ten §4 decision groups, each naming its enforcing code and test. The one deviation from the brief - an npm-workspaces monorepo inside one repository - is disclosed in README §3 and `capstone.yaml` disclosures.               |
+| E2  | All three widgets render and submit from a separate origin                                                                                                 | `PROVEN` | `e2e/tests/widget-runtime.spec.ts` and `demo-sandbox.spec.ts` drive contact form, email signup, and CTA popover from `localhost:5174` against the API on another origin; the live sandbox does the same in production.                      |
+| E3  | Owner/Admin/Member and verification permissions are enforced server-side and proven                                                                        | `PROVEN` | Part C7; `apps/server/tests/rbac.test.ts` (27 cases, the full §11 matrix); `requireCapability` has 54 references across all 8 workspace-scoped routers, each behind `requireAuth()` and `withWorkspace`.                                    |
+| E4  | Tenant A cannot access Tenant B through CRUD, search, export, analytics, SSE, trash, or public identifiers                                                 | `PROVEN` | `packages/database/tests/tenant-isolation.integration.test.ts` (reads, writes, deletes, spoofed `workspaceId`, filter override); plus per-surface cases in contact, widget, delivery, analytics, privacy, and demo tests.                   |
+| E5  | Caching, CORS/preflight, validation, payload limits, rate limits, spam controls, idempotency, geo fallback, and side-effect failure behavior are evidenced | `PROVEN` | Part A probes 1-6, Part D public-path entries, and `security-headers.integration.test.ts`; re-verified live in Stage 14 by `verify:deployment` and `probe-public-security.mjs`.                                                             |
+| E6  | Contacts, immutable Submission Events, consent, retention, privacy, and deletion rules work as documented                                                  | `PROVEN` | Part D Stage 8/11 entries; `privacy.integration.test.ts` and `retention-service.ts` sweeps. Proven in production too: the startup retention catch-up advanced on the live wake, 2026-09-18T22:07:04.934Z.                                   |
+| E7  | Brevo, webhook, BullMQ, Redis, and Render sleep states degrade visibly without corrupting primary data                                                     | `PROVEN` | `delivery.integration.test.ts` GATE 1 forces a webhook 500, a timeout, a 4xx, a blocked SSRF target, an email-provider failure, and an unreachable Redis - the lead stays stored each time. Render sleep proven live: §Stage 14 cold start. |
+| E8  | Unit, integration, critical E2E, accessibility, and acceptance checks pass in CI                                                                           | `PROVEN` | CI run `35404036236` on `887ee18`: all four jobs green, including browser E2E with axe and the dependency/secret job. Re-run locally in Stage 15 - see the final verification transcript below.                                             |
+| E9  | Local Docker and public free deployment both work from documented instructions                                                                             | `PROVEN` | README §5.0 was executed command by command for this stage; the deployment was built and verified in Stage 14 and is live at the two URLs recorded there.                                                                                   |
+| E10 | README, `capstone.yaml`, `EVIDENCE.md`, `BUILDLOG.md`, `.env.example`, and license are complete                                                            | `PROVEN` | All six exist, carry real values rather than placeholders, and are finalized in Stage 15. No `TBD` remains in `capstone.yaml`.                                                                                                              |
+| E11 | No secrets or raw IP/lead PII appear in source history, logs, monitoring, or public demo output                                                            | `PROVEN` | `npm run scan:secrets` clean; `scripts/audit-private-information.mjs` reports no credential candidates across 1,259 files and 861 historical blobs; raw IP is pseudonymised by HMAC and never persisted (Part C, blueprint 9.4).            |
+| E12 | The public deployment clearly states it is a synthetic-data portfolio demo with free-tier limitations                                                      | `PROVEN` | Stated on surfaces a visitor actually sees: the landing page ("no service level agreement and may sleep between requests... Put synthetic data in it"), the policy pages, and the sandbox's own header and meta description.                |
+
+Two qualifications, so the table is not read as broader than it is. E5's live re-verification covers
+the public path only; the authenticated dashboard was verified locally and by the Stage 14 auth and
+queue gates rather than by an automated production suite. E7's Render sleep row rests on a single
+observed wake (33.4 s) rather than a repeated measurement.
 
 ---
 
@@ -2419,6 +2432,9 @@ only`, from Stage 10b, passes deterministically in isolation and on repeat and h
 | 2026-08-30 | 11 | Blueprint **Stage 11 COMPLETE**. B8 moved to `PROVEN` except its policy pages (Stage 12); D20 to `IN PROGRESS`. Consent state machine with single/double opt-in and immutable evidence; workspace-wide suppression that outlives the contact as a salted hash; email-verified export and deletion on the account-verification token construction; workspace-configurable retention measured from a deliberate anchor; and all four 30-day windows of the 9.5 table actually firing, with actor references anonymised rather than cascade-deleted and a bounded startup catch-up sweep. Account deletion and recovery, which had no route before. Evidenced by 30 new unit tests (347 total), 31 new integration tests (297 total), and 16 new browser tests (117 total) including 5 axe scans. **No new capability names**; the section 11 table is unchanged. Migration `010_privacy` applied. Found and fixed a Stage 9 gap: the in-process worker was never started outside the tests, so every schedule since then had never run in a deployed process. |
 | 2026-08-30 | 12a | Blueprint Stage 12, sub-stage 12a. The PUBLIC face of the main application: a landing page written for an evaluator rather than a buyer, five documentation guides, an OpenAPI 3.1 document served through Swagger UI, and the four policy pages of 4.8. The contract cannot drift: request bodies are generated by `z.toJSONSchema` from the same Zod validators the routes parse with, and a test asserts the document's paths match the routes the running server dispatches in both directions - it found an undocumented route on its first run. Swagger UI is vendored rather than loaded from a CDN, so one Docker command still brings everything up. Evidenced by 6 new integration tests (303 total) and 25 new browser tests (142 total), including 11 axe scans with zero critical or serious violations. Also corrected six stale rows in this file - C10, C11, C15, D10, D11, and D12 read `NOT YET IMPLEMENTED` while their proofs were recorded in Part D-detail below them. Stage 12 stays OPEN pending 12b (the separate anonymous demo). |
 | 2026-08-30 | 12b | Blueprint **Stage 12 COMPLETE**. The separate anonymous sandbox of 14.3: one ordinary workspace marked `isDemo`, owned by nobody, seeded with all three widget types, wiped and reseeded hourly by the ninth queue family. Email and webhooks are refused for it twice - at the point deliveries are planned and again at the point one is attempted - and its public limits are provably stricter than production's, asserted rather than asserted-to. The public feed republishes nothing anybody typed. Evidenced by 16 new browser tests (158 total) including 5 axe scans, and 9 new integration tests (312 total). Migration `011_demo` applied. Required wiring the widget runtime's submission seam, open since Stage 7, because 14.3's "accepts demo submissions" cannot be met without it - runtime bundle 17.12 kB raw / 6.68 kB gzip, inside budget. Found a pre-existing defect it did not fix: every widget renders in the browser's initial serif rather than its configured font. |
+| 2026-08-30 | 13 | Blueprint **Stage 13 COMPLETE**. Security headers and CSP on every surface, Sentry with PII scrubbing, readiness including migration compatibility, the operator diagnostics surface, and supply-chain and secret scanning. D15 moved to `PROVEN`. |
+| 2026-09-18 | 14 | Blueprint **Stage 14 COMPLETE**. Deployed to Render free tier with Atlas, Upstash, Brevo, and Sentry. All six deployed gates recorded with transcripts, including the failures on the way: two Brevo refusals from an unauthorized IP, four suppressed backup failures, and a six-minute outage. D18, D19, and D20 moved to `PROVEN`. |
+| 2026-09-19 | 15 | Blueprint **Stage 15 COMPLETE**. Part E re-verified from twelve `NOT YET IMPLEMENTED` rows to twelve `PROVEN` rows; twelve Part D rows and two Part B entries corrected; README finalized with clean-machine instructions actually executed. One defect found and fixed: `POST /api/v1/invitations/accept` returned 500 when one link was redeemed twice at once. Full suite re-run. |
 
 ---
 
@@ -2706,7 +2722,7 @@ by `widget-bundle.test.ts`, which fails the build rather than reporting a number
 
 ---
 
-## Stage 14 - production-demo deployment and recovery rehearsal (in progress)
+## Stage 14 - production-demo deployment and recovery rehearsal
 
 ### Repository-side evidence
 
@@ -3349,3 +3365,163 @@ This is the first fully green CI run since 2026-08-30. The four runs before it f
 runtime-dependency audit alone, which `npm audit fix` cleared in this commit. It also restores the
 deployment path the repository documents: `render.yaml` sets `autoDeployTrigger: checksPass`, so with
 checks passing, `main` can deploy itself rather than needing a manual dashboard deploy.
+
+## Stage 15 - evaluation evidence and portfolio release
+
+Verification, correction, and documentation only. One defect was found and fixed; it is described in
+full below rather than summarised, because it is the kind of fault a passing test suite can hide.
+
+### The defect this stage found: a double-redeemed invitation returned 500
+
+**How it surfaced.** The Stage 15 browser run passed 164/164, but its server log carried two
+`request.unhandled_error` events with `errorName: MongoServerError`. A passing suite with a logged
+server error is exactly the thing a final review is for, so it was traced rather than noted.
+
+**Narrowing it.** Re-running one accessibility test reproduced it deterministically. A temporary,
+uncommitted Playwright spec logged every response of 400 or worse and named the request:
+
+```text
+[DIAGNOSE guest] 500 POST http://localhost:5173/api/v1/invitations/accept
+```
+
+The error handler logs an error's name but never its message, deliberately, because a driver message
+can carry values that blueprint 16.1 keeps out of logs. The message was obtained by instrumenting the
+handler temporarily and reverting it immediately afterwards (`git checkout`, verified clean):
+
+```text
+E11000 duplicate key error collection: leadcapture_e2e.memberships index: uniq_workspace_user
+dup key: { workspaceId: ObjectId('...'), userId: ObjectId('...') }
+```
+
+**Root cause.** `InvitationService.accept` consumed the invitation with `updateById`, which matches on
+`_id` and workspace only. Its own comment claimed otherwise:
+
+> Consume the token FIRST, filtered on its still being pending, so two concurrent redemptions cannot
+> both create a membership.
+
+The filter was never there. Two simultaneous redemptions of one link - a double click, a retried
+request, or React's development double-effect, which is what the browser suite was doing - both read
+the invitation while it was pending, both were told they had consumed it, and both inserted a
+membership. The `uniq_workspace_user` index rejected the second insert, which reached the caller as a 500. A sequential replay was never affected: the second request sees `status !== 'pending'` and gets a
+clean 400, which `workspace.integration.test.ts` has always asserted.
+
+**Severity, stated honestly.** No data was corrupted, and no duplicate membership was ever created -
+the unique index did its job, which is why this survived every prior stage. What was wrong is the
+response: a person whose invitation had in fact worked was shown a server error, and blueprint §22
+item 7 asks for visible degradation rather than a 500 on a path that succeeded.
+
+**The fix.** `InvitationRepository.consumePending` moves the status into the filter, so MongoDB
+decides the winner and the loser matches nothing:
+
+```ts
+const result = await this.collection.updateOne(
+  this.scopedFilter(scope, { _id: id, status: 'pending' } as Filter<InvitationRecord>),
+  { $set: { status: 'accepted', acceptedAt, updatedAt: acceptedAt } as never },
+);
+return result.modifiedCount > 0;
+```
+
+Both call sites now use it. When the loser finds the membership already present, it returns
+`already_a_member`, which the route maps to the same 200 as a join - correct, because the person is a
+member and the link did work. When there is no membership, it still returns `invalid_token`.
+
+Files: `packages/database/src/repositories/invitation-repository.ts`,
+`apps/server/src/application/workspace/types.ts`,
+`apps/server/src/application/workspace/invitation-service.ts`.
+
+**The test, proven to fail without the fix.** `workspace.integration.test.ts` gained "never fails with
+a server error when one link is redeemed twice at once": two concurrent `POST
+/api/v1/invitations/accept` calls with the same token, asserting neither is a 500, that one is a 200,
+and that the workspace ends with exactly one membership for that person. With the fix it passes. With
+the fix stashed and the packages rebuilt, it fails on the defect itself:
+
+```text
+AssertionError: expected 500 not to be 500 // Object.is equality
+    419|     expect(first.status).not.toBe(500);
+ Test Files  1 failed (1)
+```
+
+The stash was restored and the packages rebuilt immediately afterwards.
+
+### Final verification run
+
+Every command below was executed on 2026-09-19 against this working tree, with the local MongoDB
+Windows service stopped so the Compose replica set could own port 27017.
+
+| Command                                                   | Result                                                                                   |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `npm run format:check`                                    | exit 0 - all matched files use Prettier code style                                       |
+| `npm run lint` (`eslint .`)                               | exit 0 over repository code (see the note below)                                         |
+| `npm run typecheck`                                       | exit 0 across all nine workspaces and the e2e project                                    |
+| `npm run test`                                            | exit 0 - 19 files, **394 tests** passed                                                  |
+| `npm run test:integration`                                | exit 0 - 17 files, **329 tests** passed (328 + the new one)                              |
+| `npm run test:e2e`                                        | **164 tests**, see the note below                                                        |
+| `npm ci` from the lockfile                                | exit 0 in 49 s, `found 0 vulnerabilities`; 394 unit tests then pass on the fresh install |
+| `npm run build`                                           | exit 0 - all nine workspaces                                                             |
+| `npm run seed`                                            | exit 0 - `3 widgets seeded, 6 prior records cleared`                                     |
+| `npm run scan:secrets`                                    | `secret scan: clean`                                                                     |
+| `npm run test:security-tools`                             | `pass 2, fail 0`                                                                         |
+| `node scripts/audit-private-information.mjs`              | exit 0 - no credential candidates                                                        |
+| Acceptance probes 1-6, each as `capstone.yaml` lists them | all six pass individually                                                                |
+
+**The browser suite, recorded exactly as it happened.** Before the invitation fix it ran twice in one
+pass: **164/164 passed in 10.7 minutes**, with the two `MongoServerError` log lines that led to the
+defect above. After the fix, two attempts at a single full run were killed by the operating system for
+memory - the machine had 1.9 GB free of 16 GB, with the operator's browser and editor open - so it was
+run in four batches instead: 34, 33, 50, and 47 tests, **164 in total**. 163 passed in the batches.
+The one failure was `analytics-journey.spec.ts` "a reconnecting stream resumes on this workspace
+only", which deliberately waits out a reconnect backoff of up to 30 seconds inside a 120-second
+budget; it passed on an isolated re-run (21.6 s) and in both full runs earlier the same day. It is
+recorded as a load-sensitive failure under memory pressure rather than as a product fault, because the
+change under test touches invitations and not SSE - but it is recorded, not dropped.
+
+The batch containing `workspace-accessibility.spec.ts` and `workspace-journey.spec.ts` - the two specs
+whose runs produced the 500 - completed with **no `request.unhandled_error` line at all**, which is the
+browser-level confirmation that the invitation fix holds.
+
+`npm run lint` exits 1 in this particular checkout because of
+`logs/privacy-history-rewrite.mjs`, an untracked, gitignored local helper belonging to the operator's
+machine. It is not repository code, it was not modified, and CI - which has no such file - lints
+clean. Running `eslint . --ignore-pattern "logs/**"` exits 0 here.
+
+### Final role, tenant, retention, free-tier, and failure-mode review
+
+Traced with the TypeScript language server rather than by keyword search.
+
+- **Roles.** `requireCapability` resolves to 54 references across the eight workspace-scoped routers.
+  Each router mounts `requireAuth()` first, then `withWorkspace` and a named capability per route.
+  The routers with no capability guard are the ones that must not have one: `auth`, `demo`, `health`,
+  and `public-widget` are public by design, and `sessions` and `mfa` act on the caller's own account
+  behind `requireAuth()`. `rbac.test.ts` asserts the full §11 matrix in 27 cases.
+- **Tenancy.** `assertWorkspaceScope` is reached only through `WorkspaceScopedRepository.scopedFilter`,
+  which merges `workspaceId` **after** the caller's filter, so a caller-supplied `workspaceId` cannot
+  win; writes take the workspace from the scope rather than the document. 19 of the 21 repository
+  files carry that scoping; the exceptions are the barrel `index.ts` and the user repository, which is
+  not workspace-owned. SSE re-reads membership at connect time. Export emits a fixed column list from
+  already-scoped rows. Isolation is asserted per surface: CRUD and filters and spoofed scopes in
+  `tenant-isolation.integration.test.ts`, plus search, bulk actions, export, trash, widgets, delivery
+  replay, analytics, SSE, privacy, and the sandbox in their own suites.
+- **Retention.** The sweeps are BullMQ job schedulers plus a bounded startup catch-up, and both halves
+  are proven: by tests against a clock jump, and in production, where the live catch-up advanced
+  `retention.lastSweepAt` to `2026-09-18T22:07:04.934Z` after a real sleep.
+- **Free-tier limits.** Disclosed where a person actually looks, not only in internal docs: the
+  landing page states there is no SLA and that the instance may sleep and should hold synthetic data;
+  the policy pages repeat it; the sandbox says so in its own header and meta description; and the
+  operator sees the Brevo allowance as a meter in the delivery dashboard and in
+  `/api/v1/diagnostics`.
+- **Failure modes.** `delivery.integration.test.ts` GATE 1 forces a webhook 500, a timeout, a
+  permanent 4xx, a blocked SSRF destination, an email-provider failure, and an unreachable Redis at
+  enqueue time; the lead stays stored every time. Render sleep was proven live in Stage 14. The one
+  genuine defect this review found is the invitation race above, now fixed and tested.
+
+### Repository hygiene
+
+- `git ls-files` matches nothing under `node_modules`, any `dist/`, `.env`, `*.lcpbak`, or `*.png`.
+- `npm run scan:secrets` is clean, and `scripts/audit-private-information.mjs` finds no credential
+  candidates across 1,259 current files and 861 historical blobs.
+- Recent commit messages and diffs were reviewed for credential fragments. The Stage 14 evidence
+  quotes log lines, delivery ids, and byte counts only; connection strings, passphrases, API keys, and
+  recipient addresses appear nowhere. One item is worth an operator's attention rather than a code
+  change: screenshots taken during Stage 14 debugging were saved into the working directory and are
+  not covered by `.gitignore`. They are untracked and were never committed, and they should be deleted
+  or moved rather than left where `git add .` could catch them.

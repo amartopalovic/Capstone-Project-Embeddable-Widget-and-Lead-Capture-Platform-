@@ -228,12 +228,21 @@ export class InvitationService {
 
     // Consume the token FIRST, filtered on its still being pending, so two
     // concurrent redemptions cannot both create a membership.
-    const consumed = await invitations.updateById(scope, invitation._id, {
-      status: 'accepted',
-      acceptedAt: now,
-      updatedAt: now,
-    });
-    if (!consumed) return { kind: 'invalid_token' };
+    const consumed = await invitations.consumePending(scope, invitation._id, now);
+    if (!consumed) {
+      /**
+       * Somebody else consumed it between the read above and here - in
+       * practice the same person, because a double-submitted link arrives as
+       * two requests. If the membership now exists, the caller is a member and
+       * should be told so rather than being handed "invalid, expired, or
+       * already used" for an invitation that worked (Stage 15 correction).
+       */
+      const joinedMeanwhile = await memberships.findByUser(scope, recipient._id);
+      if (joinedMeanwhile !== null) {
+        return { kind: 'already_a_member', workspaceId: invitation.workspaceId };
+      }
+      return { kind: 'invalid_token' };
+    }
 
     const role = invitation.role === 'owner' ? 'member' : invitation.role;
     await memberships.insert(scope, {
@@ -277,11 +286,7 @@ export class InvitationService {
       if ((await memberships.findByUser(scope, user._id)) !== null) continue;
       if ((await memberships.count(scope)) >= WORKSPACE_LIMITS.users) continue;
 
-      const consumed = await invitations.updateById(scope, invitation._id, {
-        status: 'accepted',
-        acceptedAt: now,
-        updatedAt: now,
-      });
+      const consumed = await invitations.consumePending(scope, invitation._id, now);
       if (!consumed) continue;
 
       const role = invitation.role === 'owner' ? 'member' : invitation.role;

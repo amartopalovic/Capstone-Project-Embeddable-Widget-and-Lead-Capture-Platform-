@@ -2,7 +2,7 @@
 # capstone.yaml - machine-readable evaluation manifest
 # =============================================================================
 #
-# STATUS: Stage 14 complete. The application is deployed and the deployed gates are recorded.
+# STATUS: Stage 15 complete. Deployed, evidenced, and re-verified end to end on 2026-09-19.
 # All six acceptance probes pass locally and each names the command that runs it. Install, run,
 # seed, migrate, lint, typecheck, build, unit, integration, browser E2E, and the secret scan are
 # REAL and verified. Smoke, cross-origin, auth, queue, encrypted restore, and the cold-start and
@@ -15,13 +15,9 @@
 # machine-readable manifest that understates what works is the same defect as one that overstates
 # it - both mean nobody can trust it without checking the code.
 #
-# A `TBD` value means the value does not exist - it is NOT a command that will
-# silently fail, and it must not be executed or reported as passing.
-#
-# Each field carries a `filled_in_by` note naming the stage that will replace
-# the placeholder with a real, verified value. The final pass happens in
-# Stage 15 (evaluation evidence and portfolio release), when a clean-machine
-# evaluator must be able to run every command here successfully.
+# No `TBD` remains in this file. Every command below was executed in Stage 15 on a clean install,
+# and every URL was opened. A clean-machine evaluator can run the whole list in order; README section
+# 5.0 gives it as one copy-pasteable sequence.
 # =============================================================================
 
 schema_version: 1
@@ -35,7 +31,7 @@ project:
   authoritative_reference: Embeddable_Widget_Lead_Capture_Blueprint.md
   license: MIT
   repository: https://github.com/amartopalovic/Capstone-Project-Embeddable-Widget-and-Lead-Capture-Platform-
-  stage_completed: 14
+  stage_completed: 15
   stages_total: 16
 
 # -----------------------------------------------------------------------------
@@ -60,7 +56,7 @@ commands:
   test:
     command: npm run test
     description: >-
-      Unit tests, no infrastructure required (385 tests as of Stage 13),
+      Unit tests, no infrastructure required (394 tests as of Stage 15),
       including the complete section 11 authorization matrix and the Content
       Security Policy property assertions. Integration and browser E2E are
       separate commands.
@@ -71,13 +67,13 @@ commands:
     description: >-
       Tenancy, auth, workspace/RBAC, widgets, submissions, and the contact
       inbox, delivery, analytics, consent, retention, and the OpenAPI contract
-      against real MongoDB, Redis, and Mailpit (328 tests as of Stage 13).
+      against real MongoDB, Redis, and Mailpit (329 tests as of Stage 15).
       Needs `docker compose up -d --wait mongo redis mailpit`.
   test_e2e:
     command: npm run test:e2e
     description: >-
       Browser journeys plus axe accessibility checks against WCAG 2.2 AA,
-      driven through the real UI (164 tests as of Stage 14 preparation). Playwright starts
+      driven through the real UI (164 tests as of Stage 15). Playwright starts
       the API, the dashboard, and the separate-origin demo itself; the same
       Docker services must be up.
   lint:
@@ -117,8 +113,8 @@ commands:
       PRODUCTION_URL and DEMO_URL.
 
 # -----------------------------------------------------------------------------
-# Base URLs. Local values are the planned Stage 1 topology; production values
-# do not exist until deployment in Stage 14.
+# Base URLs. Local values are the Stage 1 topology, unchanged since; production
+# values are live and were verified in Stages 14 and 15.
 # -----------------------------------------------------------------------------
 base_urls:
   local:

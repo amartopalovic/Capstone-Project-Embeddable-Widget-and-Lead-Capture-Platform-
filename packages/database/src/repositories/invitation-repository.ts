@@ -1,4 +1,4 @@
-import type { Db, WithId } from 'mongodb';
+import type { Db, Filter, ObjectId, WithId } from 'mongodb';
 import { COLLECTIONS } from '../collections.js';
 import type { InvitationRecord } from '../records/index.js';
 import { WorkspaceScopedRepository } from './base-repository.js';
@@ -29,6 +29,28 @@ export class InvitationRepository extends WorkspaceScopedRepository<InvitationRe
       .collection<InvitationRecord>(this.collectionName)
       .find({ normalizedEmail, status: 'pending' })
       .toArray();
+  }
+
+  /**
+   * Consume a PENDING invitation, exactly once.
+   *
+   * The status is part of the filter rather than only part of the update, so
+   * two concurrent redemptions of the same link cannot both win: MongoDB
+   * applies the update to one document at a time, and the loser matches
+   * nothing because the status is no longer `pending`. `updateById` cannot do
+   * this - it matches on `_id` and workspace alone, so both callers would be
+   * told they consumed the invitation and both would go on to insert a
+   * membership, leaving the unique index to reject the second one with a
+   * driver error the caller cannot act on (Stage 15 correction).
+   *
+   * Returns true only for the caller that actually moved it out of `pending`.
+   */
+  async consumePending(scope: WorkspaceScope, id: ObjectId, acceptedAt: Date): Promise<boolean> {
+    const result = await this.collection.updateOne(
+      this.scopedFilter(scope, { _id: id, status: 'pending' } as Filter<InvitationRecord>),
+      { $set: { status: 'accepted', acceptedAt, updatedAt: acceptedAt } as never },
+    );
+    return result.modifiedCount > 0;
   }
 
   /**

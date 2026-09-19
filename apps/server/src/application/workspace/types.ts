@@ -72,6 +72,8 @@ export interface InvitationRepositoryPort {
     id: ObjectId,
     set: Partial<Omit<InvitationRecord, '_id' | 'workspaceId'>>,
   ): Promise<boolean>;
+  /** Move a still-pending invitation to `accepted`; true only for the winner. */
+  consumePending(scope: WorkspaceScope, id: ObjectId, acceptedAt: Date): Promise<boolean>;
 }
 
 export interface WorkspaceAuditPort {

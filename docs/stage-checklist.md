@@ -3,7 +3,7 @@
 The project is implemented in 16 bounded stages (blueprint §19). Exactly one stage is requested per
 implementation prompt, and work stops when that stage's exit gate is green.
 
-**Progress: 15 of 16 stages complete.** (Stages 0-14; Stage 15 remains.)
+**Progress: 16 of 16 stages complete.** (Stages 0-15, the full plan.)
 
 ## Stage execution rules (blueprint §19)
 
@@ -318,10 +318,22 @@ test results, remaining limitations, and confirmation of the exit gate.
     cause unestablished; and the dashboard CSP blocking browser-side Sentry ingest. The last two
     remain open for a decision and are described in `EVIDENCE.md`.
 
-- [ ] **Stage 15 — Evaluation evidence and portfolio release**
+- [x] **Stage 15 — Evaluation evidence and portfolio release**
   - **Goal:** Finish the submission pack and recruiter-facing story.
   - **Exit gate:** A clean-machine evaluator can start the system with the documented command, seed
     it, run tests, execute probes, and verify each claim in minutes.
+  - _Completed 2026-09-19._ The clean-machine sequence in README §5.0 was executed command by
+    command — `npm ci` (49 s, 0 vulnerabilities), Compose, `npm run seed`, format, lint, typecheck,
+    394 unit, 329 integration, 164 browser and accessibility tests, `build`, `scan:secrets`, and the
+    six acceptance probes run individually. `EVIDENCE.md` Part E now re-verifies all twelve
+    Definition-of-Done conditions with a named proof each, rather than the stale Stage-4-era table
+    of `NOT YET IMPLEMENTED` rows it had carried since; twelve Part D rows and two Part B entries
+    were corrected the same way.
+  - **One defect found and fixed:** `POST /api/v1/invitations/accept` returned 500 when the same
+    link was redeemed twice at once, because the invitation consume matched on `_id` alone despite a
+    comment claiming it filtered on the pending status. No data was corrupted — the unique index
+    held — but the caller saw a server error for an invitation that had worked. Fixed with a
+    conditional consume plus a regression test proven to fail without it.
 
 ---
 

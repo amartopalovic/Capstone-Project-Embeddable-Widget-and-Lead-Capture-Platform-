@@ -387,6 +387,46 @@ describe('invitations (blueprint 4.1)', () => {
     expect(replay.status).toBe(400);
   }, 180_000);
 
+  /**
+   * Stage 15 correction. The same link submitted twice AT ONCE - a double
+   * click, a retried request, or React's development double-effect - used to
+   * let both requests past the pending check, so both inserted a membership
+   * and the unique index rejected the second one as an unhandled driver error:
+   * a 500 for a person whose invitation had in fact worked. The consume is now
+   * filtered on the invitation still being pending, which is what the code
+   * always claimed to do.
+   */
+  it('never fails with a server error when one link is redeemed twice at once', async () => {
+    const owner = await verifiedUser('raceowner');
+    const invitee = await verifiedUser('raceinvitee');
+    await onboard(owner, 'Race');
+
+    await owner.api.post(
+      '/api/v1/invitations',
+      { email: invitee.email, role: 'member' },
+      await owner.api.csrfHeaders(),
+    );
+    const message = await waitForEmail(invitee.email, (m) => m.Subject.includes('Join'));
+    const token = extractToken(await mailpitBody(message.ID));
+
+    const headers = await invitee.api.csrfHeaders();
+    const [first, second] = await Promise.all([
+      invitee.api.post('/api/v1/invitations/accept', { token }, headers),
+      invitee.api.post('/api/v1/invitations/accept', { token }, headers),
+    ]);
+
+    // Neither request may be a server error, and one of them must have joined.
+    expect(first.status).not.toBe(500);
+    expect(second.status).not.toBe(500);
+    expect([first.status, second.status]).toContain(200);
+
+    // And the race must not have produced two memberships for one person.
+    const members = await owner.api.get('/api/v1/members');
+    const list = (members.body as { members: MemberSummary[] }).members;
+    expect(list.filter((m) => m.email === invitee.email)).toHaveLength(1);
+    expect(list).toHaveLength(2);
+  }, 180_000);
+
   it('refuses an invitation token addressed to someone else', async () => {
     const owner = await verifiedUser('wrongowner');
     const intended = await verifiedUser('intended');

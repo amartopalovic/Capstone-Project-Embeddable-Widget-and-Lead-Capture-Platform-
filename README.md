@@ -1,26 +1,25 @@
 # Embeddable Widget & Lead-Capture Platform
 
-> **Project status: Stage 14 of 16 complete, Stage 15 next. Deployed and live — see §6.**
-> Authentication and the multi-workspace user model both work end to end through a real
-> accessible interface: onboarding, the workspace switcher, the full role matrix, invitations,
-> ownership transfer, and workspace delete/recover. Proven by 125 unit, 110 integration, and 37
-> browser end-to-end tests, the last of which include `axe` WCAG 2.2 AA scans on every page.
-> Widgets now work end to end too: the three widget types, a settings-form builder with a live
-> preview, field schemas, targeting rules, draft/publish revisions, and a copyable embed snippet.
-> Published widgets render on a genuinely separate origin, visitors submit through a hardened path,
-> the leads land in a role-aware inbox, side effects actually happen — notification and confirmation
-> email, signed webhooks, retry with dead-letter and replay — and the widget now records funnel
-> events that aggregate into durable daily counters — now read back by eight analytics dashboards
-> that update live and never report a rate they cannot compute. Consent, unsubscribe, and the
-> data-rights promises are real too: double opt-in, workspace-wide suppression that outlives the
-> contact, email-verified export and deletion, and every 30-day recovery window actually firing
-> on a schedule. There is now a public face too: a landing page, five documentation guides, the
-> four policy pages, and an OpenAPI contract rendered through Swagger UI that is generated from
-> the running server and tested against it. And a separate anonymous sandbox on its own origin,
-> where anyone can try all three widget types with no account: it stores what you submit, sends
-> nothing anywhere, and wipes itself hourly. **All six acceptance probes pass locally.** Proven
-> by 347 unit, 312 integration, and 158 browser end-to-end tests. Every command, link, and proof
-> marked _planned_ or _TBD_ below does not work today.
+> **Project status: complete and deployed.** All 16 stages (0-15) are finished, including the
+> portal-submission-ready release. **Live:** [the platform](https://lead-capture-platform.onrender.com)
+> and [the separate-origin sandbox](https://lead-capture-demo.onrender.com), §6.
+>
+> A customer registers, verifies by real email, creates a workspace, builds one of three widget
+> types, publishes it for an allowed domain, and pastes one script tag into a site they own. A
+> visitor on that separate origin submits a lead through a hardened public path — Origin allowlist,
+> platform-owned schema, payload caps, rate limits, honeypot and timing heuristics, 24-hour
+> idempotency, geo fallback — and it lands in a role-aware inbox live, with notification email and
+> signed webhooks retried and dead-lettered without ever endangering the stored lead. Around that:
+> eight analytics dashboards, double opt-in and suppression, email-verified export and deletion,
+> 30-day recovery windows that actually fire on a schedule, a public site with five guides and an
+> OpenAPI contract generated from the running server, and an anonymous sandbox that wipes itself
+> hourly.
+>
+> **All six mandatory acceptance probes pass**, as do 394 unit, 328 integration, and 164 browser
+> end-to-end tests including `axe` WCAG 2.2 AA scans — in CI, on every push. Every command and link
+> in this README has been run or opened; nothing below is aspirational. Every claim maps to a
+> re-runnable proof in [`EVIDENCE.md`](./EVIDENCE.md), and the mistakes made along the way are in
+> [`BUILDLOG.md`](./BUILDLOG.md) rather than edited out.
 
 ---
 
@@ -210,6 +209,43 @@ Everything below is **verified working**. You need only [Docker](https://docs.do
 and [Node.js 22+](https://nodejs.org/). You do **not** need Brevo, MongoDB Atlas, Upstash, Render, or
 geo-provider credentials — there is nothing to sign up for.
 
+### 5.0 Clean-machine evaluation, start to finish
+
+Every command below was run on a clean checkout while writing this section, and the recorded output
+is in `EVIDENCE.md` under "Stage 15". Copy-paste them in order. Total time is roughly 35 minutes,
+almost all of it the browser suite.
+
+```bash
+git clone https://github.com/amartopalovic/Capstone-Project-Embeddable-Widget-and-Lead-Capture-Platform-.git
+cd Capstone-Project-Embeddable-Widget-and-Lead-Capture-Platform-
+npm ci                                            # ~1 min
+docker compose up -d --wait mongo redis mailpit   # ~30 s
+npm run seed                                      # migrations + the synthetic sandbox only
+npm run format:check && npm run lint && npm run typecheck
+npm run test                                      # 394 unit tests, no infrastructure
+npm run test:integration                          # 328 tests against real MongoDB/Redis/Mailpit
+npm run test:e2e                                  # 164 browser + accessibility tests
+npm run build
+npm run scan:secrets
+```
+
+The six mandatory acceptance probes, each runnable on its own (`capstone.yaml` lists the same
+commands):
+
+```bash
+npm run build:packages
+npx vitest run --project integration-server submission.integration -t "PROBE 1"   # second-origin submission
+npx vitest run --project integration-server submission.integration -t "PROBE 2"   # malformed and oversized input
+npx vitest run --project integration-server submission.integration -t "PROBE 3"   # burst traffic
+npx vitest run --project integration-server submission.integration -t "PROBE 4"   # geo fallback
+npx vitest run --project integration-server submission.integration -t "PROBE 5"   # side-effect failure
+npx vitest run --project integration-server submission.integration -t "PROBE 6"   # honeypot
+```
+
+To use the product rather than test it, run `docker compose up --build` and open
+<http://localhost:5173>. Two caveats worth knowing before you start: port 27017 must be free, so stop
+any local MongoDB service first, and on Windows the checkout path must not contain `&` (§5.4).
+
 ### 5.1 Start everything with one command
 
 ```bash
@@ -255,7 +291,7 @@ Run these on the host after `npm ci`:
 | `npm run lint`             | ESLint across every workspace                                                                                                                                                                   | Real   |
 | `npm run format:check`     | Prettier formatting check                                                                                                                                                                       | Real   |
 | `npm run typecheck`        | Strict TypeScript across all nine workspaces                                                                                                                                                    | Real   |
-| `npm run test`             | Unit tests, no infrastructure needed (385 tests, incl. the role matrix, widget rules, and the CSP)                                                                                              | Real   |
+| `npm run test`             | Unit tests, no infrastructure needed (394 tests, incl. the role matrix, widget rules, and the CSP)                                                                                              | Real   |
 | `npm run test:integration` | Tenancy, auth, RBAC, widgets, submissions, inbox, delivery, analytics, privacy, the API contract, security headers, diagnostics, and the sandbox against real MongoDB/Redis/Mailpit (328 tests) | Real   |
 | `npm run test:e2e`         | Browser journeys, axe accessibility checks, and Content Security Policy verification, driven through the real UI                                                                                | Real   |
 | `npm run scan:secrets`     | Scan every tracked file for credential shapes; the same check CI runs                                                                                                                           | Real   |
@@ -438,6 +474,18 @@ a reader trying to decide what to trust.
 - **The deployed service became unreachable once**, for roughly six minutes on 2026-09-18, and
   recovered only after a manual redeploy. The root cause was not established. There is no automatic
   recovery for this on a free instance.
+- **Atlas Network Access is open to `0.0.0.0/0`.** The deployment runbook asks for Render's
+  Frankfurt outbound CIDR ranges instead. This is a standing deviation, not an accepted setting.
+- **Only one Render outbound address is known to be authorized in Brevo.** Render free services do
+  not have a single fixed outbound IP, so a notification sent from a different address would be
+  refused — and it would look like a delivery fault rather than an email-configuration one.
+- **`npm run verify:deployment` accepts either `*` or the echoed demo origin** for the sandbox
+  config's CORS header, while `scripts/probe-public-security.mjs` asserts exactly `*`, which is what
+  the server sends. The looser assertion is deliberate but broader than the implementation contract.
+
+These six items, and the evidence behind each, are recorded in `EVIDENCE.md` under "Stage 14
+completion record". None is a gate requirement; all are open on purpose rather than closed quietly.
+
 - Render's Free Web Service sleeps after 15 minutes; a measured cold wake took 33.4 seconds. Release
   migration/seed runs once in each deploy build because Render's dedicated pre-deploy command is a
   paid-service feature; both operations are repeatable and the seed touches only the synthetic
@@ -476,15 +524,15 @@ its nineteen requirements names the code that enforces it and the named test tha
 | Path                                                                                           | Purpose                                                       | Status                                           |
 | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------ |
 | [`Embeddable_Widget_Lead_Capture_Blueprint.md`](./Embeddable_Widget_Lead_Capture_Blueprint.md) | Authoritative architecture and 16-stage plan                  | Complete                                         |
-| [`README.md`](./README.md)                                                                     | This file — orientation for a stranger                        | Stage 1                                          |
+| [`README.md`](./README.md)                                                                     | This file — orientation for a stranger                        | Final, Stage 15                                  |
 | [`docs/architecture-summary.md`](./docs/architecture-summary.md)                               | One-page evaluator summary                                    | Current                                          |
 | [`docs/repository-layout.md`](./docs/repository-layout.md)                                     | Workspace ownership map                                       | Current                                          |
-| [`docs/stage-checklist.md`](./docs/stage-checklist.md)                                         | All 16 stages, goals, and exit gates                          | Stages 0–13 checked                              |
+| [`docs/stage-checklist.md`](./docs/stage-checklist.md)                                         | All 16 stages, goals, and exit gates                          | Stages 0–15 checked                              |
 | [`docs/secret-rotation.md`](./docs/secret-rotation.md)                                         | How to rotate every key without destroying data               | Stage 13                                         |
-| [`docs/deployment-recovery.md`](./docs/deployment-recovery.md)                                 | Free-tier deployment, live gates, encrypted restore rehearsal | Stage 14 prepared; live results pending          |
+| [`docs/deployment-recovery.md`](./docs/deployment-recovery.md)                                 | Free-tier deployment, live gates, encrypted restore rehearsal | Deployed 2026-09-18; all six gates recorded      |
 | [`EVIDENCE.md`](./EVIDENCE.md)                                                                 | One proof per requirement                                     | All six probes passing; §17 audited item by item |
-| [`BUILDLOG.md`](./BUILDLOG.md)                                                                 | Where AI helped, failed, and was corrected                    | Stages 0–13 recorded                             |
-| [`capstone.yaml`](./capstone.yaml)                                                             | Machine-readable run/seed/test/probe manifest                 | Real commands; production URLs `TBD`             |
+| [`BUILDLOG.md`](./BUILDLOG.md)                                                                 | Where AI helped, failed, and was corrected                    | Stages 0–15 recorded                             |
+| [`capstone.yaml`](./capstone.yaml)                                                             | Machine-readable run/seed/test/probe manifest                 | Real commands and live production URLs           |
 | [`scripts/scan-secrets.mjs`](./scripts/scan-secrets.mjs)                                       | Credential scan, run locally and in CI                        | Stage 13                                         |
 | [`render.yaml`](./render.yaml)                                                                 | Render Web Service and separate static demo Blueprint         | Stage 14                                         |
 | `scripts/backup-*.mjs`                                                                         | Authenticated encrypted export and guarded restore rehearsal  | Stage 14                                         |

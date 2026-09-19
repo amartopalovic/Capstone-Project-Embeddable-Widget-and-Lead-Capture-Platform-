@@ -156,8 +156,8 @@ the capstone's core backend requirements.
 
 ## 7. What exists today
 
-**Stage 13 of 16 complete.** The product is feature-complete against the blueprint and hardened;
-what remains is deployment (Stage 14) and the portfolio evidence pack (Stage 15).
+**Stages 0-15 of 16 complete.** The product is feature-complete against the blueprint, hardened,
+deployed, evidenced, and ready for portal submission.
 
 - Nine npm workspaces. Contracts, database, UI, and the widget runtime are real packages; the three
   applications are real applications.
@@ -185,5 +185,7 @@ what remains is deployment (Stage 14) and the portfolio evidence pack (Stage 15)
 
 All six mandatory acceptance probes pass, and the blueprint section 17 security checklist is audited
 item by item in [`../EVIDENCE.md`](../EVIDENCE.md) Part C - each of its nineteen items naming the
-code that enforces it and the test that proves it. Nothing is deployed yet; every production URL in
-[`../capstone.yaml`](../capstone.yaml) is still `TBD`.
+code that enforces it and the test that proves it. The system is deployed and live: the platform at
+https://lead-capture-platform.onrender.com and the separate-origin sandbox at
+https://lead-capture-demo.onrender.com, with all six deployed gates recorded in
+[`../EVIDENCE.md`](../EVIDENCE.md).
